@@ -1,6 +1,7 @@
-# Project Tractor
+# Project Tracto
 
-## Warn: lib fork required for compilation.
+> [!WARNING]
+> lib fork required for compilation.
 
 #### Prep
 
