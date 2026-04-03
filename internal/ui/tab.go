@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"io"
 	"net/http"
+	"regexp"
 	"strings"
 	"time"
 
@@ -95,68 +96,118 @@ func NewRequestTab(title string) *RequestTab {
 	return t
 }
 
-func (t *RequestTab) addHeader(k, v string) {
-	h := &HeaderItem{IsGenerated: false}
-	h.Key.SetText(k)
-	h.Value.SetText(v)
-	t.Headers = append(t.Headers, h)
+func processTemplate(input string, env map[string]string) string {
+	if env == nil {
+		return input
+	}
+	re := regexp.MustCompile(`\{\{([^}]+)\}\}`)
+	return re.ReplaceAllStringFunc(input, func(m string) string {
+		k := strings.TrimSpace(m[2 : len(m)-2])
+		if v, ok := env[k]; ok {
+			return v
+		}
+		return m
+	})
 }
 
-func (t *RequestTab) addSystemHeader(k, v string) {
-	h := &HeaderItem{IsGenerated: true}
-	h.Key.SetText(k)
-	h.Value.SetText(v)
-	t.Headers = append(t.Headers, h)
-}
+func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint string, drawBorder bool, env map[string]string) layout.Dimensions {
+	p := gtx.Dp(unit.Dp(4))
+	availWidth := gtx.Constraints.Max.X
+	if availWidth <= 0 {
+		return layout.Dimensions{}
+	}
 
-func (t *RequestTab) updateSystemHeaders() {
-	hasManualCT := false
-	for _, h := range t.Headers {
-		if !h.IsGenerated && strings.EqualFold(h.Key.Text(), "Content-Type") {
-			hasManualCT = true
-			break
+	edGtx := gtx
+	edGtx.Constraints.Min.X = availWidth - (p * 2)
+	if edGtx.Constraints.Min.X < 0 {
+		edGtx.Constraints.Min.X = 0
+	}
+	edGtx.Constraints.Max.X = edGtx.Constraints.Min.X
+
+	edGtx.Constraints.Min.Y = gtx.Constraints.Min.Y - (p * 2)
+	if edGtx.Constraints.Min.Y < 0 {
+		edGtx.Constraints.Min.Y = 0
+	}
+
+	macro := op.Record(gtx.Ops)
+	op.Offset(image.Point{X: p, Y: p}).Add(gtx.Ops)
+
+	dummyMacro := op.Record(gtx.Ops)
+	dummyDims := material.Label(th, unit.Sp(12), "A").Layout(gtx)
+	_ = dummyMacro.Stop()
+	lineHeight := dummyDims.Size.Y
+
+	scrollX := ed.GetScrollX()
+	text := ed.Text()
+	re := regexp.MustCompile(`\{\{([^}]+)\}\}`)
+	matches := re.FindAllStringIndex(text, -1)
+
+	cl := clip.Rect{Max: image.Pt(edGtx.Constraints.Max.X, lineHeight)}.Push(gtx.Ops)
+	for _, match := range matches {
+		startIdx := match[0]
+		endIdx := match[1]
+		varName := strings.TrimSpace(text[startIdx+2 : endIdx-2])
+
+		prefix := text[:startIdx]
+		varText := text[startIdx:endIdx]
+
+		pWidth := measureTextWidth(gtx, th, prefix)
+		vWidth := measureTextWidth(gtx, th, varText)
+
+		bgColor := color.NRGBA{R: 200, G: 50, B: 50, A: 255}
+		if _, ok := env[varName]; ok {
+			bgColor = color.NRGBA{R: 50, G: 100, B: 200, A: 255}
+		}
+
+		x1 := pWidth - scrollX
+		x2 := x1 + vWidth
+
+		if x2 > 0 && x1 < edGtx.Constraints.Max.X {
+			rect := image.Rect(x1, 0, x2, lineHeight)
+			paint.FillShape(gtx.Ops, bgColor, clip.UniformRRect(rect, 2).Op(gtx.Ops))
 		}
 	}
+	cl.Pop()
 
-	autoCT := "text/plain"
-	body := strings.TrimSpace(t.ReqEditor.Text())
-	if body != "" && (strings.HasPrefix(body, "{") || strings.HasPrefix(body, "[")) && json.Valid([]byte(body)) {
-		autoCT = "application/json"
+	e := material.Editor(th, ed, hint)
+	e.TextSize = unit.Sp(12)
+	dims := e.Layout(edGtx)
+
+	call := macro.Stop()
+
+	finalWidth := availWidth
+	finalHeight := dims.Size.Y + (p * 2)
+	if finalHeight < gtx.Constraints.Min.Y {
+		finalHeight = gtx.Constraints.Min.Y
+	}
+	if finalHeight > gtx.Constraints.Max.Y {
+		finalHeight = gtx.Constraints.Max.Y
 	}
 
-	sysHeaders := map[string]string{
-		"User-Agent": "tracto/1.0",
-	}
-	if !hasManualCT {
-		sysHeaders["Content-Type"] = autoCT
-	}
+	finalSize := image.Point{X: finalWidth, Y: finalHeight}
 
-	var newHeaders []*HeaderItem
-	for _, h := range t.Headers {
-		if !h.IsGenerated {
-			newHeaders = append(newHeaders, h)
-		} else {
-			if _, ok := sysHeaders[h.Key.Text()]; ok {
-				newHeaders = append(newHeaders, h)
-			}
+	rect := clip.UniformRRect(image.Rectangle{Max: finalSize}, 2)
+	paint.FillShape(gtx.Ops, color.NRGBA{R: 33, G: 33, B: 33, A: 255}, rect.Op(gtx.Ops))
+
+	if drawBorder {
+		border := widget.Border{
+			Color:        color.NRGBA{R: 169, G: 169, B: 169, A: 255},
+			CornerRadius: unit.Dp(2),
+			Width:        unit.Dp(1),
 		}
+		bCtx := gtx
+		bCtx.Constraints.Min = finalSize
+		bCtx.Constraints.Max = finalSize
+		border.Layout(bCtx, func(layout.Context) layout.Dimensions {
+			return layout.Dimensions{Size: finalSize}
+		})
 	}
-	t.Headers = newHeaders
 
-	for k, v := range sysHeaders {
-		found := false
-		for _, h := range t.Headers {
-			if h.IsGenerated && h.Key.Text() == k {
-				if h.Value.Text() != v {
-					h.Value.SetText(v)
-				}
-				found = true
-				break
-			}
-		}
-		if !found {
-			t.addSystemHeader(k, v)
-		}
+	call.Add(gtx.Ops)
+
+	return layout.Dimensions{
+		Size:     finalSize,
+		Baseline: dims.Baseline + p,
 	}
 }
 
@@ -240,7 +291,72 @@ func SquareBtn(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, th *m
 	})
 }
 
-func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Window) layout.Dimensions {
+func (t *RequestTab) addHeader(k, v string) {
+	h := &HeaderItem{IsGenerated: false}
+	h.Key.SetText(k)
+	h.Value.SetText(v)
+	t.Headers = append(t.Headers, h)
+}
+
+func (t *RequestTab) addSystemHeader(k, v string) {
+	h := &HeaderItem{IsGenerated: true}
+	h.Key.SetText(k)
+	h.Value.SetText(v)
+	t.Headers = append(t.Headers, h)
+}
+
+func (t *RequestTab) updateSystemHeaders() {
+	hasManualCT := false
+	for _, h := range t.Headers {
+		if !h.IsGenerated && strings.EqualFold(h.Key.Text(), "Content-Type") {
+			hasManualCT = true
+			break
+		}
+	}
+
+	autoCT := "text/plain"
+	body := strings.TrimSpace(t.ReqEditor.Text())
+	if body != "" && (strings.HasPrefix(body, "{") || strings.HasPrefix(body, "[")) && json.Valid([]byte(body)) {
+		autoCT = "application/json"
+	}
+
+	sysHeaders := map[string]string{
+		"User-Agent": "tracto/1.0",
+	}
+	if !hasManualCT {
+		sysHeaders["Content-Type"] = autoCT
+	}
+
+	var newHeaders []*HeaderItem
+	for _, h := range t.Headers {
+		if !h.IsGenerated {
+			newHeaders = append(newHeaders, h)
+		} else {
+			if _, ok := sysHeaders[h.Key.Text()]; ok {
+				newHeaders = append(newHeaders, h)
+			}
+		}
+	}
+	t.Headers = newHeaders
+
+	for k, v := range sysHeaders {
+		found := false
+		for _, h := range t.Headers {
+			if h.IsGenerated && h.Key.Text() == k {
+				if h.Value.Text() != v {
+					h.Value.SetText(v)
+				}
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.addSystemHeader(k, v)
+		}
+	}
+}
+
+func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Window, activeEnv map[string]string) layout.Dimensions {
 	t.updateSystemHeaders()
 
 	select {
@@ -351,7 +467,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						return TextField(gtx, th, &t.URLInput, "https://api.example.com", true)
+						return TextFieldOverlay(gtx, th, &t.URLInput, "https://api.example.com", true, activeEnv)
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -685,9 +801,10 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 	)
 }
 
-func (t *RequestTab) executeRequest(win *app.Window) {
-	url := strings.ReplaceAll(t.URLInput.Text(), "\n", "")
-	url = strings.TrimSpace(url)
+func (t *RequestTab) executeRequest(win *app.Window, env map[string]string) {
+	urlRaw := strings.ReplaceAll(t.URLInput.Text(), "\n", "")
+	urlRaw = strings.TrimSpace(urlRaw)
+	url := processTemplate(urlRaw, env)
 
 	if url == "" {
 		return
@@ -696,7 +813,7 @@ func (t *RequestTab) executeRequest(win *app.Window) {
 		url = "http://" + url
 	}
 
-	reqBody := t.ReqEditor.Text()
+	reqBody := processTemplate(t.ReqEditor.Text(), env)
 	t.Status = "Sending..."
 	t.RespLines = []string{}
 
@@ -712,8 +829,9 @@ func (t *RequestTab) executeRequest(win *app.Window) {
 	for _, h := range t.Headers {
 		k := strings.ReplaceAll(h.Key.Text(), "\n", "")
 		k = strings.TrimSpace(k)
-		v := strings.ReplaceAll(h.Value.Text(), "\n", "")
-		v = strings.TrimSpace(v)
+		vRaw := strings.ReplaceAll(h.Value.Text(), "\n", "")
+		vRaw = strings.TrimSpace(vRaw)
+		v := processTemplate(vRaw, env)
 		if k != "" {
 			req.Header.Add(k, v)
 		}

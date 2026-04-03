@@ -23,8 +23,9 @@ type TabState struct {
 }
 
 type AppState struct {
-	Tabs      []TabState `json:"tabs"`
-	ActiveIdx int        `json:"active_idx"`
+	Tabs        []TabState `json:"tabs"`
+	ActiveIdx   int        `json:"active_idx"`
+	ActiveEnvID string     `json:"active_env_id"`
 }
 
 func getConfigPath() string {
@@ -45,6 +46,12 @@ func getCollectionsDir() string {
 	colDir := filepath.Join(getConfigPath(), "collections")
 	os.MkdirAll(colDir, 0755)
 	return colDir
+}
+
+func getEnvironmentsDir() string {
+	envDir := filepath.Join(getConfigPath(), "environments")
+	os.MkdirAll(envDir, 0755)
+	return envDir
 }
 
 func loadState() AppState {
@@ -96,4 +103,39 @@ func loadSavedCollections() []*ParsedCollection {
 		}
 	}
 	return collections
+}
+
+func saveEnvironmentRaw(data []byte) (string, error) {
+	bytes := make([]byte, 16)
+	rand.Read(bytes)
+	id := hex.EncodeToString(bytes)
+
+	path := filepath.Join(getEnvironmentsDir(), id+".json")
+	err := os.WriteFile(path, data, 0644)
+	return id, err
+}
+
+func loadSavedEnvironments() []*ParsedEnvironment {
+	dir := getEnvironmentsDir()
+	files, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+
+	var envs []*ParsedEnvironment
+	for _, f := range files {
+		if filepath.Ext(f.Name()) == ".json" {
+			path := filepath.Join(dir, f.Name())
+			file, err := os.Open(path)
+			if err == nil {
+				id := strings.TrimSuffix(f.Name(), ".json")
+				env, err := ParseEnvironment(file, id)
+				if err == nil && env != nil {
+					envs = append(envs, env)
+				}
+				file.Close()
+			}
+		}
+	}
+	return envs
 }
