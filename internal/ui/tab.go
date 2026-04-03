@@ -20,10 +20,12 @@ import (
 	"gioui.org/op"
 	"gioui.org/op/clip"
 	"gioui.org/op/paint"
+	"gioui.org/text"
 	"gioui.org/unit"
 	"gioui.org/widget"
 	"gioui.org/widget/material"
 	"golang.org/x/exp/shiny/materialdesign/icons"
+	"golang.org/x/image/math/fixed"
 )
 
 var methods = []string{"GET", "POST", "PUT", "DELETE", "PATCH"}
@@ -132,27 +134,46 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 	macro := op.Record(gtx.Ops)
 	op.Offset(image.Point{X: p, Y: p}).Add(gtx.Ops)
 
-	dummyMacro := op.Record(gtx.Ops)
-	dummyDims := material.Label(th, unit.Sp(12), "A").Layout(gtx)
-	_ = dummyMacro.Stop()
-	lineHeight := dummyDims.Size.Y
+	th.Shaper.LayoutString(text.Parameters{
+		PxPerEm:  fixed.I(gtx.Sp(unit.Sp(12))),
+		MaxWidth: gtx.Constraints.Max.X,
+		Locale:   gtx.Locale,
+	}, "A")
+
+	var lineHeight int
+	if g, ok := th.Shaper.NextGlyph(); ok {
+		lineHeight = (g.Ascent + g.Descent).Ceil()
+	}
+	if lineHeight == 0 {
+		lineHeight = gtx.Dp(unit.Dp(14))
+	}
 
 	scrollX := ed.GetScrollX()
-	text := ed.Text()
-	re := regexp.MustCompile(`\{\{([^}]+)\}\}`)
-	matches := re.FindAllStringIndex(text, -1)
-
+	textStr := ed.Text()
 	cl := clip.Rect{Max: image.Pt(edGtx.Constraints.Max.X, lineHeight)}.Push(gtx.Ops)
-	for _, match := range matches {
-		startIdx := match[0]
-		endIdx := match[1]
-		varName := strings.TrimSpace(text[startIdx+2 : endIdx-2])
 
-		prefix := text[:startIdx]
-		varText := text[startIdx:endIdx]
+	searchStr := textStr
+	offset := 0
+	for {
+		start := strings.Index(searchStr, "{{")
+		if start == -1 {
+			break
+		}
+		end := strings.Index(searchStr[start:], "}}")
+		if end == -1 {
+			break
+		}
+		end += start + 2
 
-		pWidth := measureTextWidth(gtx, th, prefix)
-		vWidth := measureTextWidth(gtx, th, varText)
+		varName := strings.TrimSpace(searchStr[start+2 : end-2])
+		absoluteStart := offset + start
+		absoluteEnd := offset + end
+
+		prefix := textStr[:absoluteStart]
+		varText := textStr[absoluteStart:absoluteEnd]
+
+		pWidth := measureTextWidth(gtx, th, unit.Sp(12), prefix)
+		vWidth := measureTextWidth(gtx, th, unit.Sp(12), varText)
 
 		bgColor := color.NRGBA{R: 200, G: 50, B: 50, A: 255}
 		if _, ok := env[varName]; ok {
@@ -166,13 +187,15 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 			rect := image.Rect(x1, 0, x2, lineHeight)
 			paint.FillShape(gtx.Ops, bgColor, clip.UniformRRect(rect, 2).Op(gtx.Ops))
 		}
+
+		searchStr = searchStr[end:]
+		offset += end
 	}
 	cl.Pop()
 
 	e := material.Editor(th, ed, hint)
 	e.TextSize = unit.Sp(12)
 	dims := e.Layout(edGtx)
-
 	call := macro.Stop()
 
 	finalWidth := availWidth
@@ -185,7 +208,6 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 	}
 
 	finalSize := image.Point{X: finalWidth, Y: finalHeight}
-
 	rect := clip.UniformRRect(image.Rectangle{Max: finalSize}, 2)
 	paint.FillShape(gtx.Ops, color.NRGBA{R: 33, G: 33, B: 33, A: 255}, rect.Op(gtx.Ops))
 
@@ -204,11 +226,7 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 	}
 
 	call.Add(gtx.Ops)
-
-	return layout.Dimensions{
-		Size:     finalSize,
-		Baseline: dims.Baseline + p,
-	}
+	return layout.Dimensions{Size: finalSize, Baseline: dims.Baseline + p}
 }
 
 func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint string, drawBorder bool) layout.Dimensions {
@@ -763,7 +781,10 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 															delta := e.Position.Y - t.ScrollDragY
 															t.ScrollDragY = e.Position.Y
 
-															contentDelta := delta / (viewH - thumbH) * maxScroll
+															var contentDelta float32
+															if viewH > thumbH {
+																contentDelta = delta / (viewH - thumbH) * maxScroll
+															}
 															scrollY += contentDelta
 															newScrollY := int(scrollY)
 															if newScrollY < 0 {

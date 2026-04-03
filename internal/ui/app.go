@@ -21,6 +21,7 @@ import (
 	"gioui.org/widget/material"
 	"gioui.org/x/explorer"
 	"golang.org/x/exp/shiny/materialdesign/icons"
+	"golang.org/x/image/math/fixed"
 )
 
 var iconClose *widget.Icon
@@ -54,41 +55,56 @@ type AppUI struct {
 	SidebarEnvDragY float32
 }
 
-func formatTabTitle(title string) string {
-	title = strings.ReplaceAll(title, "\n", " ")
-	words := strings.Fields(title)
-	if len(words) == 0 {
-		return "\n\u200B"
-	}
-	if len(words) == 1 {
-		return words[0] + "\n\u200B"
-	}
-	mid := (len(words) + 1) / 2
-	return strings.Join(words[:mid], " ") + "\n" + strings.Join(words[mid:], " ")
-}
+func measureTextWidth(gtx layout.Context, th *material.Theme, size unit.Sp, str string) int {
+	th.Shaper.LayoutString(text.Parameters{
+		PxPerEm:  fixed.I(gtx.Sp(size)),
+		MaxWidth: gtx.Constraints.Max.X,
+		Locale:   gtx.Locale,
+	}, str)
 
-func measureTextWidth(gtx layout.Context, th *material.Theme, text string) int {
-	macro := op.Record(gtx.Ops)
-	lbl := material.Label(th, unit.Sp(12), text)
-	c := gtx
-	c.Constraints.Min = image.Point{}
-	c.Constraints.Max.X = 1000000
-	dims := lbl.Layout(c)
-	_ = macro.Stop()
-	return dims.Size.X
+	var maxW fixed.Int26_6
+	for {
+		g, ok := th.Shaper.NextGlyph()
+		if !ok {
+			break
+		}
+		if right := g.X + g.Advance; right > maxW {
+			maxW = right
+		}
+	}
+	return maxW.Ceil()
 }
 
 func measureTabWidth(gtx layout.Context, th *material.Theme, title string) int {
-	formatted := formatTabTitle(title)
-	lines := strings.Split(formatted, "\n")
-	maxW := 0
-	for _, l := range lines {
-		w := measureTextWidth(gtx, th, l)
-		if w > maxW {
-			maxW = w
+	cleanTitle := strings.ReplaceAll(title, "\n", " ")
+	words := strings.Fields(cleanTitle)
+
+	var maxW int
+	if len(words) <= 1 {
+		if len(words) == 0 {
+			cleanTitle = "New request"
+		}
+		maxW = measureTextWidth(gtx, th, unit.Sp(12), cleanTitle)
+	} else {
+		mid := (len(words) + 1) / 2
+		line1 := strings.Join(words[:mid], " ")
+		line2 := strings.Join(words[mid:], " ")
+		w1 := measureTextWidth(gtx, th, unit.Sp(12), line1)
+		w2 := measureTextWidth(gtx, th, unit.Sp(12), line2)
+		if w1 > w2 {
+			maxW = w1
+		} else {
+			maxW = w2
 		}
 	}
-	return maxW + gtx.Dp(unit.Dp(8+4+28+2))
+
+	totalW := maxW + gtx.Dp(unit.Dp(48))
+	maxWidthLimit := gtx.Dp(unit.Dp(200))
+
+	if totalW > maxWidthLimit {
+		return maxWidthLimit
+	}
+	return totalW
 }
 
 func NewAppUI() *AppUI {
@@ -203,7 +219,7 @@ func (ui *AppUI) saveState() {
 	}
 	state.ActiveIdx = ui.ActiveIdx
 	state.ActiveEnvID = ui.ActiveEnvID
-	saveState(state)
+	go saveState(state)
 }
 
 func (ui *AppUI) openRequestInTab(req ParsedRequest) {
@@ -529,18 +545,10 @@ func (ui *AppUI) layout(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						macro := op.Record(gtx.Ops)
-						dummy := material.Label(ui.Theme, unit.Sp(12), "A\nA")
-						dummyGtx := gtx
-						dummyGtx.Constraints.Min = image.Point{}
-						twoLineHeight := dummy.Layout(dummyGtx).Size.Y
-						_ = macro.Stop()
-
-						tabHeight := twoLineHeight + gtx.Dp(unit.Dp(6))
+						tabHeight := gtx.Dp(unit.Dp(34))
 						closeBtnWidth := gtx.Dp(unit.Dp(28))
 						addBtnW := gtx.Dp(unit.Dp(36)) + gtx.Dp(unit.Dp(4))
-
-						maxWidth := gtx.Constraints.Max.X
+						maxWidth := gtx.Constraints.Max.X - gtx.Dp(unit.Dp(6))
 
 						type TabInfo struct {
 							Idx        int
@@ -551,9 +559,6 @@ func (ui *AppUI) layout(gtx layout.Context) layout.Dimensions {
 
 						for i, tab := range ui.Tabs {
 							natW := measureTabWidth(gtx, ui.Theme, tab.Title)
-							if natW > gtx.Dp(unit.Dp(200)) {
-								natW = gtx.Dp(unit.Dp(200))
-							}
 							tabs = append(tabs, TabInfo{Idx: i, NatWidth: natW})
 						}
 
@@ -629,6 +634,7 @@ func (ui *AppUI) layout(gtx layout.Context) layout.Dimensions {
 						return material.List(ui.Theme, &ui.TabsList).Layout(gtx, len(rows), func(gtx layout.Context, rIdx int) layout.Dimensions {
 							row := rows[rIdx]
 							var children []layout.FlexChild
+
 							for _, tIdx := range row {
 								if tIdx >= 0 {
 									idx := tIdx
@@ -657,30 +663,30 @@ func (ui *AppUI) layout(gtx layout.Context) layout.Dimensions {
 											}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 												return layout.Stack{}.Layout(gtx,
 													layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-														rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2)
+														size := gtx.Constraints.Min
+														size.Y += 1
+														rect := clip.UniformRRect(image.Rectangle{Max: size}, 2)
 														paint.FillShape(gtx.Ops, bgColor, rect.Op(gtx.Ops))
 														return layout.Dimensions{Size: gtx.Constraints.Min}
 													}),
 													layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 														return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 															layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+																gtx.Constraints.Min.Y = gtx.Constraints.Max.Y
+																gtx.Constraints.Min.X = gtx.Constraints.Max.X
 																return material.Clickable(gtx, &tab.TabBtn, func(gtx layout.Context) layout.Dimensions {
+																	gtx.Constraints.Min = gtx.Constraints.Max
 																	return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-																		return layout.Inset{Top: unit.Dp(2), Left: unit.Dp(8), Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-																			macro := op.Record(gtx.Ops)
-																			lbl := material.Label(ui.Theme, unit.Sp(12), formatTabTitle(tab.Title))
+																		return layout.Inset{Left: unit.Dp(8), Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+																			cleanTitle := strings.ReplaceAll(tab.Title, "\n", " ")
+																			if strings.TrimSpace(cleanTitle) == "" {
+																				cleanTitle = "New request"
+																			}
+																			lbl := material.Label(ui.Theme, unit.Sp(12), cleanTitle)
 																			lbl.Color = ui.Theme.Palette.Fg
 																			lbl.MaxLines = 2
-																			lbl.Alignment = text.Start
-																			dims := lbl.Layout(gtx)
-																			call := macro.Stop()
-
-																			shiftY := gtx.Dp(unit.Dp(1))
-																			trans := op.Offset(image.Pt(0, shiftY)).Push(gtx.Ops)
-																			call.Add(gtx.Ops)
-																			trans.Pop()
-
-																			return dims
+																			lbl.Truncator = "..."
+																			return lbl.Layout(gtx)
 																		})
 																	})
 																})
@@ -688,7 +694,9 @@ func (ui *AppUI) layout(gtx layout.Context) layout.Dimensions {
 															layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 																gtx.Constraints.Min.X = closeBtnWidth
 																gtx.Constraints.Max.X = closeBtnWidth
+																gtx.Constraints.Min.Y = gtx.Constraints.Max.Y
 																return material.Clickable(gtx, &tab.CloseBtn, func(gtx layout.Context) layout.Dimensions {
+																	gtx.Constraints.Min = gtx.Constraints.Max
 																	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 																		size := gtx.Dp(unit.Dp(16))
 																		gtx.Constraints.Min = image.Point{X: size, Y: size}
