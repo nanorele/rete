@@ -40,6 +40,7 @@ type AppUI struct {
 	AddTabBtn       widget.Clickable
 	ImportBtn       widget.Clickable
 	Collections     []*CollectionUI
+	VisibleCols     []*CollectionNode
 	SidebarRatio    float32
 	SidebarDrag     gesture.Drag
 	SidebarDragX    float32
@@ -131,6 +132,23 @@ func NewAppUI() *AppUI {
 	return ui
 }
 
+func (ui *AppUI) updateVisibleCols() {
+	var visible []*CollectionNode
+	var build func(node *CollectionNode)
+	build = func(node *CollectionNode) {
+		visible = append(visible, node)
+		if node.Expanded && node.IsFolder {
+			for _, child := range node.Children {
+				build(child)
+			}
+		}
+	}
+	for _, col := range ui.Collections {
+		build(col.Data.Root)
+	}
+	ui.VisibleCols = visible
+}
+
 func (ui *AppUI) Run() error {
 	var ops op.Ops
 	for {
@@ -145,6 +163,7 @@ func (ui *AppUI) Run() error {
 				select {
 				case col := <-ui.ColLoadedChan:
 					ui.Collections = append(ui.Collections, col)
+					ui.updateVisibleCols()
 				case env := <-ui.EnvLoadedChan:
 					ui.Environments = append(ui.Environments, env)
 					ui.ActiveEnvID = env.Data.ID
@@ -197,10 +216,14 @@ func (ui *AppUI) loadState() {
 		ui.Environments = append(ui.Environments, &EnvironmentUI{Data: e})
 	}
 	ui.ActiveEnvID = state.ActiveEnvID
+	ui.updateVisibleCols()
 }
 
 func (ui *AppUI) saveState() {
-	var state AppState
+	state := AppState{
+		ActiveIdx:   ui.ActiveIdx,
+		ActiveEnvID: ui.ActiveEnvID,
+	}
 	for _, tab := range ui.Tabs {
 		ts := TabState{
 			Title:  tab.Title,
@@ -217,9 +240,9 @@ func (ui *AppUI) saveState() {
 		}
 		state.Tabs = append(state.Tabs, ts)
 	}
-	state.ActiveIdx = ui.ActiveIdx
-	state.ActiveEnvID = ui.ActiveEnvID
-	go saveState(state)
+	go func(s AppState) {
+		saveState(s)
+	}(state)
 }
 
 func (ui *AppUI) openRequestInTab(req ParsedRequest) {
@@ -284,27 +307,13 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				})
 			}
 
-			var visible []*CollectionNode
-			var build func(node *CollectionNode)
-			build = func(node *CollectionNode) {
-				visible = append(visible, node)
-				if node.Expanded && node.IsFolder {
-					for _, child := range node.Children {
-						build(child)
-					}
-				}
-			}
-
-			for _, col := range ui.Collections {
-				build(col.Data.Root)
-			}
-
-			return material.List(ui.Theme, &ui.ColList).Layout(gtx, len(visible), func(gtx layout.Context, i int) layout.Dimensions {
-				node := visible[i]
+			return material.List(ui.Theme, &ui.ColList).Layout(gtx, len(ui.VisibleCols), func(gtx layout.Context, i int) layout.Dimensions {
+				node := ui.VisibleCols[i]
 
 				for node.Click.Clicked(gtx) {
 					if node.IsFolder {
 						node.Expanded = !node.Expanded
+						ui.updateVisibleCols()
 					} else if node.Request != nil {
 						ui.openRequestInTab(*node.Request)
 					}

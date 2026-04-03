@@ -35,6 +35,12 @@ var (
 	iconWrap *widget.Icon
 )
 
+var httpClient = &http.Client{
+	Timeout: 15 * time.Second,
+}
+
+var tplRegex = regexp.MustCompile(`\{\{([^}]+)\}\}`)
+
 func init() {
 	iconCopy, _ = widget.NewIcon(icons.ContentContentCopy)
 	iconWrap, _ = widget.NewIcon(icons.EditorWrapText)
@@ -102,8 +108,7 @@ func processTemplate(input string, env map[string]string) string {
 	if env == nil {
 		return input
 	}
-	re := regexp.MustCompile(`\{\{([^}]+)\}\}`)
-	return re.ReplaceAllStringFunc(input, func(m string) string {
+	return tplRegex.ReplaceAllStringFunc(input, func(m string) string {
 		k := strings.TrimSpace(m[2 : len(m)-2])
 		if v, ok := env[k]; ok {
 			return v
@@ -238,7 +243,6 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 	}
 
 	edGtx := gtx
-
 	edGtx.Constraints.Min.X = availWidth - (p * 2)
 	if edGtx.Constraints.Min.X < 0 {
 		edGtx.Constraints.Min.X = 0
@@ -267,7 +271,6 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 	}
 
 	finalSize := image.Point{X: finalWidth, Y: finalHeight}
-
 	rect := clip.UniformRRect(image.Rectangle{Max: finalSize}, 2)
 	paint.FillShape(gtx.Ops, color.NRGBA{R: 33, G: 33, B: 33, A: 255}, rect.Op(gtx.Ops))
 
@@ -286,11 +289,7 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 	}
 
 	call.Add(gtx.Ops)
-
-	return layout.Dimensions{
-		Size:     finalSize,
-		Baseline: dims.Baseline + p,
-	}
+	return layout.Dimensions{Size: finalSize, Baseline: dims.Baseline + p}
 }
 
 func SquareBtn(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, th *material.Theme) layout.Dimensions {
@@ -859,9 +858,8 @@ func (t *RequestTab) executeRequest(win *app.Window, env map[string]string) {
 	}
 
 	go func() {
-		client := &http.Client{Timeout: 15 * time.Second}
 		start := time.Now()
-		resp, err := client.Do(req)
+		resp, err := httpClient.Do(req)
 		duration := time.Since(start)
 
 		if err != nil {
