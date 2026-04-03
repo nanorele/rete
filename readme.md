@@ -31,6 +31,12 @@ func (e *Editor) GetScrollBounds() image.Rectangle {
 	return e.text.ScrollBounds()
 }
 
+func (e *Editor) GetScrollX() int {
+	e.initBuffer()
+	return e.text.ScrollOff().X
+}
+
+
 ```
 
 ### Windows Prep Build (CGO install):
