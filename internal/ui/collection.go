@@ -70,7 +70,7 @@ func ParseCollection(r io.Reader, id string) (*ParsedCollection, error) {
 		return nil, err
 	}
 
-	colName := ext.Info.Name
+	colName := sanitizeText(ext.Info.Name)
 	if colName == "" {
 		colName = "Imported Collection"
 	}
@@ -88,7 +88,7 @@ func ParseCollection(r io.Reader, id string) (*ParsedCollection, error) {
 		for i := range items {
 			item := items[i]
 			node := &CollectionNode{
-				Name:  item.Name,
+				Name:  sanitizeText(item.Name),
 				Depth: depth,
 			}
 
@@ -106,18 +106,18 @@ func ParseCollection(r io.Reader, id string) (*ParsedCollection, error) {
 
 				if err := json.Unmarshal(item.Request, &reqObj); err == nil {
 					if reqObj.Method != "" {
-						method = reqObj.Method
+						method = sanitizeText(reqObj.Method)
 					}
 					if reqObj.Body.Mode == "raw" {
-						reqBody = reqObj.Body.Raw
+						reqBody = sanitizeText(reqObj.Body.Raw)
 					}
 
 					switch u := reqObj.URL.(type) {
 					case string:
-						url = u
+						url = sanitizeText(u)
 					case map[string]interface{}:
 						if raw, ok := u["raw"].(string); ok {
-							url = raw
+							url = sanitizeText(raw)
 						}
 					}
 
@@ -127,7 +127,7 @@ func ParseCollection(r io.Reader, id string) (*ParsedCollection, error) {
 								k, _ := hMap["key"].(string)
 								v, _ := hMap["value"].(string)
 								if k != "" {
-									headers[strings.TrimSpace(k)] = strings.TrimSpace(v)
+									headers[strings.TrimSpace(sanitizeText(k))] = strings.TrimSpace(sanitizeText(v))
 								}
 							}
 						}
@@ -135,12 +135,12 @@ func ParseCollection(r io.Reader, id string) (*ParsedCollection, error) {
 				} else {
 					var urlStr string
 					if err := json.Unmarshal(item.Request, &urlStr); err == nil {
-						url = urlStr
+						url = sanitizeText(urlStr)
 					}
 				}
 
 				node.Request = &ParsedRequest{
-					Name:    item.Name,
+					Name:    sanitizeText(item.Name),
 					Method:  method,
 					URL:     url,
 					Body:    reqBody,

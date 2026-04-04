@@ -115,6 +115,29 @@ func saveEnvironmentRaw(data []byte) (string, error) {
 	return id, err
 }
 
+func SaveEnvironment(env *ParsedEnvironment) error {
+	ext := ExtEnvironment{
+		Name: env.Name,
+	}
+	for _, v := range env.Vars {
+		ext.Values = append(ext.Values, struct {
+			Key     string `json:"key"`
+			Value   string `json:"value"`
+			Enabled bool   `json:"enabled"`
+		}{
+			Key:     v.Key,
+			Value:   v.Value,
+			Enabled: v.Enabled,
+		})
+	}
+	data, err := json.MarshalIndent(ext, "", "  ")
+	if err != nil {
+		return err
+	}
+	path := filepath.Join(getEnvironmentsDir(), env.ID+".json")
+	return os.WriteFile(path, data, 0644)
+}
+
 func loadSavedEnvironments() []*ParsedEnvironment {
 	dir := getEnvironmentsDir()
 	files, err := os.ReadDir(dir)

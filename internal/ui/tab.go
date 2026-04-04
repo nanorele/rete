@@ -157,7 +157,16 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 
 	scrollX := ed.GetScrollX()
 	textStr := ed.Text()
-	cl := clip.Rect{Max: image.Pt(edGtx.Constraints.Max.X, lineHeight)}.Push(gtx.Ops)
+
+	extY := gtx.Dp(unit.Dp(2))
+	offsetY := gtx.Dp(unit.Dp(1))
+	topY := -extY + offsetY
+	bottomY := lineHeight + extY + offsetY
+
+	cl := clip.Rect{
+		Min: image.Pt(0, topY),
+		Max: image.Pt(edGtx.Constraints.Max.X, bottomY),
+	}.Push(gtx.Ops)
 
 	searchStr := textStr
 	offset := 0
@@ -182,17 +191,17 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 		pWidth := measureTextWidth(gtx, th, unit.Sp(12), prefix)
 		vWidth := measureTextWidth(gtx, th, unit.Sp(12), varText)
 
-		bgColor := color.NRGBA{R: 130, G: 60, B: 80, A: 255}
+		bgColor := color.NRGBA{R: 130, G: 60, B: 60, A: 100}
 		if _, ok := env[varName]; ok {
-			bgColor = color.NRGBA{R: 45, G: 80, B: 140, A: 255}
+			bgColor = color.NRGBA{R: 40, G: 110, B: 160, A: 100}
 		}
 
 		x1 := pWidth - scrollX
 		x2 := x1 + vWidth
 
 		if x2 > 0 && x1 < edGtx.Constraints.Max.X {
-			rect := image.Rect(x1, -1, x2, lineHeight+1)
-			paint.FillShape(gtx.Ops, bgColor, clip.UniformRRect(rect, 2).Op(gtx.Ops))
+			rect := image.Rect(x1, topY, x2, bottomY)
+			paint.FillShape(gtx.Ops, bgColor, clip.UniformRRect(rect, gtx.Dp(unit.Dp(3))).Op(gtx.Ops))
 		}
 
 		searchStr = searchStr[end:]
@@ -216,11 +225,11 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 
 	finalSize := image.Point{X: finalWidth, Y: finalHeight}
 	rect := clip.UniformRRect(image.Rectangle{Max: finalSize}, 2)
-	paint.FillShape(gtx.Ops, color.NRGBA{R: 33, G: 33, B: 33, A: 255}, rect.Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, color.NRGBA{R: 49, G: 49, B: 49, A: 255}, rect.Op(gtx.Ops))
 
 	if drawBorder {
 		border := widget.Border{
-			Color:        color.NRGBA{R: 169, G: 169, B: 169, A: 255},
+			Color:        color.NRGBA{R: 60, G: 60, B: 60, A: 255},
 			CornerRadius: unit.Dp(2),
 			Width:        unit.Dp(1),
 		}
@@ -274,11 +283,11 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 
 	finalSize := image.Point{X: finalWidth, Y: finalHeight}
 	rect := clip.UniformRRect(image.Rectangle{Max: finalSize}, 2)
-	paint.FillShape(gtx.Ops, color.NRGBA{R: 33, G: 33, B: 33, A: 255}, rect.Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, color.NRGBA{R: 49, G: 49, B: 49, A: 255}, rect.Op(gtx.Ops))
 
 	if drawBorder {
 		border := widget.Border{
-			Color:        color.NRGBA{R: 169, G: 169, B: 169, A: 255},
+			Color:        color.NRGBA{R: 60, G: 60, B: 60, A: 255},
 			CornerRadius: unit.Dp(2),
 			Width:        unit.Dp(1),
 		}
@@ -301,7 +310,7 @@ func SquareBtn(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, th *m
 		gtx.Constraints.Max = gtx.Constraints.Min
 
 		rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2)
-		paint.FillShape(gtx.Ops, color.NRGBA{R: 75, G: 75, B: 75, A: 255}, rect.Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, color.NRGBA{R: 49, G: 49, B: 49, A: 255}, rect.Op(gtx.Ops))
 
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{X: gtx.Dp(unit.Dp(16)), Y: gtx.Dp(unit.Dp(16))}
@@ -452,14 +461,14 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 								macro := op.Record(gtx.Ops)
 								layout.Inset{Top: unit.Dp(36)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 									return widget.Border{
-										Color:        color.NRGBA{R: 169, G: 169, B: 169, A: 255},
+										Color:        color.NRGBA{R: 60, G: 60, B: 60, A: 255},
 										CornerRadius: unit.Dp(2),
 										Width:        unit.Dp(1),
 									}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										return layout.Stack{}.Layout(gtx,
 											layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 												rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2)
-												paint.FillShape(gtx.Ops, color.NRGBA{R: 33, G: 33, B: 33, A: 255}, rect.Op(gtx.Ops))
+												paint.FillShape(gtx.Ops, color.NRGBA{R: 37, G: 37, B: 38, A: 255}, rect.Op(gtx.Ops))
 												return layout.Dimensions{Size: gtx.Constraints.Min}
 											}),
 											layout.Stacked(func(gtx layout.Context) layout.Dimensions {
@@ -486,6 +495,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 							}),
 							layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 								btn := material.Button(th, &t.MethodBtn, t.Method)
+								btn.Background = color.NRGBA{R: 49, G: 49, B: 49, A: 255}
 								btn.TextSize = unit.Sp(12)
 								btn.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(8), Right: unit.Dp(8)}
 								return btn.Layout(gtx)
@@ -510,15 +520,33 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 			return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				flexWidth := float32(gtx.Constraints.Max.X - gtx.Dp(unit.Dp(8)))
 
+				reqMinDp := float32(gtx.Dp(unit.Dp(360)))
+				respMinDp := float32(gtx.Dp(unit.Dp(200)))
+
+				minReqRatio := reqMinDp / flexWidth
+				maxReqRatio := 1.0 - (respMinDp / flexWidth)
+
+				if minReqRatio > maxReqRatio {
+					minReqRatio = 0.5
+					maxReqRatio = 0.5
+				}
+
+				if t.SplitRatio < minReqRatio {
+					t.SplitRatio = minReqRatio
+				}
+				if t.SplitRatio > maxReqRatio {
+					t.SplitRatio = maxReqRatio
+				}
+
 				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 					layout.Flexed(t.SplitRatio, func(gtx layout.Context) layout.Dimensions {
 						return layout.Inset{Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return widget.Border{
-								Color:        color.NRGBA{R: 169, G: 169, B: 169, A: 255},
+								Color:        color.NRGBA{R: 43, G: 45, B: 49, A: 255},
 								CornerRadius: unit.Dp(2),
 								Width:        unit.Dp(1),
 							}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								paint.FillShape(gtx.Ops, color.NRGBA{R: 33, G: 33, B: 33, A: 255}, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2).Op(gtx.Ops))
+								paint.FillShape(gtx.Ops, color.NRGBA{R: 31, G: 31, B: 31, A: 255}, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2).Op(gtx.Ops))
 
 								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -532,14 +560,14 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 												layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 													lbl := material.Label(th, unit.Sp(12), contentType)
-													lbl.Color = color.NRGBA{R: 169, G: 169, B: 169, A: 255}
+													lbl.Color = color.NRGBA{R: 150, G: 150, B: 150, A: 255}
 													return lbl.Layout(gtx)
 												}),
 												layout.Flexed(1, layout.Spacer{Width: unit.Dp(1)}.Layout),
 												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 													btn := material.Button(th, &t.AddHeaderBtn, "Add")
 													btn.TextSize = unit.Sp(12)
-													btn.Background = color.NRGBA{R: 75, G: 75, B: 75, A: 255}
+													btn.Background = color.NRGBA{R: 49, G: 49, B: 49, A: 255}
 													btn.Inset = layout.UniformInset(unit.Dp(6))
 													return btn.Layout(gtx)
 												}),
@@ -551,6 +579,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 													}
 													btn := material.Button(th, &t.ViewGeneratedBtn, btnText)
 													btn.TextSize = unit.Sp(12)
+													btn.Background = color.NRGBA{R: 49, G: 49, B: 49, A: 255}
 													btn.Inset = layout.UniformInset(unit.Dp(6))
 													return btn.Layout(gtx)
 												}),
@@ -559,7 +588,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 									}),
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 										size := image.Point{X: gtx.Constraints.Max.X, Y: gtx.Dp(unit.Dp(1))}
-										paint.FillShape(gtx.Ops, color.NRGBA{R: 169, G: 169, B: 169, A: 255}, clip.Rect{Max: size}.Op())
+										paint.FillShape(gtx.Ops, color.NRGBA{R: 43, G: 45, B: 49, A: 255}, clip.Rect{Max: size}.Op())
 										return layout.Dimensions{Size: size}
 									}),
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -573,7 +602,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 													layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 														if i < len(visibleHeaders)-1 {
 															rect := clip.Rect{Min: image.Point{0, gtx.Constraints.Min.Y - gtx.Dp(unit.Dp(1))}, Max: gtx.Constraints.Min}.Op()
-															paint.FillShape(gtx.Ops, color.NRGBA{R: 169, G: 169, B: 169, A: 255}, rect)
+															paint.FillShape(gtx.Ops, color.NRGBA{R: 43, G: 45, B: 49, A: 255}, rect)
 														}
 														return layout.Dimensions{Size: gtx.Constraints.Min}
 													}),
@@ -589,12 +618,12 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 																}),
 																layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 																layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-																	size := gtx.Dp(unit.Dp(26))
+																	size := gtx.Dp(26)
 																	gtx.Constraints.Min = image.Point{X: size, Y: size}
 																	gtx.Constraints.Max = image.Point{X: size, Y: size}
 																	return h.DelBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 																		rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2)
-																		paint.FillShape(gtx.Ops, color.NRGBA{R: 11, G: 117, B: 40, A: 255}, rect.Op(gtx.Ops))
+																		paint.FillShape(gtx.Ops, color.NRGBA{R: 194, G: 64, B: 56, A: 255}, rect.Op(gtx.Ops))
 																		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 																			l := material.Label(th, unit.Sp(10), "X")
 																			l.Color = th.Palette.ContrastFg
@@ -614,7 +643,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 											return layout.Dimensions{}
 										}
 										size := image.Point{X: gtx.Constraints.Max.X, Y: gtx.Dp(unit.Dp(1))}
-										paint.FillShape(gtx.Ops, color.NRGBA{R: 169, G: 169, B: 169, A: 255}, clip.Rect{Max: size}.Op())
+										paint.FillShape(gtx.Ops, color.NRGBA{R: 43, G: 45, B: 49, A: 255}, clip.Rect{Max: size}.Op())
 										return layout.Dimensions{Size: size}
 									}),
 									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -658,10 +687,10 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 							oldRatio := t.SplitRatio
 							t.SplitRatio += delta / flexWidth
 
-							if t.SplitRatio < 0.1 {
-								t.SplitRatio = 0.1
-							} else if t.SplitRatio > 0.9 {
-								t.SplitRatio = 0.9
+							if t.SplitRatio < minReqRatio {
+								t.SplitRatio = minReqRatio
+							} else if t.SplitRatio > maxReqRatio {
+								t.SplitRatio = maxReqRatio
 							}
 
 							t.SplitDragX = finalX - ((t.SplitRatio - oldRatio) * flexWidth)
@@ -679,11 +708,11 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 					layout.Flexed(1-t.SplitRatio, func(gtx layout.Context) layout.Dimensions {
 						return layout.Inset{Left: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return widget.Border{
-								Color:        color.NRGBA{R: 169, G: 169, B: 169, A: 255},
+								Color:        color.NRGBA{R: 43, G: 45, B: 49, A: 255},
 								CornerRadius: unit.Dp(2),
 								Width:        unit.Dp(1),
 							}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								paint.FillShape(gtx.Ops, color.NRGBA{R: 33, G: 33, B: 33, A: 255}, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2).Op(gtx.Ops))
+								paint.FillShape(gtx.Ops, color.NRGBA{R: 31, G: 31, B: 31, A: 255}, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2).Op(gtx.Ops))
 
 								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -705,7 +734,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 									}),
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 										size := image.Point{X: gtx.Constraints.Max.X, Y: gtx.Dp(unit.Dp(1))}
-										paint.FillShape(gtx.Ops, color.NRGBA{R: 169, G: 169, B: 169, A: 255}, clip.Rect{Max: size}.Op())
+										paint.FillShape(gtx.Ops, color.NRGBA{R: 43, G: 45, B: 49, A: 255}, clip.Rect{Max: size}.Op())
 										return layout.Dimensions{Size: size}
 									}),
 									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -817,7 +846,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 														int(thumbY+thumbH),
 													)
 
-													paint.FillShape(gtx.Ops, color.NRGBA{R: 120, G: 120, B: 120, A: 255}, clip.UniformRRect(rect, gtx.Dp(unit.Dp(3))).Op(gtx.Ops))
+													paint.FillShape(gtx.Ops, color.NRGBA{R: 75, G: 75, B: 75, A: 255}, clip.UniformRRect(rect, gtx.Dp(unit.Dp(3))).Op(gtx.Ops))
 
 													return layout.Dimensions{}
 												}),
@@ -836,7 +865,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 
 func (t *RequestTab) executeRequest(win *app.Window, env map[string]string) {
 	urlRaw := strings.ReplaceAll(t.URLInput.Text(), "\n", "")
-	urlRaw = strings.TrimSpace(urlRaw)
+	urlRaw = strings.TrimSpace(sanitizeText(urlRaw))
 	url := processTemplate(urlRaw, env)
 
 	if url == "" {
@@ -860,10 +889,14 @@ func (t *RequestTab) executeRequest(win *app.Window, env map[string]string) {
 	t.updateSystemHeaders()
 
 	for _, h := range t.Headers {
-		k := strings.ReplaceAll(h.Key.Text(), "\n", "")
+		k := sanitizeText(h.Key.Text())
+		k = strings.ReplaceAll(k, "\n", "")
 		k = strings.TrimSpace(k)
-		vRaw := strings.ReplaceAll(h.Value.Text(), "\n", "")
+
+		vRaw := sanitizeText(h.Value.Text())
+		vRaw = strings.ReplaceAll(vRaw, "\n", "")
 		vRaw = strings.TrimSpace(vRaw)
+
 		v := processTemplate(vRaw, env)
 		if k != "" {
 			req.Header.Add(k, v)
@@ -890,16 +923,18 @@ func (t *RequestTab) executeRequest(win *app.Window, env map[string]string) {
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, limit))
 
 		var finalData string
-		if len(body) > 0 && (body[0] == '{' || body[0] == '[') {
-			var out bytes.Buffer
-			if json.Indent(&out, body, "", "  ") == nil {
-				finalData = out.String()
+		if json.Valid(body) {
+			var prettyJSON bytes.Buffer
+			if err := json.Indent(&prettyJSON, body, "", "  "); err == nil {
+				finalData = prettyJSON.String()
 			} else {
 				finalData = string(body)
 			}
 		} else {
 			finalData = string(body)
 		}
+
+		finalData = sanitizeText(finalData)
 
 		select {
 		case <-t.ResponseChan:
