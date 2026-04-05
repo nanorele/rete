@@ -15,17 +15,20 @@ type HeaderState struct {
 }
 
 type TabState struct {
-	Title   string        `json:"title"`
-	Method  string        `json:"method"`
-	URL     string        `json:"url"`
-	Body    string        `json:"body"`
-	Headers []HeaderState `json:"headers"`
+	Title      string        `json:"title"`
+	Method     string        `json:"method"`
+	URL        string        `json:"url"`
+	Body       string        `json:"body"`
+	Headers    []HeaderState `json:"headers"`
+	SplitRatio float32       `json:"split_ratio"`
 }
 
 type AppState struct {
-	Tabs        []TabState `json:"tabs"`
-	ActiveIdx   int        `json:"active_idx"`
-	ActiveEnvID string     `json:"active_env_id"`
+	Tabs               []TabState `json:"tabs"`
+	ActiveIdx          int        `json:"active_idx"`
+	ActiveEnvID        string     `json:"active_env_id"`
+	SidebarWidthPx     int        `json:"sidebar_width_px"`
+	SidebarEnvHeightPx int        `json:"sidebar_env_height_px"`
 }
 
 func getConfigPath() string {

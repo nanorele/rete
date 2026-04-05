@@ -55,36 +55,36 @@ type cachedTab struct {
 }
 
 type AppUI struct {
-	Theme           *material.Theme
-	Window          *app.Window
-	BtnMinimize     widget.Clickable
-	BtnMaximize     widget.Clickable
-	BtnClose        widget.Clickable
-	IsMaximized     bool
-	TitleTag        bool
-	LastTitleClick  time.Time
-	Explorer        *explorer.Explorer
-	Tabs            []*RequestTab
-	ActiveIdx       int
-	TabsList        widget.List
-	AddTabBtn       widget.Clickable
-	ImportBtn       widget.Clickable
-	Collections     []*CollectionUI
-	VisibleCols     []*CollectionNode
-	SidebarRatio    float32
-	SidebarDrag     gesture.Drag
-	SidebarDragX    float32
-	ColList         widget.List
-	ColLoadedChan   chan *CollectionUI
-	ImportEnvBtn    widget.Clickable
-	Environments    []*EnvironmentUI
-	ActiveEnvID     string
-	EnvList         widget.List
-	EnvLoadedChan   chan *EnvironmentUI
-	SidebarEnvRatio float32
-	SidebarEnvDrag  gesture.Drag
-	SidebarEnvDragY float32
-	EditingEnv      *EnvironmentUI
+	Theme            *material.Theme
+	Window           *app.Window
+	BtnMinimize      widget.Clickable
+	BtnMaximize      widget.Clickable
+	BtnClose         widget.Clickable
+	IsMaximized      bool
+	TitleTag         bool
+	LastTitleClick   time.Time
+	Explorer         *explorer.Explorer
+	Tabs             []*RequestTab
+	ActiveIdx        int
+	TabsList         widget.List
+	AddTabBtn        widget.Clickable
+	ImportBtn        widget.Clickable
+	Collections      []*CollectionUI
+	VisibleCols      []*CollectionNode
+	SidebarWidth     int
+	SidebarDrag      gesture.Drag
+	SidebarDragX     float32
+	ColList          widget.List
+	ColLoadedChan    chan *CollectionUI
+	ImportEnvBtn     widget.Clickable
+	Environments     []*EnvironmentUI
+	ActiveEnvID      string
+	EnvList          widget.List
+	EnvLoadedChan    chan *EnvironmentUI
+	SidebarEnvHeight int
+	SidebarEnvDrag   gesture.Drag
+	SidebarEnvDragY  float32
+	EditingEnv       *EnvironmentUI
 
 	tabWidthCache map[*RequestTab]cachedTab
 }
@@ -174,13 +174,13 @@ func NewAppUI() *AppUI {
 	)
 
 	ui := &AppUI{
-		Theme:           th,
-		Window:          win,
-		SidebarRatio:    0.2,
-		SidebarEnvRatio: 0.6,
-		ColLoadedChan:   make(chan *CollectionUI, 5),
-		EnvLoadedChan:   make(chan *EnvironmentUI, 5),
-		tabWidthCache:   make(map[*RequestTab]cachedTab),
+		Theme:            th,
+		Window:           win,
+		SidebarWidth:     250,
+		SidebarEnvHeight: 300,
+		ColLoadedChan:    make(chan *CollectionUI, 5),
+		EnvLoadedChan:    make(chan *EnvironmentUI, 5),
+		tabWidthCache:    make(map[*RequestTab]cachedTab),
 	}
 	ui.Explorer = explorer.NewExplorer(ui.Window)
 	ui.TabsList.Axis = layout.Vertical
@@ -214,7 +214,7 @@ func (ui *AppUI) Run() error {
 		ui.Explorer.ListenEvents(e)
 		switch e := e.(type) {
 		case app.DestroyEvent:
-			ui.saveState()
+			ui.saveStateSync()
 			return e.Err
 		case app.ConfigEvent:
 			ui.IsMaximized = e.Config.Mode == app.Maximized || e.Config.Mode == app.Fullscreen
@@ -258,6 +258,9 @@ func (ui *AppUI) loadState() {
 		for _, hs := range ts.Headers {
 			tab.addHeader(hs.Key, hs.Value)
 		}
+		if ts.SplitRatio > 0 {
+			tab.SplitRatio = ts.SplitRatio
+		}
 		ui.Tabs = append(ui.Tabs, tab)
 	}
 	if len(ui.Tabs) == 0 {
@@ -266,6 +269,13 @@ func (ui *AppUI) loadState() {
 	ui.ActiveIdx = state.ActiveIdx
 	if ui.ActiveIdx >= len(ui.Tabs) || ui.ActiveIdx < 0 {
 		ui.ActiveIdx = 0
+	}
+
+	if state.SidebarWidthPx > 0 {
+		ui.SidebarWidth = state.SidebarWidthPx
+	}
+	if state.SidebarEnvHeightPx > 0 {
+		ui.SidebarEnvHeight = state.SidebarEnvHeightPx
 	}
 
 	loadedCols := loadSavedCollections()
@@ -281,17 +291,20 @@ func (ui *AppUI) loadState() {
 	ui.updateVisibleCols()
 }
 
-func (ui *AppUI) saveState() {
+func (ui *AppUI) saveStateSync() {
 	state := AppState{
-		ActiveIdx:   ui.ActiveIdx,
-		ActiveEnvID: ui.ActiveEnvID,
+		ActiveIdx:          ui.ActiveIdx,
+		ActiveEnvID:        ui.ActiveEnvID,
+		SidebarWidthPx:     ui.SidebarWidth,
+		SidebarEnvHeightPx: ui.SidebarEnvHeight,
 	}
 	for _, tab := range ui.Tabs {
 		ts := TabState{
-			Title:  tab.Title,
-			Method: tab.Method,
-			URL:    tab.URLInput.Text(),
-			Body:   tab.ReqEditor.Text(),
+			Title:      tab.Title,
+			Method:     tab.Method,
+			URL:        tab.URLInput.Text(),
+			Body:       tab.ReqEditor.Text(),
+			SplitRatio: tab.SplitRatio,
 		}
 		for _, h := range tab.Headers {
 			k := h.Key.Text()
@@ -302,9 +315,11 @@ func (ui *AppUI) saveState() {
 		}
 		state.Tabs = append(state.Tabs, ts)
 	}
-	go func(s AppState) {
-		saveState(s)
-	}(state)
+	saveState(state)
+}
+
+func (ui *AppUI) saveState() {
+	go ui.saveStateSync()
 }
 
 func (ui *AppUI) openRequestInTab(req ParsedRequest) {
@@ -315,6 +330,11 @@ func (ui *AppUI) openRequestInTab(req ParsedRequest) {
 	for k, v := range req.Headers {
 		tab.addHeader(k, v)
 	}
+
+	if len(ui.Tabs) > 0 && ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
+		tab.SplitRatio = ui.Tabs[ui.ActiveIdx].SplitRatio
+	}
+
 	ui.Tabs = append(ui.Tabs, tab)
 	ui.ActiveIdx = len(ui.Tabs) - 1
 	ui.saveState()
@@ -483,23 +503,9 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 	paint.FillShape(gtx.Ops, color.NRGBA{R: 24, G: 24, B: 24, A: 255}, clip.Rect{Max: size}.Op())
 	gtx.Constraints.Min = size
 
-	totalAvailableHeight := float32(gtx.Constraints.Max.Y)
-	flexHeight := totalAvailableHeight - float32(gtx.Dp(unit.Dp(6)))
-	minEnvListHeight := float32(gtx.Dp(unit.Dp(110)))
-	maxRatio := float32(0.9)
-
-	if flexHeight > 0 {
-		calculatedMax := 1.0 - (minEnvListHeight / flexHeight)
-		if calculatedMax < maxRatio {
-			maxRatio = calculatedMax
-		}
-	}
-	if maxRatio < 0.1 {
-		maxRatio = 0.1
-	}
-
 	var moved bool
 	var finalY float32
+	var released bool
 
 	for {
 		e, ok := ui.SidebarEnvDrag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
@@ -512,26 +518,35 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 		case pointer.Drag:
 			finalY = e.Position.Y
 			moved = true
+		case pointer.Cancel, pointer.Release:
+			released = true
 		}
 	}
 
-	if moved && flexHeight > 0 {
+	if moved {
 		delta := finalY - ui.SidebarEnvDragY
-		oldRatio := ui.SidebarEnvRatio
-		ui.SidebarEnvRatio += delta / flexHeight
+		oldHeight := ui.SidebarEnvHeight
+		ui.SidebarEnvHeight -= int(delta)
 
-		if ui.SidebarEnvRatio < 0.1 {
-			ui.SidebarEnvRatio = 0.1
-		} else if ui.SidebarEnvRatio > maxRatio {
-			ui.SidebarEnvRatio = maxRatio
+		minEnvHeight := gtx.Dp(unit.Dp(110))
+		maxEnvHeight := gtx.Constraints.Max.Y - gtx.Dp(unit.Dp(100))
+		if ui.SidebarEnvHeight < minEnvHeight {
+			ui.SidebarEnvHeight = minEnvHeight
+		}
+		if ui.SidebarEnvHeight > maxEnvHeight && maxEnvHeight > minEnvHeight {
+			ui.SidebarEnvHeight = maxEnvHeight
 		}
 
-		ui.SidebarEnvDragY = finalY - ((ui.SidebarEnvRatio - oldRatio) * flexHeight)
+		actualDelta := oldHeight - ui.SidebarEnvHeight
+		ui.SidebarEnvDragY = finalY - float32(actualDelta)
 		ui.Window.Invalidate()
+	}
+	if released {
+		ui.saveState()
 	}
 
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Flexed(ui.SidebarEnvRatio, func(gtx layout.Context) layout.Dimensions {
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -658,7 +673,10 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 			return layout.Dimensions{Size: size}
 		}),
 
-		layout.Flexed(1-ui.SidebarEnvRatio, func(gtx layout.Context) layout.Dimensions {
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min.Y = ui.SidebarEnvHeight
+			gtx.Constraints.Max.Y = ui.SidebarEnvHeight
+
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1001,6 +1019,9 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 	for ui.AddTabBtn.Clicked(gtx) {
 		newTab := NewRequestTab("New request")
+		if len(ui.Tabs) > 0 && ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
+			newTab.SplitRatio = ui.Tabs[ui.ActiveIdx].SplitRatio
+		}
 		ui.Tabs = append(ui.Tabs, newTab)
 		ui.ActiveIdx = len(ui.Tabs) - 1
 	}
@@ -1011,7 +1032,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 			clicked = true
 		}
 		if clicked {
-			delete(ui.tabWidthCache, ui.Tabs[i]) // Очистка памяти
+			delete(ui.tabWidthCache, ui.Tabs[i])
 			ui.Tabs = append(ui.Tabs[:i], ui.Tabs[i+1:]...)
 			if ui.ActiveIdx >= i && ui.ActiveIdx > 0 {
 				ui.ActiveIdx--
@@ -1042,9 +1063,9 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	flexWidth := float32(gtx.Constraints.Max.X - gtx.Dp(unit.Dp(4)))
 	var moved bool
 	var finalX float32
+	var released bool
 
 	for {
 		e, ok := ui.SidebarDrag.Update(gtx.Metric, gtx.Source, gesture.Horizontal)
@@ -1057,35 +1078,37 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 		case pointer.Drag:
 			finalX = e.Position.X
 			moved = true
+		case pointer.Cancel, pointer.Release:
+			released = true
 		}
 	}
 
-	appMaxX := float32(gtx.Constraints.Max.X)
-	var minSidebarRatio float32
-	if appMaxX > 0 {
-		minSidebarRatio = float32(gtx.Dp(unit.Dp(200))) / appMaxX
-		if ui.SidebarRatio < minSidebarRatio {
-			ui.SidebarRatio = minSidebarRatio
-		}
-	}
-
-	if moved && flexWidth > 0 {
+	if moved {
 		delta := finalX - ui.SidebarDragX
-		oldRatio := ui.SidebarRatio
-		ui.SidebarRatio += delta / flexWidth
+		oldWidth := ui.SidebarWidth
+		ui.SidebarWidth += int(delta)
 
-		if ui.SidebarRatio < minSidebarRatio {
-			ui.SidebarRatio = minSidebarRatio
-		} else if ui.SidebarRatio > 0.5 {
-			ui.SidebarRatio = 0.5
+		minSidebarWidth := gtx.Dp(unit.Dp(200))
+		maxSidebarWidth := gtx.Constraints.Max.X - gtx.Dp(unit.Dp(300))
+		if ui.SidebarWidth < minSidebarWidth {
+			ui.SidebarWidth = minSidebarWidth
+		}
+		if ui.SidebarWidth > maxSidebarWidth && maxSidebarWidth > minSidebarWidth {
+			ui.SidebarWidth = maxSidebarWidth
 		}
 
-		ui.SidebarDragX = finalX - ((ui.SidebarRatio - oldRatio) * flexWidth)
+		actualDelta := ui.SidebarWidth - oldWidth
+		ui.SidebarDragX = finalX - float32(actualDelta)
 		ui.Window.Invalidate()
+	}
+	if released {
+		ui.saveState()
 	}
 
 	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-		layout.Flexed(ui.SidebarRatio, func(gtx layout.Context) layout.Dimensions {
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min.X = ui.SidebarWidth
+			gtx.Constraints.Max.X = ui.SidebarWidth
 			return ui.layoutSidebar(gtx)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1099,7 +1122,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 			paint.FillShape(gtx.Ops, color.NRGBA{R: 43, G: 45, B: 49, A: 255}, clip.Rect{Max: size}.Op())
 			return layout.Dimensions{Size: size}
 		}),
-		layout.Flexed(1-ui.SidebarRatio, func(gtx layout.Context) layout.Dimensions {
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			if ui.EditingEnv != nil {
 				return ui.layoutEnvEditor(gtx)
 			}
@@ -1360,7 +1383,9 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 						}
 
 						isDragging := ui.SidebarDrag.Dragging() || ui.SidebarEnvDrag.Dragging()
-						return tab.layout(gtx, ui.Theme, ui.Window, activeEnvVars, isDragging)
+						return tab.layout(gtx, ui.Theme, ui.Window, activeEnvVars, isDragging, func() {
+							ui.saveState()
+						})
 					}
 					return layout.Dimensions{}
 				}),

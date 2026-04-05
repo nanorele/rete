@@ -423,7 +423,7 @@ func (t *RequestTab) updateSystemHeaders() {
 	}
 }
 
-func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Window, activeEnv map[string]string, isAppDragging bool) layout.Dimensions {
+func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Window, activeEnv map[string]string, isAppDragging bool, onSave func()) layout.Dimensions {
 	currentBody := t.ReqEditor.Text()
 	if currentBody != t.LastReqBody {
 		t.LastReqBody = currentBody
@@ -539,6 +539,9 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 		win.Invalidate()
 	}
 	if released {
+		if onSave != nil {
+			onSave()
+		}
 		win.Invalidate()
 	}
 
@@ -915,6 +918,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 		}),
 	)
 }
+
 func (t *RequestTab) executeRequest(win *app.Window, env map[string]string) {
 	urlRaw := strings.ReplaceAll(t.URLInput.Text(), "\n", "")
 	urlRaw = strings.TrimSpace(utils.SanitizeText(urlRaw))
