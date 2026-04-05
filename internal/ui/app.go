@@ -48,6 +48,12 @@ func init() {
 	iconBack, _ = widget.NewIcon(icons.NavigationArrowBack)
 }
 
+type cachedTab struct {
+	title string
+	width int
+	ppdp  float32
+}
+
 type AppUI struct {
 	Theme           *material.Theme
 	Window          *app.Window
@@ -79,6 +85,8 @@ type AppUI struct {
 	SidebarEnvDrag  gesture.Drag
 	SidebarEnvDragY float32
 	EditingEnv      *EnvironmentUI
+
+	tabWidthCache map[*RequestTab]cachedTab
 }
 
 func measureTextWidth(gtx layout.Context, th *material.Theme, size unit.Sp, str string) int {
@@ -172,6 +180,7 @@ func NewAppUI() *AppUI {
 		SidebarEnvRatio: 0.6,
 		ColLoadedChan:   make(chan *CollectionUI, 5),
 		EnvLoadedChan:   make(chan *EnvironmentUI, 5),
+		tabWidthCache:   make(map[*RequestTab]cachedTab),
 	}
 	ui.Explorer = explorer.NewExplorer(ui.Window)
 	ui.TabsList.Axis = layout.Vertical
@@ -887,7 +896,6 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						// Передаем 0 как шестой аргумент (frozenWidth)
 						return TextField(gtx, ui.Theme, &env.NameEditor, "Environment Name", true, 0)
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
@@ -958,12 +966,10 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 								return material.CheckBox(ui.Theme, &r.Enabled, "").Layout(gtx)
 							}),
 							layout.Flexed(0.45, func(gtx layout.Context) layout.Dimensions {
-								// Передаем 0 как шестой аргумент (frozenWidth)
 								return TextField(gtx, ui.Theme, &r.KeyEditor, "Key", true, 0)
 							}),
 							layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 							layout.Flexed(0.45, func(gtx layout.Context) layout.Dimensions {
-								// Передаем 0 как шестой аргумент (frozenWidth)
 								return TextField(gtx, ui.Theme, &r.ValEditor, "Value", true, 0)
 							}),
 							layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
@@ -1005,6 +1011,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 			clicked = true
 		}
 		if clicked {
+			delete(ui.tabWidthCache, ui.Tabs[i]) // Очистка памяти
 			ui.Tabs = append(ui.Tabs[:i], ui.Tabs[i+1:]...)
 			if ui.ActiveIdx >= i && ui.ActiveIdx > 0 {
 				ui.ActiveIdx--
@@ -1015,7 +1022,8 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 	}
 
 	if len(ui.Tabs) == 0 {
-		ui.Tabs = append(ui.Tabs, NewRequestTab("New request"))
+		newTab := NewRequestTab("New request")
+		ui.Tabs = append(ui.Tabs, newTab)
 		ui.ActiveIdx = 0
 	}
 
@@ -1117,8 +1125,13 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 						var tabs []TabInfo
 
 						for i, tab := range ui.Tabs {
-							natW := measureTabWidth(gtx, ui.Theme, tab.Title)
-							tabs = append(tabs, TabInfo{Idx: i, NatWidth: natW})
+							cache, ok := ui.tabWidthCache[tab]
+							if !ok || cache.title != tab.Title || cache.ppdp != gtx.Metric.PxPerDp {
+								natW := measureTabWidth(gtx, ui.Theme, tab.Title)
+								ui.tabWidthCache[tab] = cachedTab{title: tab.Title, width: natW, ppdp: gtx.Metric.PxPerDp}
+								cache = ui.tabWidthCache[tab]
+							}
+							tabs = append(tabs, TabInfo{Idx: i, NatWidth: cache.width})
 						}
 
 						var rows [][]int

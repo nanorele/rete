@@ -105,6 +105,8 @@ type RequestTab struct {
 	LastReqWidth     int
 	LastRespWidth    int
 	IsDraggingSplit  bool
+	LastURLWidth     int
+	LastReqBody      string
 }
 
 func NewRequestTab(title string) *RequestTab {
@@ -422,7 +424,11 @@ func (t *RequestTab) updateSystemHeaders() {
 }
 
 func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Window, activeEnv map[string]string, isAppDragging bool) layout.Dimensions {
-	t.updateSystemHeaders()
+	currentBody := t.ReqEditor.Text()
+	if currentBody != t.LastReqBody {
+		t.LastReqBody = currentBody
+		t.updateSystemHeaders()
+	}
 
 	select {
 	case res := <-t.ResponseChan:
@@ -596,7 +602,13 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						return TextFieldOverlay(gtx, th, &t.URLInput, "https://api.example.com", true, activeEnv, 0)
+						frozenURLWidth := 0
+						if isDragging && t.LastURLWidth > 0 {
+							frozenURLWidth = t.LastURLWidth
+						} else {
+							t.LastURLWidth = gtx.Constraints.Max.X
+						}
+						return TextFieldOverlay(gtx, th, &t.URLInput, "https://api.example.com", true, activeEnv, frozenURLWidth)
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -720,13 +732,13 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 									}),
 									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 										return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											reqWidth := 0
+											frozenReqWidth := 0
 											if isDragging && t.LastReqWidth > 0 {
-												reqWidth = t.LastReqWidth
+												frozenReqWidth = t.LastReqWidth
 											} else {
 												t.LastReqWidth = gtx.Constraints.Max.X
 											}
-											return TextField(gtx, th, &t.ReqEditor, "Request Body", false, reqWidth)
+											return TextField(gtx, th, &t.ReqEditor, "Request Body", false, frozenReqWidth)
 										})
 									}),
 								)
@@ -779,9 +791,11 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 										return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 											return layout.Stack{}.Layout(gtx,
 												layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+													var dims layout.Dimensions
+
 													if !t.WrapEnabled {
 														t.RespListH.Axis = layout.Horizontal
-														return material.List(th, &t.RespListH).Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
+														dims = material.List(th, &t.RespListH).Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
 															edGtx := gtx
 															edGtx.Constraints.Max.X = 10000000
 															edGtx.Constraints.Min.Y = gtx.Constraints.Max.Y
@@ -798,19 +812,16 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 														} else {
 															t.LastRespWidth = gtx.Constraints.Max.X
 														}
-
-														macro := op.Record(gtx.Ops)
 														ed := material.Editor(th, &t.RespEditor, "")
 														ed.TextSize = unit.Sp(12)
 														ed.Layout(edGtx)
-														call := macro.Stop()
 
 														cl := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
-														call.Add(gtx.Ops)
 														cl.Pop()
-
-														return layout.Dimensions{Size: gtx.Constraints.Max}
+														dims = layout.Dimensions{Size: gtx.Constraints.Max}
 													}
+
+													return dims
 												}),
 												layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 													bounds := t.RespEditor.GetScrollBounds()
