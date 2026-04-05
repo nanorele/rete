@@ -488,11 +488,37 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 	if maxRatio < 0.1 {
 		maxRatio = 0.1
 	}
-	if ui.SidebarEnvRatio > maxRatio {
-		ui.SidebarEnvRatio = maxRatio
+
+	var moved bool
+	var finalY float32
+
+	for {
+		e, ok := ui.SidebarEnvDrag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
+		if !ok {
+			break
+		}
+		switch e.Kind {
+		case pointer.Press:
+			ui.SidebarEnvDragY = e.Position.Y
+		case pointer.Drag:
+			finalY = e.Position.Y
+			moved = true
+		}
 	}
-	if ui.SidebarEnvRatio < 0.1 {
-		ui.SidebarEnvRatio = 0.1
+
+	if moved && flexHeight > 0 {
+		delta := finalY - ui.SidebarEnvDragY
+		oldRatio := ui.SidebarEnvRatio
+		ui.SidebarEnvRatio += delta / flexHeight
+
+		if ui.SidebarEnvRatio < 0.1 {
+			ui.SidebarEnvRatio = 0.1
+		} else if ui.SidebarEnvRatio > maxRatio {
+			ui.SidebarEnvRatio = maxRatio
+		}
+
+		ui.SidebarEnvDragY = finalY - ((ui.SidebarEnvRatio - oldRatio) * flexHeight)
+		ui.Window.Invalidate()
 	}
 
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
@@ -615,36 +641,6 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 			size := image.Point{X: gtx.Constraints.Max.X, Y: gtx.Dp(unit.Dp(6))}
 			rect := clip.Rect{Max: size}
 			defer rect.Push(gtx.Ops).Pop()
-
-			var moved bool
-			var finalY float32
-
-			for {
-				e, ok := ui.SidebarEnvDrag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
-				if !ok {
-					break
-				}
-				switch e.Kind {
-				case pointer.Press:
-					ui.SidebarEnvDragY = e.Position.Y
-				case pointer.Drag:
-					finalY = e.Position.Y
-					moved = true
-				}
-			}
-
-			if moved && flexHeight > 0 {
-				delta := finalY - ui.SidebarEnvDragY
-				ui.SidebarEnvRatio += delta / flexHeight
-
-				if ui.SidebarEnvRatio < 0.1 {
-					ui.SidebarEnvRatio = 0.1
-				} else if ui.SidebarEnvRatio > maxRatio {
-					ui.SidebarEnvRatio = maxRatio
-				}
-
-				ui.Window.Invalidate()
-			}
 
 			pointer.CursorRowResize.Add(gtx.Ops)
 			ui.SidebarEnvDrag.Add(gtx.Ops)
@@ -891,7 +887,8 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						return TextField(gtx, ui.Theme, &env.NameEditor, "Environment Name", true)
+						// Передаем 0 как шестой аргумент (frozenWidth)
+						return TextField(gtx, ui.Theme, &env.NameEditor, "Environment Name", true, 0)
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -961,11 +958,13 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 								return material.CheckBox(ui.Theme, &r.Enabled, "").Layout(gtx)
 							}),
 							layout.Flexed(0.45, func(gtx layout.Context) layout.Dimensions {
-								return TextField(gtx, ui.Theme, &r.KeyEditor, "Key", true)
+								// Передаем 0 как шестой аргумент (frozenWidth)
+								return TextField(gtx, ui.Theme, &r.KeyEditor, "Key", true, 0)
 							}),
 							layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 							layout.Flexed(0.45, func(gtx layout.Context) layout.Dimensions {
-								return TextField(gtx, ui.Theme, &r.ValEditor, "Value", true)
+								// Передаем 0 как шестой аргумент (frozenWidth)
+								return TextField(gtx, ui.Theme, &r.ValEditor, "Value", true, 0)
 							}),
 							layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1035,12 +1034,46 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
+	flexWidth := float32(gtx.Constraints.Max.X - gtx.Dp(unit.Dp(4)))
+	var moved bool
+	var finalX float32
+
+	for {
+		e, ok := ui.SidebarDrag.Update(gtx.Metric, gtx.Source, gesture.Horizontal)
+		if !ok {
+			break
+		}
+		switch e.Kind {
+		case pointer.Press:
+			ui.SidebarDragX = e.Position.X
+		case pointer.Drag:
+			finalX = e.Position.X
+			moved = true
+		}
+	}
+
 	appMaxX := float32(gtx.Constraints.Max.X)
+	var minSidebarRatio float32
 	if appMaxX > 0 {
-		minSidebarRatio := float32(gtx.Dp(unit.Dp(200))) / appMaxX
+		minSidebarRatio = float32(gtx.Dp(unit.Dp(200))) / appMaxX
 		if ui.SidebarRatio < minSidebarRatio {
 			ui.SidebarRatio = minSidebarRatio
 		}
+	}
+
+	if moved && flexWidth > 0 {
+		delta := finalX - ui.SidebarDragX
+		oldRatio := ui.SidebarRatio
+		ui.SidebarRatio += delta / flexWidth
+
+		if ui.SidebarRatio < minSidebarRatio {
+			ui.SidebarRatio = minSidebarRatio
+		} else if ui.SidebarRatio > 0.5 {
+			ui.SidebarRatio = 0.5
+		}
+
+		ui.SidebarDragX = finalX - ((ui.SidebarRatio - oldRatio) * flexWidth)
+		ui.Window.Invalidate()
 	}
 
 	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
@@ -1051,42 +1084,6 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 			size := image.Point{X: gtx.Dp(unit.Dp(4)), Y: gtx.Constraints.Min.Y}
 			rect := clip.Rect{Max: size}
 			defer rect.Push(gtx.Ops).Pop()
-
-			var moved bool
-			var finalX float32
-
-			for {
-				e, ok := ui.SidebarDrag.Update(gtx.Metric, gtx.Source, gesture.Horizontal)
-				if !ok {
-					break
-				}
-				switch e.Kind {
-				case pointer.Press:
-					ui.SidebarDragX = e.Position.X
-				case pointer.Drag:
-					finalX = e.Position.X
-					moved = true
-				}
-			}
-
-			flexWidth := float32(gtx.Constraints.Max.X - gtx.Dp(unit.Dp(4)))
-			var minSidebarRatio float32
-			if flexWidth > 0 {
-				minSidebarRatio = float32(gtx.Dp(unit.Dp(200))) / flexWidth
-			}
-
-			if moved && flexWidth > 0 {
-				delta := finalX - ui.SidebarDragX
-				ui.SidebarRatio += delta / flexWidth
-
-				if ui.SidebarRatio < minSidebarRatio {
-					ui.SidebarRatio = minSidebarRatio
-				} else if ui.SidebarRatio > 0.5 {
-					ui.SidebarRatio = 0.5
-				}
-
-				ui.Window.Invalidate()
-			}
 
 			pointer.CursorColResize.Add(gtx.Ops)
 			ui.SidebarDrag.Add(gtx.Ops)
@@ -1349,7 +1346,8 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 							ui.saveState()
 						}
 
-						return tab.layout(gtx, ui.Theme, ui.Window, activeEnvVars)
+						isDragging := ui.SidebarDrag.Dragging() || ui.SidebarEnvDrag.Dragging()
+						return tab.layout(gtx, ui.Theme, ui.Window, activeEnvVars, isDragging)
 					}
 					return layout.Dimensions{}
 				}),

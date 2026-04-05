@@ -102,8 +102,9 @@ type RequestTab struct {
 	SplitDragX       float32
 	ScrollDrag       gesture.Drag
 	ScrollDragY      float32
+	LastReqWidth     int
+	LastRespWidth    int
 	IsDraggingSplit  bool
-	LastEditorWidth  int
 }
 
 func NewRequestTab(title string) *RequestTab {
@@ -137,7 +138,7 @@ func processTemplate(input string, env map[string]string) string {
 	})
 }
 
-func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint string, drawBorder bool, env map[string]string) layout.Dimensions {
+func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint string, drawBorder bool, env map[string]string, frozenWidth int) layout.Dimensions {
 	pX := gtx.Dp(unit.Dp(4))
 	pY := gtx.Dp(unit.Dp(6))
 
@@ -146,8 +147,13 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 		return layout.Dimensions{}
 	}
 
+	textWidth := availWidth
+	if frozenWidth > 0 {
+		textWidth = frozenWidth
+	}
+
 	edGtx := gtx
-	edGtx.Constraints.Min.X = availWidth - (pX * 2)
+	edGtx.Constraints.Min.X = textWidth - (pX * 2)
 	if edGtx.Constraints.Min.X < 0 {
 		edGtx.Constraints.Min.X = 0
 	}
@@ -261,11 +267,14 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 		})
 	}
 
+	textClip := clip.Rect{Max: finalSize}.Push(gtx.Ops)
 	call.Add(gtx.Ops)
+	textClip.Pop()
+
 	return layout.Dimensions{Size: finalSize, Baseline: dims.Baseline + pY}
 }
 
-func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint string, drawBorder bool) layout.Dimensions {
+func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint string, drawBorder bool, frozenWidth int) layout.Dimensions {
 	p := gtx.Dp(unit.Dp(4))
 
 	availWidth := gtx.Constraints.Max.X
@@ -273,8 +282,13 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 		return layout.Dimensions{}
 	}
 
+	textWidth := availWidth
+	if frozenWidth > 0 {
+		textWidth = frozenWidth
+	}
+
 	edGtx := gtx
-	edGtx.Constraints.Min.X = availWidth - (p * 2)
+	edGtx.Constraints.Min.X = textWidth - (p * 2)
 	if edGtx.Constraints.Min.X < 0 {
 		edGtx.Constraints.Min.X = 0
 	}
@@ -319,7 +333,10 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 		})
 	}
 
+	textClip := clip.Rect{Max: finalSize}.Push(gtx.Ops)
 	call.Add(gtx.Ops)
+	textClip.Pop()
+
 	return layout.Dimensions{Size: finalSize, Baseline: dims.Baseline + p}
 }
 
@@ -404,7 +421,7 @@ func (t *RequestTab) updateSystemHeaders() {
 	}
 }
 
-func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Window, activeEnv map[string]string) layout.Dimensions {
+func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Window, activeEnv map[string]string, isAppDragging bool) layout.Dimensions {
 	t.updateSystemHeaders()
 
 	select {
@@ -467,6 +484,60 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 		visibleHeaders = append(visibleHeaders, h)
 	}
 
+	flexWidth := float32(gtx.Constraints.Max.X - gtx.Dp(unit.Dp(8)))
+	var moved bool
+	var finalX float32
+	var released bool
+
+	for {
+		e, ok := t.SplitDrag.Update(gtx.Metric, gtx.Source, gesture.Horizontal)
+		if !ok {
+			break
+		}
+		switch e.Kind {
+		case pointer.Press:
+			t.SplitDragX = e.Position.X
+			t.IsDraggingSplit = true
+		case pointer.Drag:
+			finalX = e.Position.X
+			moved = true
+		case pointer.Cancel, pointer.Release:
+			t.IsDraggingSplit = false
+			released = true
+		}
+	}
+
+	reqMinDp := float32(gtx.Dp(unit.Dp(360)))
+	respMinDp := float32(gtx.Dp(unit.Dp(200)))
+
+	minReqRatio := reqMinDp / flexWidth
+	maxReqRatio := 1.0 - (respMinDp / flexWidth)
+
+	if minReqRatio > maxReqRatio {
+		minReqRatio = 0.5
+		maxReqRatio = 0.5
+	}
+
+	if moved && flexWidth > 0 {
+		delta := finalX - t.SplitDragX
+		oldRatio := t.SplitRatio
+		t.SplitRatio += delta / flexWidth
+
+		if t.SplitRatio < minReqRatio {
+			t.SplitRatio = minReqRatio
+		} else if t.SplitRatio > maxReqRatio {
+			t.SplitRatio = maxReqRatio
+		}
+
+		t.SplitDragX = finalX - ((t.SplitRatio - oldRatio) * flexWidth)
+		win.Invalidate()
+	}
+	if released {
+		win.Invalidate()
+	}
+
+	isDragging := isAppDragging || t.IsDraggingSplit
+
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -525,7 +596,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						return TextFieldOverlay(gtx, th, &t.URLInput, "https://api.example.com", true, activeEnv)
+						return TextFieldOverlay(gtx, th, &t.URLInput, "https://api.example.com", true, activeEnv, 0)
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -539,26 +610,6 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 		}),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				flexWidth := float32(gtx.Constraints.Max.X - gtx.Dp(unit.Dp(8)))
-
-				reqMinDp := float32(gtx.Dp(unit.Dp(360)))
-				respMinDp := float32(gtx.Dp(unit.Dp(200)))
-
-				minReqRatio := reqMinDp / flexWidth
-				maxReqRatio := 1.0 - (respMinDp / flexWidth)
-
-				if minReqRatio > maxReqRatio {
-					minReqRatio = 0.5
-					maxReqRatio = 0.5
-				}
-
-				if t.SplitRatio < minReqRatio {
-					t.SplitRatio = minReqRatio
-				}
-				if t.SplitRatio > maxReqRatio {
-					t.SplitRatio = maxReqRatio
-				}
-
 				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 					layout.Flexed(t.SplitRatio, func(gtx layout.Context) layout.Dimensions {
 						return layout.Inset{Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -631,11 +682,11 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 														return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 															return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 																layout.Flexed(0.45, func(gtx layout.Context) layout.Dimensions {
-																	return TextField(gtx, th, &h.Key, "Header Key", false)
+																	return TextField(gtx, th, &h.Key, "Header Key", false, 0)
 																}),
 																layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 																layout.Flexed(0.45, func(gtx layout.Context) layout.Dimensions {
-																	return TextField(gtx, th, &h.Value, "Header Value", false)
+																	return TextField(gtx, th, &h.Value, "Header Value", false, 0)
 																}),
 																layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 																layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -669,7 +720,13 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 									}),
 									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 										return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											return TextField(gtx, th, &t.ReqEditor, "Request Body", false)
+											reqWidth := 0
+											if isDragging && t.LastReqWidth > 0 {
+												reqWidth = t.LastReqWidth
+											} else {
+												t.LastReqWidth = gtx.Constraints.Max.X
+											}
+											return TextField(gtx, th, &t.ReqEditor, "Request Body", false, reqWidth)
 										})
 									}),
 								)
@@ -680,46 +737,6 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 						size := image.Point{X: gtx.Dp(unit.Dp(8)), Y: gtx.Constraints.Min.Y}
 						rect := clip.Rect{Max: size}
 						defer rect.Push(gtx.Ops).Pop()
-
-						var moved bool
-						var finalX float32
-						var released bool
-
-						for {
-							e, ok := t.SplitDrag.Update(gtx.Metric, gtx.Source, gesture.Horizontal)
-							if !ok {
-								break
-							}
-							switch e.Kind {
-							case pointer.Press:
-								t.SplitDragX = e.Position.X
-								t.IsDraggingSplit = true
-							case pointer.Drag:
-								finalX = e.Position.X
-								moved = true
-							case pointer.Cancel, pointer.Release:
-								t.IsDraggingSplit = false
-								released = true
-							}
-						}
-
-						if moved && flexWidth > 0 {
-							delta := finalX - t.SplitDragX
-							oldRatio := t.SplitRatio
-							t.SplitRatio += delta / flexWidth
-
-							if t.SplitRatio < minReqRatio {
-								t.SplitRatio = minReqRatio
-							} else if t.SplitRatio > maxReqRatio {
-								t.SplitRatio = maxReqRatio
-							}
-
-							t.SplitDragX = finalX - ((t.SplitRatio - oldRatio) * flexWidth)
-							win.Invalidate()
-						}
-						if released {
-							win.Invalidate()
-						}
 
 						pointer.CursorColResize.Add(gtx.Ops)
 						t.SplitDrag.Add(gtx.Ops)
@@ -762,8 +779,6 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 										return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 											return layout.Stack{}.Layout(gtx,
 												layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-													defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-
 													if !t.WrapEnabled {
 														t.RespListH.Axis = layout.Horizontal
 														return material.List(th, &t.RespListH).Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
@@ -777,16 +792,22 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 														})
 													} else {
 														edGtx := gtx
-														if t.IsDraggingSplit && t.LastEditorWidth > 0 {
-															edGtx.Constraints.Max.X = t.LastEditorWidth
-															edGtx.Constraints.Min.X = t.LastEditorWidth
+														if isDragging && t.LastRespWidth > 0 {
+															edGtx.Constraints.Max.X = t.LastRespWidth
+															edGtx.Constraints.Min.X = t.LastRespWidth
 														} else {
-															t.LastEditorWidth = gtx.Constraints.Max.X
+															t.LastRespWidth = gtx.Constraints.Max.X
 														}
 
+														macro := op.Record(gtx.Ops)
 														ed := material.Editor(th, &t.RespEditor, "")
 														ed.TextSize = unit.Sp(12)
 														ed.Layout(edGtx)
+														call := macro.Stop()
+
+														cl := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
+														call.Add(gtx.Ops)
+														cl.Pop()
 
 														return layout.Dimensions{Size: gtx.Constraints.Max}
 													}
