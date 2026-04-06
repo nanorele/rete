@@ -89,8 +89,9 @@ type AppUI struct {
 	tabWidthCache map[*RequestTab]cachedTab
 }
 
-func measureTextWidth(gtx layout.Context, th *material.Theme, size unit.Sp, str string) int {
+func measureTextWidth(gtx layout.Context, th *material.Theme, size unit.Sp, fnt font.Font, str string) int {
 	th.Shaper.LayoutString(text.Parameters{
+		Font:     fnt,
 		PxPerEm:  fixed.I(gtx.Sp(size)),
 		MaxWidth: gtx.Constraints.Max.X,
 		Locale:   gtx.Locale,
@@ -119,13 +120,13 @@ func measureTabWidth(gtx layout.Context, th *material.Theme, title string) int {
 		if len(words) == 0 {
 			cleanTitle = "New request"
 		}
-		maxW = measureTextWidth(gtx, th, unit.Sp(12), cleanTitle)
+		maxW = measureTextWidth(gtx, th, unit.Sp(12), font.Font{}, cleanTitle)
 	} else {
 		mid := (len(words) + 1) / 2
 		line1 := strings.Join(words[:mid], " ")
 		line2 := strings.Join(words[mid:], " ")
-		w1 := measureTextWidth(gtx, th, unit.Sp(12), line1)
-		w2 := measureTextWidth(gtx, th, unit.Sp(12), line2)
+		w1 := measureTextWidth(gtx, th, unit.Sp(12), font.Font{}, line1)
+		w2 := measureTextWidth(gtx, th, unit.Sp(12), font.Font{}, line2)
 		if w1 > w2 {
 			maxW = w1
 		} else {

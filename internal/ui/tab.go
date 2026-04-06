@@ -169,7 +169,10 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 	macro := op.Record(gtx.Ops)
 	op.Offset(image.Point{X: pX, Y: pY}).Add(gtx.Ops)
 
+	monoFont := font.Font{Typeface: "Ubuntu Mono"}
+
 	th.Shaper.LayoutString(text.Parameters{
+		Font:     monoFont,
 		PxPerEm:  fixed.I(gtx.Sp(unit.Sp(12))),
 		MaxWidth: gtx.Constraints.Max.X,
 		Locale:   gtx.Locale,
@@ -180,7 +183,7 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 		lineHeight = (g.Ascent + g.Descent).Ceil()
 	}
 	if lineHeight == 0 {
-		lineHeight = gtx.Dp(unit.Dp(14))
+		lineHeight = gtx.Dp(unit.Dp(15))
 	}
 
 	scrollX := ed.GetScrollX()
@@ -216,8 +219,8 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 		prefix := textStr[:absoluteStart]
 		varText := textStr[absoluteStart:absoluteEnd]
 
-		pWidth := measureTextWidth(gtx, th, unit.Sp(12), prefix)
-		vWidth := measureTextWidth(gtx, th, unit.Sp(12), varText)
+		pWidth := measureTextWidth(gtx, th, unit.Sp(13), monoFont, prefix)
+		vWidth := measureTextWidth(gtx, th, unit.Sp(13), monoFont, varText)
 
 		bgColor := color.NRGBA{R: 130, G: 60, B: 60, A: 100}
 		if _, ok := env[varName]; ok {
@@ -238,7 +241,8 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 	cl.Pop()
 
 	e := material.Editor(th, ed, hint)
-	e.TextSize = unit.Sp(12)
+	e.TextSize = unit.Sp(13)
+	e.Font = monoFont
 	dims := e.Layout(edGtx)
 	call := macro.Stop()
 
