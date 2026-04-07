@@ -71,6 +71,8 @@ type HeaderItem struct {
 	Value       widget.Editor
 	DelBtn      widget.Clickable
 	IsGenerated bool
+	LastAutoKey string
+	LastAutoVal string
 }
 
 type RequestTab struct {
@@ -370,18 +372,22 @@ func (t *RequestTab) addHeader(k, v string) {
 }
 
 func (t *RequestTab) addSystemHeader(k, v string) {
-	h := &HeaderItem{IsGenerated: true}
+	h := &HeaderItem{
+		IsGenerated: true,
+		LastAutoKey: k,
+		LastAutoVal: v,
+	}
 	h.Key.SetText(k)
 	h.Value.SetText(v)
 	t.Headers = append(t.Headers, h)
 }
 
 func (t *RequestTab) updateSystemHeaders() {
-	hasManualCT := false
 	for _, h := range t.Headers {
-		if !h.IsGenerated && strings.EqualFold(h.Key.Text(), "Content-Type") {
-			hasManualCT = true
-			break
+		if h.IsGenerated {
+			if h.Key.Text() != h.LastAutoKey || h.Value.Text() != h.LastAutoVal {
+				h.IsGenerated = false
+			}
 		}
 	}
 
@@ -393,10 +399,19 @@ func (t *RequestTab) updateSystemHeaders() {
 	}
 
 	sysHeaders := map[string]string{
-		"User-Agent": "tracto/1.0",
+		"User-Agent":   "tracto/1.0",
+		"Content-Type": autoCT,
 	}
-	if !hasManualCT {
-		sysHeaders["Content-Type"] = autoCT
+
+	for _, h := range t.Headers {
+		if !h.IsGenerated {
+			k := h.Key.Text()
+			for sysK := range sysHeaders {
+				if strings.EqualFold(k, sysK) {
+					delete(sysHeaders, sysK)
+				}
+			}
+		}
 	}
 
 	var newHeaders []*HeaderItem
@@ -417,6 +432,7 @@ func (t *RequestTab) updateSystemHeaders() {
 			if h.IsGenerated && h.Key.Text() == k {
 				if h.Value.Text() != v {
 					h.Value.SetText(v)
+					h.LastAutoVal = v
 				}
 				found = true
 				break
