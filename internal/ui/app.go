@@ -20,6 +20,7 @@ import (
 	"github.com/nanorele/gio/font/opentype"
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/io/event"
+	"github.com/nanorele/gio/io/key"
 	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/io/system"
 	"github.com/nanorele/gio/layout"
@@ -99,6 +100,8 @@ type AppUI struct {
 	SidebarEnvDrag   gesture.Drag
 	SidebarEnvDragY  float32
 	EditingEnv       *EnvironmentUI
+
+	RenamingNode  *CollectionNode
 
 	tabWidthCache map[*RequestTab]cachedTab
 }
@@ -549,6 +552,23 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 	paint.FillShape(gtx.Ops, color.NRGBA{R: 24, G: 24, B: 24, A: 255}, clip.Rect{Max: size}.Op())
 	gtx.Constraints.Min = size
 
+	// Clicking on sidebar background defocuses rename editor
+	bgClip := clip.Rect{Max: size}.Push(gtx.Ops)
+	event.Op(gtx.Ops, &ui.ColList)
+	for {
+		ev, ok := gtx.Event(pointer.Filter{
+			Target: &ui.ColList,
+			Kinds:  pointer.Press,
+		})
+		if !ok {
+			break
+		}
+		if _, ok := ev.(pointer.Event); ok && ui.RenamingNode != nil {
+			gtx.Execute(key.FocusCmd{Tag: nil})
+		}
+	}
+	bgClip.Pop()
+
 	var moved bool
 	var finalY float32
 	var released bool
@@ -637,6 +657,23 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 						})
 					}
 
+					// Helper to commit rename and clear tracking
+					commitRename := func(n *CollectionNode) {
+						if n == nil || !n.IsRenaming {
+							return
+						}
+						n.Name = n.NameEditor.Text()
+						if n.Request != nil {
+							n.Request.Name = n.Name
+						}
+						n.IsRenaming = false
+						n.RenamingFocused = false
+						if ui.RenamingNode == n {
+							ui.RenamingNode = nil
+						}
+						SaveCollectionToFile(n.Collection)
+					}
+
 					var updateCols bool
 					dim := material.List(ui.Theme, &ui.ColList).Layout(gtx, len(ui.VisibleCols), func(gtx layout.Context, i int) layout.Dimensions {
 						node := ui.VisibleCols[i]
@@ -647,16 +684,51 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 								break
 							}
 							if _, ok := ev.(widget.SubmitEvent); ok {
-								node.Name = node.NameEditor.Text()
-								if node.Request != nil {
-									node.Request.Name = node.Name
+								commitRename(node)
+							}
+						}
+
+						// Ctrl+S while editor is focused => commit rename
+						// Escape => cancel rename (restore original name)
+						for {
+							ev, ok := gtx.Event(
+								key.Filter{Focus: &node.NameEditor, Name: "S", Required: key.ModShortcut},
+								key.Filter{Focus: &node.NameEditor, Name: key.NameEscape},
+							)
+							if !ok {
+								break
+							}
+							if e, ok := ev.(key.Event); ok && e.State == key.Press {
+								if e.Name == key.NameEscape {
+									// Cancel: exit without saving
+									node.IsRenaming = false
+									node.RenamingFocused = false
+									if ui.RenamingNode == node {
+										ui.RenamingNode = nil
+									}
+								} else {
+									commitRename(node)
 								}
-								node.IsRenaming = false
-								SaveCollectionToFile(node.Collection)
+							}
+						}
+
+						// Focus management for rename editor
+						if node.IsRenaming {
+							ui.RenamingNode = node
+							if gtx.Focused(&node.NameEditor) {
+								node.RenamingFocused = true
+							} else if node.RenamingFocused {
+								commitRename(node)
+							} else {
+								gtx.Execute(key.FocusCmd{Tag: &node.NameEditor})
 							}
 						}
 
 						for node.MenuBtn.Clicked(gtx) {
+							// Close rename on another node if active
+							if ui.RenamingNode != nil && ui.RenamingNode != node {
+								commitRename(ui.RenamingNode)
+							}
 							for _, n := range ui.VisibleCols {
 								if n != node {
 									n.MenuOpen = false
@@ -667,6 +739,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 						}
 
 						for node.AddReqBtn.Clicked(gtx) {
+							commitRename(ui.RenamingNode)
 							newNode := &CollectionNode{
 								Name:       "New Request",
 								Request:    &ParsedRequest{Method: "GET"},
@@ -684,6 +757,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 						}
 
 						for node.AddFldBtn.Clicked(gtx) {
+							commitRename(ui.RenamingNode)
 							newNode := &CollectionNode{
 								Name:       "New Folder",
 								IsFolder:   true,
@@ -701,9 +775,11 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 						}
 
 						for node.EditBtn.Clicked(gtx) {
+							commitRename(ui.RenamingNode)
 							node.IsRenaming = true
 							node.NameEditor.SetText(node.Name)
 							node.MenuOpen = false
+							ui.RenamingNode = node
 						}
 
 						for node.DupBtn.Clicked(gtx) {
@@ -744,6 +820,13 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 						}
 
 						for node.Click.Clicked(gtx) {
+							// Close rename if clicking on any node
+							if ui.RenamingNode != nil && ui.RenamingNode != node {
+								commitRename(ui.RenamingNode)
+							}
+							if node.IsRenaming {
+								continue
+							}
 							if node.IsFolder {
 								node.Expanded = !node.Expanded
 								updateCols = true
@@ -814,7 +897,9 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 											btn.Color = ui.Theme.Palette.Fg
 											btn.Inset = layout.UniformInset(unit.Dp(2))
 											btn.TextSize = unit.Sp(14)
-											return btn.Layout(gtx)
+											dims := btn.Layout(gtx)
+											node.MenuBtnWidth = dims.Size.X
+											return dims
 										}),
 									)
 								}),
@@ -824,47 +909,48 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 									}
 
 									macro := op.Record(gtx.Ops)
-									layout.Inset{
-										Top:  unit.Dp(24),
-										Left: unit.Dp(float32(node.Depth*12) + 24),
+									menuWidth := gtx.Dp(unit.Dp(166))
+									menuX := gtx.Constraints.Max.X - menuWidth
+									if menuX < 0 {
+										menuX = 0
+									}
+									op.Offset(image.Pt(menuX, gtx.Dp(unit.Dp(24)))).Add(gtx.Ops)
+									widget.Border{
+										Color:        color.NRGBA{R: 60, G: 60, B: 60, A: 255},
+										CornerRadius: unit.Dp(4),
+										Width:        unit.Dp(1),
 									}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										return widget.Border{
-											Color:        color.NRGBA{R: 60, G: 60, B: 60, A: 255},
-											CornerRadius: unit.Dp(4),
-											Width:        unit.Dp(1),
-										}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											return layout.Stack{}.Layout(gtx,
-												layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-													paint.FillShape(gtx.Ops, color.NRGBA{R: 35, G: 35, B: 35, A: 255}, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
-													return layout.Dimensions{Size: gtx.Constraints.Min}
-												}),
-												layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-													return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-														var actions []layout.FlexChild
-														if node.IsFolder || node.Depth == 0 {
-															actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-																return menuOption(gtx, ui.Theme, &node.AddReqBtn, "Add Request", iconAddReq)
-															}))
-															actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-																return menuOption(gtx, ui.Theme, &node.AddFldBtn, "Add Folder", iconAddFld)
-															}))
-														}
+										return layout.Stack{}.Layout(gtx,
+											layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+												paint.FillShape(gtx.Ops, color.NRGBA{R: 35, G: 35, B: 35, A: 255}, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
+												return layout.Dimensions{Size: gtx.Constraints.Min}
+											}),
+											layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+												return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+													var actions []layout.FlexChild
+													if node.IsFolder || node.Depth == 0 {
 														actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-															return menuOption(gtx, ui.Theme, &node.EditBtn, "Rename", iconRename)
+															return menuOption(gtx, ui.Theme, &node.AddReqBtn, "Add Request", iconAddReq)
 														}))
-														if node.Depth > 0 {
-															actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-																return menuOption(gtx, ui.Theme, &node.DupBtn, "Duplicate", iconDup)
-															}))
-														}
 														actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-															return menuOption(gtx, ui.Theme, &node.DelBtn, "Delete", iconDel)
+															return menuOption(gtx, ui.Theme, &node.AddFldBtn, "Add Folder", iconAddFld)
 														}))
-														return layout.Flex{Axis: layout.Vertical}.Layout(gtx, actions...)
-													})
-												}),
-											)
-										})
+													}
+													actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+														return menuOption(gtx, ui.Theme, &node.EditBtn, "Rename", iconRename)
+													}))
+													if node.Depth > 0 {
+														actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+															return menuOption(gtx, ui.Theme, &node.DupBtn, "Duplicate", iconDup)
+														}))
+													}
+													actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+														return menuOption(gtx, ui.Theme, &node.DelBtn, "Delete", iconDel)
+													}))
+													return layout.Flex{Axis: layout.Vertical}.Layout(gtx, actions...)
+												})
+											}),
+										)
 									})
 									call := macro.Stop()
 									op.Defer(gtx.Ops, call)

@@ -43,16 +43,18 @@ type CollectionNode struct {
 	Parent     *CollectionNode
 	Collection *ParsedCollection
 
-	MenuBtn   widget.Clickable
-	MenuOpen  bool
+	MenuBtn      widget.Clickable
+	MenuOpen     bool
+	MenuBtnWidth int
 	AddReqBtn widget.Clickable
 	AddFldBtn widget.Clickable
 	EditBtn   widget.Clickable
 	DupBtn    widget.Clickable
 	DelBtn    widget.Clickable
 
-	IsRenaming bool
-	NameEditor widget.Editor
+	IsRenaming      bool
+	RenamingFocused bool
+	NameEditor      widget.Editor
 }
 
 type ParsedCollection struct {
