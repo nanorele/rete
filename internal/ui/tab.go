@@ -143,8 +143,9 @@ type RequestTab struct {
 	searchResults  []int
 	searchCurrent  int
 
-	URLSubmitted bool
-	FileSaveChan chan io.WriteCloser
+	URLSubmitted     bool
+	FileSaveChan     chan io.WriteCloser
+	dirtyCheckNeeded bool
 }
 
 func NewRequestTab(title string) *RequestTab {
@@ -181,27 +182,36 @@ func (t *RequestTab) checkDirty() {
 		t.IsDirty = true
 		return
 	}
-	if t.URLInput.Len() != len(req.URL) || t.URLInput.Text() != req.URL {
+	if t.URLInput.Len() != len(req.URL) {
 		t.IsDirty = true
 		return
 	}
-	if t.ReqEditor.Len() != len(req.Body) || t.ReqEditor.Text() != req.Body {
+	if t.ReqEditor.Len() != len(req.Body) {
 		t.IsDirty = true
 		return
 	}
 	userHeaders := 0
 	for _, h := range t.Headers {
-		if !h.IsGenerated && h.Key.Text() != "" {
+		if !h.IsGenerated && h.Key.Len() > 0 {
 			userHeaders++
-			if v, ok := req.Headers[h.Key.Text()]; !ok || v != h.Value.Text() {
-				t.IsDirty = true
-				return
-			}
 		}
 	}
 	if userHeaders != len(req.Headers) {
 		t.IsDirty = true
 		return
+	}
+	if t.URLInput.Text() != req.URL {
+		t.IsDirty = true
+		return
+	}
+	for _, h := range t.Headers {
+		if !h.IsGenerated && h.Key.Len() > 0 {
+			k := h.Key.Text()
+			if v, ok := req.Headers[k]; !ok || v != h.Value.Text() {
+				t.IsDirty = true
+				return
+			}
+		}
 	}
 	t.IsDirty = false
 }
@@ -364,6 +374,8 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 		switch ev.(type) {
 		case widget.SubmitEvent:
 			t.URLSubmitted = true
+		case widget.ChangeEvent:
+			t.dirtyCheckNeeded = true
 		}
 	}
 
@@ -374,6 +386,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 		}
 		if _, ok := ev.(widget.ChangeEvent); ok {
 			t.updateSystemHeaders()
+			t.dirtyCheckNeeded = true
 		}
 	}
 
@@ -457,11 +470,13 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 		for t.MethodClickables[i].Clicked(gtx) {
 			t.Method = methods[i]
 			t.MethodListOpen = false
+			t.dirtyCheckNeeded = true
 		}
 	}
 
 	for t.AddHeaderBtn.Clicked(gtx) {
 		t.addHeader("", "")
+		t.dirtyCheckNeeded = true
 	}
 
 	for t.ViewGeneratedBtn.Clicked(gtx) {
@@ -472,6 +487,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 		if t.Headers[i].DelBtn.Clicked(gtx) {
 			t.Headers = append(t.Headers[:i], t.Headers[i+1:]...)
 			i--
+			t.dirtyCheckNeeded = true
 		}
 	}
 
@@ -495,8 +511,30 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 		t.saveToCollection()
 	}
 
-	if t.LinkedNode != nil {
+	if t.dirtyCheckNeeded && t.LinkedNode != nil {
+		t.dirtyCheckNeeded = false
 		t.checkDirty()
+	}
+
+	for _, h := range t.Headers {
+		for {
+			ev, ok := h.Key.Update(gtx)
+			if !ok {
+				break
+			}
+			if _, ok := ev.(widget.ChangeEvent); ok {
+				t.dirtyCheckNeeded = true
+			}
+		}
+		for {
+			ev, ok := h.Value.Update(gtx)
+			if !ok {
+				break
+			}
+			if _, ok := ev.(widget.ChangeEvent); ok {
+				t.dirtyCheckNeeded = true
+			}
+		}
 	}
 
 	contentType := "none"
@@ -1333,7 +1371,7 @@ func (t *RequestTab) streamResponse(ctx context.Context, body io.Reader, dest io
 	return total, nil
 }
 
-const previewBatchSize = 5 * 1024 * 1024
+const previewBatchSize = 1024 * 1024
 
 func loadPreviewFromFile(path string, totalSize int64) (string, int64) {
 	readSize := totalSize

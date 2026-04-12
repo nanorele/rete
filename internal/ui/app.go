@@ -121,9 +121,10 @@ type AppUI struct {
 	TabDragPressTime time.Time
 	TabDragCurrentY  float32
 
-	tabWidthCache map[*RequestTab]cachedTab
-	activeEnvVars map[string]string
+	tabWidthCache  map[*RequestTab]cachedTab
+	activeEnvVars  map[string]string
 	activeEnvDirty bool
+	saveNeeded     bool
 }
 
 func measureTabWidth(gtx layout.Context, th *material.Theme, title string) int {
@@ -252,7 +253,7 @@ func (ui *AppUI) relinkTabs() {
 }
 
 func (ui *AppUI) updateVisibleCols() {
-	var visible []*CollectionNode
+	visible := ui.VisibleCols[:0]
 	var build func(node *CollectionNode)
 	build = func(node *CollectionNode) {
 		visible = append(visible, node)
@@ -331,6 +332,7 @@ func (ui *AppUI) Run() error {
 				return ui.layoutApp(gtx)
 			})
 			e.Frame(gtx.Ops)
+			ui.flushSaveState()
 		}
 	}
 }
@@ -437,6 +439,14 @@ func (ui *AppUI) saveStateSync() {
 }
 
 func (ui *AppUI) saveState() {
+	ui.saveNeeded = true
+}
+
+func (ui *AppUI) flushSaveState() {
+	if !ui.saveNeeded {
+		return
+	}
+	ui.saveNeeded = false
 	state := ui.buildStateSnapshot()
 	go func() {
 		data, err := json.MarshalIndent(state, "", "  ")
@@ -1896,7 +1906,8 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 			}
 		}
 
-		clipStack := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
+		tabBarHeight := len(rows) * tabHeight
+		clipStack := clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, tabBarHeight)}.Push(gtx.Ops)
 		passStack := pointer.PassOp{}.Push(gtx.Ops)
 		event.Op(gtx.Ops, &ui.TabDragTag)
 

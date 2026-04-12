@@ -39,39 +39,25 @@ func measureTextWidth(gtx layout.Context, th *material.Theme, size unit.Sp, fnt 
 
 var monoFont = font.Font{Typeface: "Ubuntu Mono"}
 
-func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint string, drawBorder bool, env map[string]string, frozenWidth int, textSize unit.Sp) layout.Dimensions {
-	ed.SingleLine = true
-	ed.Submit = true
-	pX := gtx.Dp(unit.Dp(4))
-	pY := gtx.Dp(unit.Dp(6))
+type cachedMetrics struct {
+	pxPerEm int
+	height  int
+	spacing int
+}
 
-	availWidth := gtx.Constraints.Max.X
-	if availWidth <= 0 {
-		return layout.Dimensions{}
-	}
+var metricsCache [4]cachedMetrics
 
-	textWidth := availWidth
-	if frozenWidth > 0 {
-		textWidth = frozenWidth
+func getLineMetrics(gtx layout.Context, th *material.Theme, textSize unit.Sp) (int, int) {
+	pxPerEm := gtx.Sp(textSize)
+	for i := range metricsCache {
+		if metricsCache[i].pxPerEm == pxPerEm && metricsCache[i].height > 0 {
+			return metricsCache[i].height, metricsCache[i].spacing
+		}
 	}
-
-	edGtx := gtx
-	edGtx.Constraints.Min.X = textWidth - (pX * 2)
-	if edGtx.Constraints.Min.X < 0 {
-		edGtx.Constraints.Min.X = 0
-	}
-	edGtx.Constraints.Max.X = edGtx.Constraints.Min.X
-	edGtx.Constraints.Min.Y = gtx.Constraints.Min.Y - (pY * 2)
-	if edGtx.Constraints.Min.Y < 0 {
-		edGtx.Constraints.Min.Y = 0
-	}
-
-	macro := op.Record(gtx.Ops)
-	op.Offset(image.Point{X: pX, Y: pY}).Add(gtx.Ops)
 
 	th.Shaper.LayoutString(text.Parameters{
 		Font:     monoFont,
-		PxPerEm:  fixed.I(gtx.Sp(textSize)),
+		PxPerEm:  fixed.I(pxPerEm),
 		MaxWidth: 1 << 24,
 		Locale:   gtx.Locale,
 	}, "A")
@@ -84,12 +70,9 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 		lineHeight = gtx.Dp(unit.Dp(15))
 	}
 
-	scrollX := ed.GetScrollX()
-	textStr := ed.Text()
-
 	th.Shaper.LayoutString(text.Parameters{
 		Font:     monoFont,
-		PxPerEm:  fixed.I(gtx.Sp(textSize)),
+		PxPerEm:  fixed.I(pxPerEm),
 		MaxWidth: 1 << 24,
 		Locale:   gtx.Locale,
 	}, "A\nA")
@@ -111,60 +94,101 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 		lineSpacing = int(float64(lineHeight) * 1.2)
 	}
 
-	padY := gtx.Dp(unit.Dp(2))
-	numLines := strings.Count(textStr, "\n") + 1
-	totalHeight := numLines*lineSpacing + lineHeight
-
-	cl := clip.Rect{
-		Min: image.Pt(0, -padY),
-		Max: image.Pt(edGtx.Constraints.Max.X, totalHeight+padY),
-	}.Push(gtx.Ops)
-
-	searchStr := textStr
-	offset := 0
-	for {
-		start := strings.Index(searchStr, "{{")
-		if start == -1 {
-			break
+	for i := range metricsCache {
+		if metricsCache[i].pxPerEm == 0 {
+			metricsCache[i] = cachedMetrics{pxPerEm, lineHeight, lineSpacing}
+			return lineHeight, lineSpacing
 		}
-		end := strings.Index(searchStr[start:], "}}")
-		if end == -1 {
-			break
-		}
-		end += start + 2
-
-		varName := strings.TrimSpace(searchStr[start+2 : end-2])
-		absoluteStart := offset + start
-		absoluteEnd := offset + end
-
-		lineIndex := strings.Count(textStr[:absoluteStart], "\n")
-		lineStart := strings.LastIndex(textStr[:absoluteStart], "\n") + 1
-		linePrefix := textStr[lineStart:absoluteStart]
-		varText := textStr[absoluteStart:absoluteEnd]
-
-		pWidth := measureTextWidth(gtx, th, textSize, monoFont, linePrefix)
-		vWidth := measureTextWidth(gtx, th, textSize, monoFont, varText)
-
-		bgColor := colorVarMissing
-		if _, ok := env[varName]; ok {
-			bgColor = colorVarFound
-		}
-
-		yOff := lineIndex * lineSpacing
-		x1 := pWidth - scrollX
-		x2 := x1 + vWidth
-		varTopY := yOff - padY
-		varBottomY := yOff + lineHeight + padY
-
-		if x2 > 0 && x1 < edGtx.Constraints.Max.X {
-			rect := image.Rect(x1, varTopY, x2, varBottomY)
-			paint.FillShape(gtx.Ops, bgColor, clip.UniformRRect(rect, gtx.Dp(unit.Dp(3))).Op(gtx.Ops))
-		}
-
-		searchStr = searchStr[end:]
-		offset += end
 	}
-	cl.Pop()
+	metricsCache[0] = cachedMetrics{pxPerEm, lineHeight, lineSpacing}
+	return lineHeight, lineSpacing
+}
+
+func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint string, drawBorder bool, env map[string]string, frozenWidth int, textSize unit.Sp) layout.Dimensions {
+	ed.SingleLine = true
+	ed.Submit = true
+	pX := gtx.Dp(unit.Dp(4))
+	pY := gtx.Dp(unit.Dp(6))
+
+	availWidth := gtx.Constraints.Max.X
+	if availWidth <= 0 {
+		return layout.Dimensions{}
+	}
+
+	textWidth := availWidth
+	if frozenWidth > 0 {
+		textWidth = frozenWidth
+	}
+
+	edGtx := gtx
+	edGtx.Constraints.Min.X = max(textWidth-(pX*2), 0)
+	edGtx.Constraints.Max.X = edGtx.Constraints.Min.X
+	edGtx.Constraints.Min.Y = max(gtx.Constraints.Min.Y-(pY*2), 0)
+
+	macro := op.Record(gtx.Ops)
+	op.Offset(image.Point{X: pX, Y: pY}).Add(gtx.Ops)
+
+	lineHeight, lineSpacing := getLineMetrics(gtx, th, textSize)
+	scrollX := ed.GetScrollX()
+
+	hasVars := ed.Len() >= 4
+	if hasVars && env != nil {
+		textStr := ed.Text()
+		padY := gtx.Dp(unit.Dp(2))
+		numLines := strings.Count(textStr, "\n") + 1
+		totalHeight := numLines*lineSpacing + lineHeight
+
+		cl := clip.Rect{
+			Min: image.Pt(0, -padY),
+			Max: image.Pt(edGtx.Constraints.Max.X, totalHeight+padY),
+		}.Push(gtx.Ops)
+
+		searchStr := textStr
+		offset := 0
+		for {
+			start := strings.Index(searchStr, "{{")
+			if start == -1 {
+				break
+			}
+			end := strings.Index(searchStr[start:], "}}")
+			if end == -1 {
+				break
+			}
+			end += start + 2
+
+			varName := strings.TrimSpace(searchStr[start+2 : end-2])
+			absoluteStart := offset + start
+			absoluteEnd := offset + end
+
+			lineIndex := strings.Count(textStr[:absoluteStart], "\n")
+			lineStart := strings.LastIndex(textStr[:absoluteStart], "\n") + 1
+			linePrefix := textStr[lineStart:absoluteStart]
+			varText := textStr[absoluteStart:absoluteEnd]
+
+			pWidth := measureTextWidth(gtx, th, textSize, monoFont, linePrefix)
+			vWidth := measureTextWidth(gtx, th, textSize, monoFont, varText)
+
+			bgColor := colorVarMissing
+			if _, ok := env[varName]; ok {
+				bgColor = colorVarFound
+			}
+
+			yOff := lineIndex * lineSpacing
+			x1 := pWidth - scrollX
+			x2 := x1 + vWidth
+			varTopY := yOff - padY
+			varBottomY := yOff + lineHeight + padY
+
+			if x2 > 0 && x1 < edGtx.Constraints.Max.X {
+				rect := image.Rect(x1, varTopY, x2, varBottomY)
+				paint.FillShape(gtx.Ops, bgColor, clip.UniformRRect(rect, gtx.Dp(unit.Dp(3))).Op(gtx.Ops))
+			}
+
+			searchStr = searchStr[end:]
+			offset += end
+		}
+		cl.Pop()
+	}
 
 	e := material.Editor(th, ed, hint)
 	e.TextSize = textSize
@@ -222,15 +246,9 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 	}
 
 	edGtx := gtx
-	edGtx.Constraints.Min.X = textWidth - (p * 2)
-	if edGtx.Constraints.Min.X < 0 {
-		edGtx.Constraints.Min.X = 0
-	}
+	edGtx.Constraints.Min.X = max(textWidth-(p*2), 0)
 	edGtx.Constraints.Max.X = edGtx.Constraints.Min.X
-	edGtx.Constraints.Min.Y = gtx.Constraints.Min.Y - (p * 2)
-	if edGtx.Constraints.Min.Y < 0 {
-		edGtx.Constraints.Min.Y = 0
-	}
+	edGtx.Constraints.Min.Y = max(gtx.Constraints.Min.Y-(p*2), 0)
 
 	macro := op.Record(gtx.Ops)
 	op.Offset(image.Point{X: p, Y: p}).Add(gtx.Ops)
