@@ -3,7 +3,7 @@ package ui
 import (
 	"context"
 	"encoding/json"
-	"fmt"
+	"errors"
 	"image"
 	"io"
 	"net/http"
@@ -13,6 +13,7 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 	"tracto/internal/utils"
@@ -41,6 +42,15 @@ var (
 )
 
 var httpClient = &http.Client{}
+
+var streamBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, 256*1024)
+		return &b
+	},
+}
+
+var bodyReplacer = strings.NewReplacer("\u2003", "\t", "\uFEFF", "")
 
 func init() {
 	iconCopy, _ = widget.NewIcon(icons.ContentContentCopy)
@@ -153,6 +163,9 @@ type RequestTab struct {
 	pendingRespWidth int
 	pendingReqWidth  int
 	widthChangeTime  time.Time
+
+	cleanTitle    string
+	cleanTitleSrc string
 }
 
 func NewRequestTab(title string) *RequestTab {
@@ -178,6 +191,20 @@ func NewRequestTab(title string) *RequestTab {
 	t.SearchEditor.SingleLine = true
 	t.SearchEditor.Submit = true
 	return t
+}
+
+func (t *RequestTab) getCleanTitle() string {
+	if t.cleanTitleSrc == t.Title && t.cleanTitle != "" {
+		return t.cleanTitle
+	}
+	s := utils.SanitizeText(t.Title)
+	s = strings.ReplaceAll(s, "\n", " ")
+	if strings.TrimSpace(s) == "" {
+		s = "New request"
+	}
+	t.cleanTitle = s
+	t.cleanTitleSrc = t.Title
+	return s
 }
 
 func (t *RequestTab) checkDirty() {
@@ -1049,7 +1076,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 													if t.isRequesting {
 														dl := t.downloadedBytes.Load()
 														if dl > 0 {
-															statusText = fmt.Sprintf("Downloading... %s", formatSize(dl))
+															statusText = "Downloading... " + formatSize(dl)
 														}
 													}
 													lbl := material.Label(th, unit.Sp(12), statusText)
@@ -1102,12 +1129,11 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 												}),
 												layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
 												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-													lbl := material.Label(th, unit.Sp(10), fmt.Sprintf("%d/%d", func() int {
-														if len(t.searchResults) > 0 {
-															return t.searchCurrent + 1
-														}
-														return 0
-													}(), len(t.searchResults)))
+													cur := 0
+													if len(t.searchResults) > 0 {
+														cur = t.searchCurrent + 1
+													}
+													lbl := material.Label(th, unit.Sp(10), strconv.Itoa(cur)+"/"+strconv.Itoa(len(t.searchResults)))
 													lbl.Color = colorFgDim
 													return lbl.Layout(gtx)
 												}),
@@ -1155,7 +1181,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 												return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 													return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 														remaining := t.respSize - t.previewLoaded
-														label := fmt.Sprintf("Load more (%s remaining)", formatSize(remaining))
+														label := "Load more (" + formatSize(remaining) + " remaining)"
 														btn := material.Button(th, &t.LoadMoreBtn, label)
 														btn.TextSize = unit.Sp(11)
 														btn.Background = colorBgLoadMore
@@ -1181,7 +1207,7 @@ func (t *RequestTab) layoutResponseBody(gtx layout.Context, th *material.Theme, 
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					msg := fmt.Sprintf("Response saved to file (%s)", formatSize(t.respSize))
+					msg := "Response saved to file (" + formatSize(t.respSize) + ")"
 					if t.SaveToFilePath != "" {
 						msg += "\n" + filepath.Base(t.SaveToFilePath)
 					}
@@ -1366,13 +1392,13 @@ func (t *RequestTab) prepareRequest(env map[string]string) (*http.Request, conte
 	url := processTemplate(urlRaw, env)
 
 	if url == "" {
-		return nil, nil, nil, fmt.Errorf("empty URL")
+		return nil, nil, nil, errors.New("empty URL")
 	}
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		url = "http://" + url
 	}
 
-	reqBody := strings.NewReplacer("\u2003", "\t", "\uFEFF", "").Replace(t.ReqEditor.Text())
+	reqBody := bodyReplacer.Replace(t.ReqEditor.Text())
 	reqBody = processTemplate(reqBody, env)
 	strippedBody := utils.StripJSONComments(reqBody)
 	if json.Valid([]byte(strippedBody)) {
@@ -1444,7 +1470,9 @@ func (t *RequestTab) sendResponse(resp tabResponse) {
 const maxStreamPreview = 512 * 1024
 
 func (t *RequestTab) streamResponse(ctx context.Context, body io.Reader, dest io.Writer, win *app.Window, livePreview bool) (int64, error) {
-	buf := make([]byte, 256*1024)
+	bufp := streamBufPool.Get().(*[]byte)
+	buf := *bufp
+	defer streamBufPool.Put(bufp)
 	var total int64
 	var previewSent int64
 	lastUpdate := time.Now()
@@ -1487,6 +1515,23 @@ func (t *RequestTab) streamResponse(ctx context.Context, body io.Reader, dest io
 
 const previewBatchSize = 15 * 1024 * 1024
 const jsonPreviewBatchSize = 15 * 1024 * 1024
+
+var previewBufPool = sync.Pool{
+	New: func() any {
+		b := make([]byte, previewBatchSize)
+		return &b
+	},
+}
+
+func getPreviewBuf(size int64) ([]byte, func()) {
+	if size <= previewBatchSize {
+		bp := previewBufPool.Get().(*[]byte)
+		buf := (*bp)[:size]
+		return buf, func() { previewBufPool.Put(bp) }
+	}
+	buf := make([]byte, size)
+	return buf, func() {}
+}
 
 var indentTable [64]string
 
@@ -1611,8 +1656,8 @@ func loadPreviewFromFile(path string, totalSize int64) (string, int64, bool) {
 	}
 	defer f.Close()
 
-	probe := make([]byte, 64)
-	pn, _ := f.Read(probe)
+	var probe [64]byte
+	pn, _ := f.Read(probe[:])
 	isJSON := looksLikeJSON(probe[:pn])
 
 	batchSize := int64(previewBatchSize)
@@ -1625,14 +1670,18 @@ func loadPreviewFromFile(path string, totalSize int64) (string, int64, bool) {
 	}
 
 	f.Seek(0, io.SeekStart)
-	data := make([]byte, readSize)
+	data, release := getPreviewBuf(readSize)
 	n, _ := io.ReadFull(f, data)
 	data = data[:n]
 
+	var result string
 	if isJSON {
-		return indentJSON(data), int64(n), true
+		result = indentJSON(data)
+	} else {
+		result = utils.SanitizeBytes(data)
 	}
-	return utils.SanitizeBytes(data), int64(n), false
+	release()
+	return result, int64(n), isJSON
 }
 
 func (t *RequestTab) loadMorePreview() {
@@ -1662,7 +1711,7 @@ func (t *RequestTab) loadMorePreview() {
 		defer f.Close()
 		f.Seek(offset, io.SeekStart)
 
-		data := make([]byte, readSize)
+		data, release := getPreviewBuf(readSize)
 		n, _ := io.ReadFull(f, data)
 		data = data[:n]
 
@@ -1672,6 +1721,7 @@ func (t *RequestTab) loadMorePreview() {
 		} else {
 			extra = utils.SanitizeBytes(data)
 		}
+		release()
 		t.streamToEditor(extra, win)
 	}()
 }
@@ -1749,7 +1799,7 @@ func (t *RequestTab) executeRequest(win *app.Window, env map[string]string) {
 
 		duration := time.Since(start)
 		display, loaded, isJSON := loadPreviewFromFile(tmpPath, total)
-		statusText := fmt.Sprintf("%s  %s  %s", resp.Status, duration.Round(time.Millisecond), formatSize(total))
+		statusText := resp.Status + "  " + duration.Round(time.Millisecond).String() + "  " + formatSize(total)
 
 		t.sendResponse(tabResponse{
 			requestID:     reqID,
@@ -1824,7 +1874,7 @@ func (t *RequestTab) executeRequestToFile(win *app.Window, env map[string]string
 		}
 
 		duration := time.Since(start)
-		statusText := fmt.Sprintf("%s  %s  %s  Saved to file", resp.Status, duration.Round(time.Millisecond), formatSize(total))
+		statusText := resp.Status + "  " + duration.Round(time.Millisecond).String() + "  " + formatSize(total) + "  Saved to file"
 		t.sendResponse(tabResponse{
 			requestID: reqID,
 			status:    statusText,

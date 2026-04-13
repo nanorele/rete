@@ -72,6 +72,12 @@ type cachedTab struct {
 	ppdp  float32
 }
 
+type tabBarInfo struct {
+	Idx        int
+	NatWidth   int
+	FinalWidth int
+}
+
 type AppUI struct {
 	Theme            *material.Theme
 	Window           *app.Window
@@ -125,11 +131,13 @@ type AppUI struct {
 	activeEnvVars  map[string]string
 	activeEnvDirty bool
 	saveNeeded     bool
+
+	tabInfoBuf  []tabBarInfo
+	tabRowsBuf  [][]int
+	tabRowBuf   []int
 }
 
-func measureTabWidth(gtx layout.Context, th *material.Theme, title string) int {
-	cleanTitle := utils.SanitizeText(title)
-	cleanTitle = strings.ReplaceAll(cleanTitle, "\n", " ")
+func measureTabWidth(gtx layout.Context, th *material.Theme, cleanTitle string) int {
 	words := strings.Fields(cleanTitle)
 
 	var maxW int
@@ -1703,26 +1711,21 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 		addBtnW := gtx.Dp(unit.Dp(36))
 		maxWidth := gtx.Constraints.Max.X - gtx.Dp(unit.Dp(16))
 
-		type TabInfo struct {
-			Idx        int
-			NatWidth   int
-			FinalWidth int
-		}
-		var tabs []TabInfo
-
+		tabs := ui.tabInfoBuf[:0]
 		for i, tab := range ui.Tabs {
 			cache, ok := ui.tabWidthCache[tab]
 			if !ok || cache.title != tab.Title || cache.ppdp != gtx.Metric.PxPerDp {
-				natW := measureTabWidth(gtx, ui.Theme, tab.Title)
+				natW := measureTabWidth(gtx, ui.Theme, tab.getCleanTitle())
 				ui.tabWidthCache[tab] = cachedTab{title: tab.Title, width: natW, ppdp: gtx.Metric.PxPerDp}
 				cache = ui.tabWidthCache[tab]
 			}
-			tabs = append(tabs, TabInfo{Idx: i, NatWidth: cache.width})
+			tabs = append(tabs, tabBarInfo{Idx: i, NatWidth: cache.width})
 		}
+		ui.tabInfoBuf = tabs
 
-		var rows [][]int
+		rows := ui.tabRowsBuf[:0]
 		var currentX int
-		var currentRow []int
+		currentRow := ui.tabRowBuf[:0]
 
 		for i, t := range tabs {
 			w := t.NatWidth
@@ -1742,6 +1745,8 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 		}
 		currentRow = append(currentRow, -1)
 		rows = append(rows, currentRow)
+		ui.tabRowsBuf = rows
+		ui.tabRowBuf = currentRow
 
 		for rIdx, row := range rows {
 			isLastRow := rIdx == len(rows)-1
@@ -1986,11 +1991,7 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 											gtx.Constraints.Min = gtx.Constraints.Max
 											return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 												return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(10), Right: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-													cleanTitle := utils.SanitizeText(tab.Title)
-													cleanTitle = strings.ReplaceAll(cleanTitle, "\n", " ")
-													if strings.TrimSpace(cleanTitle) == "" {
-														cleanTitle = "New request"
-													}
+													cleanTitle := tab.getCleanTitle()
 													if tab.IsDirty {
 														cleanTitle = "● " + cleanTitle
 													}
