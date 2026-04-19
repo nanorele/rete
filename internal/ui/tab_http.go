@@ -34,6 +34,14 @@ func (t *RequestTab) cleanupRespFile() {
 		t.respWidthTimer.Stop()
 		t.respWidthTimer = nil
 	}
+	if t.reqHeightTimer != nil {
+		t.reqHeightTimer.Stop()
+		t.reqHeightTimer = nil
+	}
+	if t.respHeightTimer != nil {
+		t.respHeightTimer.Stop()
+		t.respHeightTimer = nil
+	}
 }
 
 func (t *RequestTab) prepareRequest(parent context.Context, env map[string]string) (*http.Request, context.Context, context.CancelFunc, error) {

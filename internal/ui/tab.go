@@ -163,13 +163,19 @@ type RequestTab struct {
 	dirtyCheckNeeded  bool
 	visibleHeadersBuf []*HeaderItem
 
-	appendChan       chan string
-	window           *app.Window
-	pendingRespWidth int
-	pendingReqWidth  int
-	widthChangeTime  time.Time
-	reqWidthTimer    *time.Timer
-	respWidthTimer   *time.Timer
+	appendChan        chan string
+	window            *app.Window
+	pendingRespWidth  int
+	pendingReqWidth   int
+	widthChangeTime   time.Time
+	reqWidthTimer     *time.Timer
+	respWidthTimer    *time.Timer
+	LastReqHeight     int
+	LastRespHeight    int
+	pendingReqHeight  int
+	pendingRespHeight int
+	reqHeightTimer    *time.Timer
+	respHeightTimer   *time.Timer
 
 	cleanTitle    string
 	cleanTitleSrc string
@@ -1031,34 +1037,24 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 										if !t.ReqWrapEnabled {
 											t.ReqListH.Axis = layout.Horizontal
 											return material.List(th, &t.ReqListH).Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
+												stableH := debounceDim(gtx.Constraints.Max.Y, &t.LastReqHeight, &t.pendingReqHeight, &t.widthChangeTime, &t.reqHeightTimer, win, gtx.Now, isDragging)
 												edGtx := gtx
 												edGtx.Constraints.Max.X = 10000000
-												edGtx.Constraints.Min.Y = gtx.Constraints.Max.Y
-												edGtx.Constraints.Max.Y = gtx.Constraints.Max.Y
+												edGtx.Constraints.Min.Y = stableH
+												edGtx.Constraints.Max.Y = stableH
 												ed := material.Editor(th, &t.ReqEditor, "Request Body")
 												ed.TextSize = unit.Sp(13)
 												ed.Font = font.Font{Typeface: "Ubuntu Mono"}
 												return ed.Layout(edGtx)
 											})
 										}
-										targetW := gtx.Constraints.Max.X
-										if t.LastReqWidth <= 0 {
-											t.LastReqWidth = targetW
-										}
-										if targetW != t.LastReqWidth && !isDragging {
-											if t.pendingReqWidth != targetW {
-												t.pendingReqWidth = targetW
-												t.widthChangeTime = gtx.Now
-												armInvalidateTimer(&t.reqWidthTimer, win, 320*time.Millisecond)
-											}
-											if gtx.Now.Sub(t.widthChangeTime) > 300*time.Millisecond {
-												t.LastReqWidth = t.pendingReqWidth
-												t.pendingReqWidth = 0
-											}
-										}
+										stableW := debounceDim(gtx.Constraints.Max.X, &t.LastReqWidth, &t.pendingReqWidth, &t.widthChangeTime, &t.reqWidthTimer, win, gtx.Now, isDragging)
+										stableH := debounceDim(gtx.Constraints.Max.Y, &t.LastReqHeight, &t.pendingReqHeight, &t.widthChangeTime, &t.reqHeightTimer, win, gtx.Now, isDragging)
 										edGtx := gtx
-										edGtx.Constraints.Max.X = t.LastReqWidth
-										edGtx.Constraints.Min.X = t.LastReqWidth
+										edGtx.Constraints.Max.X = stableW
+										edGtx.Constraints.Min.X = stableW
+										edGtx.Constraints.Max.Y = stableH
+										edGtx.Constraints.Min.Y = stableH
 										ed := material.Editor(th, &t.ReqEditor, "Request Body")
 										ed.TextSize = unit.Sp(13)
 										ed.Font = font.Font{Typeface: "Ubuntu Mono"}
@@ -1262,10 +1258,11 @@ func (t *RequestTab) layoutResponseBody(gtx layout.Context, th *material.Theme, 
 			if !t.WrapEnabled {
 				t.RespListH.Axis = layout.Horizontal
 				return material.List(th, &t.RespListH).Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
+					stableH := debounceDim(gtx.Constraints.Max.Y, &t.LastRespHeight, &t.pendingRespHeight, &t.widthChangeTime, &t.respHeightTimer, win, gtx.Now, isDragging)
 					edGtx := gtx
 					edGtx.Constraints.Max.X = 10000000
-					edGtx.Constraints.Min.Y = gtx.Constraints.Max.Y
-					edGtx.Constraints.Max.Y = gtx.Constraints.Max.Y
+					edGtx.Constraints.Min.Y = stableH
+					edGtx.Constraints.Max.Y = stableH
 					ed := material.Editor(th, &t.RespEditor, "")
 					ed.TextSize = unit.Sp(13)
 					ed.Font = font.Font{Typeface: "Ubuntu Mono"}
@@ -1273,24 +1270,13 @@ func (t *RequestTab) layoutResponseBody(gtx layout.Context, th *material.Theme, 
 				})
 			}
 
-			targetW := gtx.Constraints.Max.X
-			if t.LastRespWidth <= 0 {
-				t.LastRespWidth = targetW
-			}
-			if targetW != t.LastRespWidth && !isDragging {
-				if t.pendingRespWidth != targetW {
-					t.pendingRespWidth = targetW
-					t.widthChangeTime = gtx.Now
-					armInvalidateTimer(&t.respWidthTimer, win, 320*time.Millisecond)
-				}
-				if gtx.Now.Sub(t.widthChangeTime) > 300*time.Millisecond {
-					t.LastRespWidth = t.pendingRespWidth
-					t.pendingRespWidth = 0
-				}
-			}
+			stableW := debounceDim(gtx.Constraints.Max.X, &t.LastRespWidth, &t.pendingRespWidth, &t.widthChangeTime, &t.respWidthTimer, win, gtx.Now, isDragging)
+			stableH := debounceDim(gtx.Constraints.Max.Y, &t.LastRespHeight, &t.pendingRespHeight, &t.widthChangeTime, &t.respHeightTimer, win, gtx.Now, isDragging)
 			edGtx := gtx
-			edGtx.Constraints.Max.X = t.LastRespWidth
-			edGtx.Constraints.Min.X = t.LastRespWidth
+			edGtx.Constraints.Max.X = stableW
+			edGtx.Constraints.Min.X = stableW
+			edGtx.Constraints.Max.Y = stableH
+			edGtx.Constraints.Min.Y = stableH
 			ed := material.Editor(th, &t.RespEditor, "")
 			ed.TextSize = unit.Sp(13)
 			ed.Font = font.Font{Typeface: "Ubuntu Mono"}

@@ -14,3 +14,5 @@ GEMINI.md
 CLAUDE.md
 coverage
 coverage*
+*.env
+.claw
