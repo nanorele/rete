@@ -10,5 +10,7 @@ vendor
 .claude
 gio-local
 *tmp.*
-*I.md
-*E.md
+GEMINI.md
+CLAUDE.md
+coverage
+coverage*

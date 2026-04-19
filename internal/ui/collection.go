@@ -169,6 +169,10 @@ func ParseCollection(r io.Reader, id string) (*ParsedCollection, error) {
 		return nil, err
 	}
 
+	if ext.Info.Name == "" && len(ext.Item) == 0 {
+		return nil, io.ErrUnexpectedEOF
+	}
+
 	colName := utils.SanitizeText(ext.Info.Name)
 	if colName == "" {
 		colName = "Imported Collection"

@@ -73,6 +73,10 @@ func ParseEnvironment(r io.Reader, id string) (*ParsedEnvironment, error) {
 		return nil, err
 	}
 
+	if ext.Name == "" && len(ext.Values) == 0 {
+		return nil, io.ErrUnexpectedEOF
+	}
+
 	envName := ext.Name
 	if envName == "" {
 		envName = "Imported Environment"

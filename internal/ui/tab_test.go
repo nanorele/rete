@@ -1,0 +1,306 @@
+package ui
+
+import (
+	"testing"
+	"github.com/nanorele/gio/widget"
+)
+
+func TestProcessTemplate(t *testing.T) {
+	env := map[string]string{
+		"host": "localhost:8080",
+		"port": "8080",
+	}
+
+	tests := []struct {
+		name     string
+		input    string
+		env      map[string]string
+		expected string
+	}{
+		{"no template", "http://example.com", env, "http://example.com"},
+		{"one template", "http://{{host}}", env, "http://localhost:8080"},
+		{"multiple templates", "http://{{host}}:{{port}}", env, "http://localhost:8080:8080"},
+		{"missing template", "http://{{missing}}", env, "http://{{missing}}"},
+		{"spaces in template", "http://{{ host  }}", env, "http://localhost:8080"},
+		{"no env", "http://{{host}}", nil, "http://{{host}}"},
+		{"unterminated template", "http://{{host", env, "http://{{host"},
+		{"nested braces", "http://{{{{host}}}}", env, "http://{{{{host}}}}"},
+	}
+
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			result := processTemplate(tc.input, tc.env)
+			if result != tc.expected {
+				t.Errorf("expected %q, got %q", tc.expected, result)
+			}
+		})
+	}
+}
+
+func TestGetCleanTitle(t *testing.T) {
+	tab := &RequestTab{}
+
+	tests := []struct {
+		title    string
+		expected string
+	}{
+		{"", "New request"},
+		{"  ", "New request"},
+		{"Hello", "Hello"},
+		{"Hello\nWorld", "Hello World"},
+		{"\x01Hello", "Hello"},
+	}
+
+	for _, tc := range tests {
+		tab.Title = tc.title
+		tab.cleanTitleSrc = "" // force cache invalidation
+		result := tab.getCleanTitle()
+		if result != tc.expected {
+			t.Errorf("expected %q, got %q", tc.expected, result)
+		}
+		
+		// Test cache: cleanTitleSrc matches Title, so it should use cached value.
+		// If we mess with cleanTitle manually, it should return our messed up value
+		// because it's reading from the cache.
+		tab.cleanTitle = "Cached"
+		resultCached := tab.getCleanTitle()
+		if resultCached != "Cached" {
+			t.Errorf("expected cached %q, got %q", "Cached", resultCached)
+		}
+	}
+}
+
+func TestCheckDirtyAndSaveToCollection(t *testing.T) {
+	col := &ParsedCollection{}
+	req := &ParsedRequest{
+		Method: "GET",
+		URL:    "http://test.com",
+		Body:   "body",
+		Name:   "TestReq",
+		Headers: map[string]string{
+			"Header1": "Value1",
+		},
+	}
+	node := &CollectionNode{
+		Request:    req,
+		Collection: col,
+	}
+
+	tab := &RequestTab{
+		LinkedNode: node,
+		Method:     "GET",
+		Title:      "TestReq",
+	}
+	tab.URLInput.SetText("http://test.com")
+	tab.ReqEditor.SetText("body")
+	
+	h1Key := widget.Editor{}
+	h1Key.SetText("Header1")
+	h1Val := widget.Editor{}
+	h1Val.SetText("Value1")
+	
+	tab.Headers = []*HeaderItem{
+		{Key: h1Key, Value: h1Val, IsGenerated: false},
+	}
+
+	// Should not be dirty
+	tab.checkDirty()
+	if tab.IsDirty {
+		t.Errorf("expected tab to not be dirty")
+	}
+
+	// Change URL -> Dirty
+	tab.URLInput.SetText("http://changed.com")
+	tab.checkDirty()
+	if !tab.IsDirty {
+		t.Errorf("expected tab to be dirty after URL change")
+	}
+
+	// Save
+	savedCol := tab.saveToCollection()
+	if savedCol != col {
+		t.Errorf("expected saved collection to be returned")
+	}
+	if req.URL != "http://changed.com" {
+		t.Errorf("expected request URL to be updated, got %s", req.URL)
+	}
+	if tab.IsDirty {
+		t.Errorf("expected tab to not be dirty after save")
+	}
+	
+	// Check unlinked
+	unlinkedTab := &RequestTab{}
+	unlinkedTab.checkDirty()
+	if unlinkedTab.IsDirty {
+		t.Errorf("expected unlinked tab to not be dirty")
+	}
+	if unlinkedTab.saveToCollection() != nil {
+		t.Errorf("expected nil from saveToCollection on unlinked tab")
+	}
+}
+
+func TestSearch(t *testing.T) {
+	tab := NewRequestTab("test")
+	tab.RespEditor.SetText("Hello world! This is a test. Hello again!")
+	
+	// Test invalidate
+	tab.invalidateSearchCache()
+	if !tab.searchCacheDirty {
+		t.Errorf("expected searchCacheDirty to be true")
+	}
+	
+	// Test empty search
+	tab.SearchEditor.SetText("")
+	tab.performSearch()
+	if len(tab.searchResults) != 0 {
+		t.Errorf("expected empty results for empty search")
+	}
+	
+	// Test performSearch
+	tab.SearchEditor.SetText("hello")
+	tab.performSearch()
+	if tab.searchCacheDirty {
+		t.Errorf("expected searchCacheDirty to be false after search")
+	}
+	if len(tab.searchResults) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(tab.searchResults))
+	}
+	if tab.searchResults[0] != 0 || tab.searchResults[1] != 29 {
+		t.Errorf("unexpected search results: %v", tab.searchResults)
+	}
+	
+	// Test searchNavigate next
+	tab.searchCurrent = 0
+	tab.searchNavigate(1)
+	if tab.searchCurrent != 1 {
+		t.Errorf("expected current to be 1, got %d", tab.searchCurrent)
+	}
+	
+	// Test searchNavigate next wrapping
+	tab.searchNavigate(1)
+	if tab.searchCurrent != 0 {
+		t.Errorf("expected current to wrap to 0, got %d", tab.searchCurrent)
+	}
+	
+	// Test searchNavigate prev wrapping
+	tab.searchNavigate(-1)
+	if tab.searchCurrent != 1 {
+		t.Errorf("expected current to wrap to 1, got %d", tab.searchCurrent)
+	}
+	
+	// Test searchNavigate empty
+	tab.searchResults = nil
+	tab.searchCurrent = 5
+	tab.searchNavigate(1)
+	if tab.searchCurrent != 5 {
+		t.Errorf("expected current to remain unchanged when empty")
+	}
+}
+
+func TestFormatSize(t *testing.T) {
+	tests := []struct {
+		input    int64
+		expected string
+	}{
+		{0, "0 B"},
+		{500, "500 B"},
+		{1024, "1.0 KB"},
+		{1536, "1.5 KB"},
+		{1048576, "1.0 MB"},
+		{1572864, "1.5 MB"},
+		{1073741824, "1.00 GB"},
+		{1610612736, "1.50 GB"},
+	}
+
+	for _, tc := range tests {
+		result := formatSize(tc.input)
+		if result != tc.expected {
+			t.Errorf("expected %q, got %q", tc.expected, result)
+		}
+	}
+}
+
+func TestAddHeaders(t *testing.T) {
+	tab := NewRequestTab("test")
+	
+	tab.addHeader("User-Agent", "Custom")
+	if len(tab.Headers) != 1 {
+		t.Fatalf("expected 1 header, got %d", len(tab.Headers))
+	}
+	if tab.Headers[0].Key.Text() != "User-Agent" || tab.Headers[0].Value.Text() != "Custom" || tab.Headers[0].IsGenerated {
+		t.Errorf("unexpected header state: %+v", tab.Headers[0])
+	}
+	
+	tab.addSystemHeader("Content-Type", "application/json")
+	if len(tab.Headers) != 2 {
+		t.Fatalf("expected 2 headers, got %d", len(tab.Headers))
+	}
+	if tab.Headers[1].Key.Text() != "Content-Type" || tab.Headers[1].Value.Text() != "application/json" || !tab.Headers[1].IsGenerated {
+		t.Errorf("unexpected header state: %+v", tab.Headers[1])
+	}
+}
+
+func TestUpdateSystemHeaders(t *testing.T) {
+	tab := NewRequestTab("test")
+	
+	// Initial update should add system headers
+	tab.updateSystemHeaders()
+	
+	hasContentType := false
+	hasUserAgent := false
+	for _, h := range tab.Headers {
+		if h.Key.Text() == "Content-Type" && h.Value.Text() == "text/plain" && h.IsGenerated {
+			hasContentType = true
+		}
+		if h.Key.Text() == "User-Agent" && h.Value.Text() == "tracto/1.0" && h.IsGenerated {
+			hasUserAgent = true
+		}
+	}
+	
+	if !hasContentType || !hasUserAgent {
+		t.Errorf("expected generated Content-Type and User-Agent headers")
+	}
+	
+	// Body json changes Content-Type
+	tab.ReqEditor.SetText(`{"a": 1}`)
+	tab.updateSystemHeaders()
+	for _, h := range tab.Headers {
+		if h.Key.Text() == "Content-Type" && h.Value.Text() != "application/json" {
+			t.Errorf("expected Content-Type application/json, got %s", h.Value.Text())
+		}
+	}
+	
+	// User edits a generated header
+	for _, h := range tab.Headers {
+		if h.Key.Text() == "User-Agent" {
+			h.Value.SetText("Custom Agent") // simulate user edit
+		}
+	}
+	tab.updateSystemHeaders()
+	for _, h := range tab.Headers {
+		if h.Key.Text() == "User-Agent" {
+			if h.IsGenerated {
+				t.Errorf("expected User-Agent to lose IsGenerated flag")
+			}
+			if h.Value.Text() != "Custom Agent" {
+				t.Errorf("expected User-Agent to keep custom value")
+			}
+		}
+	}
+	
+	// User adds a manual Content-Type, should remove generated one
+	tab.addHeader("Content-Type", "text/html")
+	tab.updateSystemHeaders()
+	count := 0
+	for _, h := range tab.Headers {
+		if h.Key.Text() == "Content-Type" {
+			count++
+			if h.IsGenerated || h.Value.Text() != "text/html" {
+				t.Errorf("expected manual Content-Type text/html to override generated")
+			}
+		}
+	}
+	if count != 1 {
+		t.Errorf("expected exactly 1 Content-Type header")
+	}
+}
