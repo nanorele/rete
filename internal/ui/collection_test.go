@@ -252,11 +252,14 @@ func TestParseCollection(t *testing.T) {
 }
 
 func TestAssignParents(t *testing.T) {
+	col := &ParsedCollection{}
 	root := &CollectionNode{Name: "root"}
 	child := &CollectionNode{Name: "child"}
-	root.Children = append(root.Children, child)
+	subchild := &CollectionNode{Name: "subchild"}
 	
-	col := &ParsedCollection{}
+	root.Children = append(root.Children, child)
+	child.Children = append(child.Children, subchild)
+	
 	assignParents(root, nil, col)
 
 	if child.Parent != root {
@@ -265,7 +268,10 @@ func TestAssignParents(t *testing.T) {
 	if child.Collection != col {
 		t.Errorf("expected child collection to be col")
 	}
+	if subchild.Parent != child {
+		t.Errorf("expected subchild parent to be child")
+	}
 	if !child.NameEditor.SingleLine {
-		t.Errorf("expected child NameEditor.SingleLine to be true")
+		t.Errorf("expected NameEditor.SingleLine true")
 	}
 }

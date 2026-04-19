@@ -107,6 +107,9 @@ func nodePathFrom(root *CollectionNode, target *CollectionNode) []int {
 }
 
 func nodeAtPath(root *CollectionNode, path []int) *CollectionNode {
+	if root == nil {
+		return nil
+	}
 	cur := root
 	for _, idx := range path {
 		if idx < 0 || idx >= len(cur.Children) {

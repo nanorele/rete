@@ -50,6 +50,9 @@ type JSONFormatterState struct {
 }
 
 func indentWrite(out *strings.Builder, indent int) {
+	if indent < 0 {
+		return
+	}
 	if indent >= len(indentTable) {
 		indent = len(indentTable) - 1
 	}

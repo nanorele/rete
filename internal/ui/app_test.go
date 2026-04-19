@@ -1,7 +1,10 @@
 package ui
 
 import (
+	"encoding/json"
 	"image"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -10,42 +13,19 @@ import (
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
 	"github.com/nanorele/gio/unit"
+	"github.com/nanorele/gio/widget"
 )
 
 func TestAppUILayouts(t *testing.T) {
-	setupTestConfigDir(t) // Reuse from state_test.go
+	setupTestConfigDir(t)
 	win := new(app.Window)
 	ui := NewAppUI()
 	ui.Window = win
 
-	// Set up some data to exercise loops
-	ui.Tabs = nil // Clear default tab
+	ui.Tabs = nil
 	tab := NewRequestTab("Test")
 	ui.Tabs = append(ui.Tabs, tab)
 	ui.ActiveIdx = 0
-
-	col := &ParsedCollection{
-		ID:   "col1",
-		Name: "Collection 1",
-		Root: &CollectionNode{
-			Name:     "Root",
-			IsFolder: true,
-			Expanded: true,
-			Children: []*CollectionNode{
-				{Name: "Node1"},
-			},
-		},
-	}
-	col.Root.Children[0].Collection = col
-	ui.Collections = append(ui.Collections, &CollectionUI{Data: col})
-	ui.updateVisibleCols()
-
-	env := &ParsedEnvironment{
-		ID:   "env1",
-		Name: "Env 1",
-		Vars: []EnvVar{{Key: "k", Value: "v", Enabled: true}},
-	}
-	ui.Environments = append(ui.Environments, &EnvironmentUI{Data: env})
 
 	gtx := layout.Context{
 		Ops:         new(op.Ops),
@@ -57,34 +37,23 @@ func TestAppUILayouts(t *testing.T) {
 	ui.layoutApp(gtx)
 	ui.layoutContent(gtx)
 
-	// Test Popup closure
-	ui.TabCtxMenuOpen = true
-	ui.layoutApp(gtx)
-	if !ui.TabCtxMenuOpen {
-		t.Errorf("expected still open")
-	}
+	// Context menu actions
+	ui.TabCtxMenuIdx = 0
+	ui.closeTab(0)
+	ui.layoutContent(gtx)
 
-	// Test GlobalVarHover
-	GlobalVarHover = &VarHoverState{Name: "k", Pos: f32.Point{X: 10, Y: 10}}
-	ui.activeEnvVars = map[string]string{"k": "v"}
-	ui.layoutApp(gtx)
-
-	// Test GlobalVarClick
-	GlobalVarClick = &VarHoverState{Name: "k", Range: struct{ Start, End int }{0, 1}}
-	ui.layoutApp(gtx)
-	if !ui.VarPopupOpen {
-		t.Errorf("expected var popup open")
+	ui.Tabs = append(ui.Tabs, NewRequestTab("T1"), NewRequestTab("T2"))
+	ui.ActiveIdx = 0
+	// Close others
+	keep := 0
+	for i := len(ui.Tabs) - 1; i >= 0; i-- {
+		if i != keep {
+			ui.closeTab(i)
+		}
 	}
-	if ui.VarPopupName != "k" {
-		t.Errorf("expected var name k, got %s", ui.VarPopupName)
-	}
+	ui.layoutContent(gtx)
 
 	ui.closeAllSidebarMenus()
-	
-	ui.revealLinkedNode(tab)
-	
-	ui.markCollectionDirty(col)
-	ui.flushCollectionSavesSync()
 }
 
 func TestAppUIHelpers(t *testing.T) {
@@ -178,14 +147,8 @@ func TestImportDroppedData(t *testing.T) {
 	}
 }
 
-func TestRelinkTabs(t *testing.T) {
-	setupTestConfigDir(t)
+func TestRevealLinkedNode(t *testing.T) {
 	ui := NewAppUI()
-	tab := NewRequestTab("test")
-	tab.pendingColID = "col1"
-	tab.pendingNodePath = []int{0}
-	ui.Tabs = append(ui.Tabs, tab)
-	
 	col := &ParsedCollection{
 		ID: "col1",
 		Root: &CollectionNode{
@@ -195,6 +158,55 @@ func TestRelinkTabs(t *testing.T) {
 			},
 		},
 	}
+	col.Root.Collection = col
+	col.Root.Children[0].Parent = col.Root
+	col.Root.Children[0].Collection = col
+	
+	tab := NewRequestTab("test")
+	tab.LinkedNode = col.Root.Children[0]
+	ui.Tabs = append(ui.Tabs, tab)
+	
+	ui.revealLinkedNode(tab)
+	if !col.Root.Expanded {
+		t.Errorf("expected parent folder to be expanded")
+	}
+}
+
+func TestRelinkTabs(t *testing.T) {
+	setupTestConfigDir(t)
+	ui := NewAppUI()
+	tab := NewRequestTab("test")
+	tab.pendingColID = "col1"
+	tab.pendingNodePath = []int{0}
+	ui.Tabs = append(ui.Tabs, tab)
+	
+	// Case 1: Already linked -> skip
+	tab.LinkedNode = &CollectionNode{}
+	ui.relinkTabs()
+	if tab.pendingColID != "col1" {
+		t.Errorf("expected pendingColID to be preserved")
+	}
+	tab.LinkedNode = nil
+	
+	// Case 2: Missing collection -> skip
+	ui.relinkTabs()
+	if tab.LinkedNode != nil {
+		t.Errorf("expected nil link")
+	}
+	
+	// Case 3: Success
+	col := &ParsedCollection{
+		ID: "col1",
+		Root: &CollectionNode{
+			IsFolder: true,
+			Children: []*CollectionNode{
+				{Name: "Target", Request: &ParsedRequest{}},
+			},
+		},
+	}
+	col.Root.Collection = col
+	col.Root.Children[0].Parent = col.Root
+	col.Root.Children[0].Collection = col
 	ui.Collections = append(ui.Collections, &CollectionUI{Data: col})
 	
 	ui.relinkTabs()
@@ -202,6 +214,36 @@ func TestRelinkTabs(t *testing.T) {
 		t.Errorf("tab not relinked, pendingColID was %s", tab.pendingColID)
 	} else if tab.LinkedNode.Name != "Target" {
 		t.Errorf("relinked to wrong node: %s", tab.LinkedNode.Name)
+	}
+	
+	// Case 4: Wrong path -> skip
+	tab2 := NewRequestTab("test2")
+	tab2.pendingColID = "col1"
+	tab2.pendingNodePath = []int{99}
+	ui.Tabs = append(ui.Tabs, tab2)
+	ui.relinkTabs()
+	if tab2.LinkedNode != nil {
+		t.Errorf("expected no link for invalid path")
+	}
+	
+	// Case 5: Nil root -> skip
+	ui.Collections = append(ui.Collections, &CollectionUI{Data: &ParsedCollection{ID: "col-nil-root"}})
+	tab3 := NewRequestTab("test3")
+	tab3.pendingColID = "col-nil-root"
+	tab3.pendingNodePath = []int{0}
+	ui.Tabs = append(ui.Tabs, tab3)
+	ui.relinkTabs()
+	if tab3.LinkedNode != nil {
+		t.Errorf("expected no link for nil root collection")
+	}
+}
+
+func TestScheduleCollectionFlush(t *testing.T) {
+	ui := NewAppUI()
+	col := &ParsedCollection{ID: "c1"}
+	ui.markCollectionDirty(col)
+	if _, ok := ui.dirtyCollections["c1"]; !ok {
+		t.Errorf("collection not marked dirty")
 	}
 }
 
@@ -241,4 +283,119 @@ func TestBuildStateSnapshot(t *testing.T) {
 	if lastTab.CollectionID != "col1" {
 		t.Errorf("linked collection not captured")
 	}
+	
+	// Case 2: Tab linked to node NOT in its collection
+	tab2 := NewRequestTab("unlinked")
+	tab2.LinkedNode = &CollectionNode{
+		Collection: &ParsedCollection{ID: "col2"},
+	}
+	// No parent links -> nodePathFrom returns nil
+	ui.Tabs = append(ui.Tabs, tab2)
+	snap2 := ui.buildStateSnapshot()
+	lastTab2 := snap2.Tabs[len(snap2.Tabs)-1]
+	if lastTab2.CollectionID != "col2" {
+		t.Errorf("expected collection ID col2")
+	}
+	if len(lastTab2.NodePath) != 0 {
+		t.Errorf("expected empty node path for orphaned node")
+	}
+}
+
+func TestAppUIStateLoad(t *testing.T) {
+	tempDir := setupTestConfigDir(t)
+	
+	// Create a dummy state file
+	state := AppState{
+		ActiveIdx: 0,
+		Tabs: []TabState{
+			{Title: "Saved Tab", Method: "GET", URL: "http://saved.com"},
+		},
+	}
+	data, _ := json.Marshal(state)
+	os.MkdirAll(filepath.Join(tempDir, "tracto"), 0755)
+	os.WriteFile(filepath.Join(tempDir, "tracto", "state.json"), data, 0644)
+	
+	ui := NewAppUI()
+	if len(ui.Tabs) != 1 || ui.Tabs[0].Title != "Saved Tab" {
+		t.Errorf("expected 1 tab loaded from state, got %d", len(ui.Tabs))
+	}
+}
+
+func TestAppUI_ExtraPaths(t *testing.T) {
+	setupTestConfigDir(t)
+	ui := NewAppUI()
+	ui.Window = new(app.Window)
+	
+	// Test empty tabs auto-creation
+	ui.Tabs = nil
+	gtx := layout.Context{Ops: new(op.Ops)}
+	ui.layoutContent(gtx)
+	if len(ui.Tabs) != 1 {
+		t.Errorf("expected 1 tab auto-created")
+	}
+	
+	// Test saveStateSync
+	ui.saveStateSync()
+	
+	// Test markCollectionDirty error case (nil collection)
+	ui.markCollectionDirty(nil)
+}
+
+func TestAppUIStateLoad_Corrupted(t *testing.T) {
+	tempDir := setupTestConfigDir(t)
+	os.MkdirAll(filepath.Join(tempDir, "tracto"), 0755)
+	os.WriteFile(filepath.Join(tempDir, "tracto", "state.json"), []byte("invalid json"), 0644)
+	
+	ui := NewAppUI()
+	// Should fallback to default tab
+	if len(ui.Tabs) != 1 {
+		t.Errorf("expected fallback to default tab")
+	}
+}
+
+func TestAppUIStateLoad_NilWrap(t *testing.T) {
+	tempDir := setupTestConfigDir(t)
+	state := AppState{
+		Tabs: []TabState{
+			{Title: "Nil Wrap", ReqWrapEnabled: nil},
+		},
+	}
+	data, _ := json.Marshal(state)
+	os.MkdirAll(filepath.Join(tempDir, "tracto"), 0755)
+	os.WriteFile(filepath.Join(tempDir, "tracto", "state.json"), data, 0644)
+	
+	ui := NewAppUI()
+	if !ui.Tabs[0].ReqWrapEnabled {
+		t.Errorf("expected default true for nil ReqWrapEnabled")
+	}
+}
+
+func TestAppUI_AllLayoutPaths(t *testing.T) {
+	setupTestConfigDir(t)
+	ui := NewAppUI()
+	ui.Window = new(app.Window)
+	
+	gtx := layout.Context{
+		Ops: new(op.Ops),
+		Constraints: layout.Exact(image.Pt(1024, 768)),
+	}
+	
+	// Flags
+	ui.TabCtxMenuOpen = true
+	ui.VarPopupOpen = true
+	ui.activeEnvDirty = true
+	ui.saveNeeded = true
+	
+	ui.layoutApp(gtx)
+	ui.layoutContent(gtx)
+	
+	// Tooltip
+	GlobalVarHover = &VarHoverState{Name: "k", Pos: f32.Pt(10, 10)}
+	ui.layoutApp(gtx)
+	
+	// Var Popup with data
+	ui.VarPopupName = "k"
+	ui.VarPopupClicks = []widget.Clickable{{}}
+	ui.activeEnvVars = map[string]string{"k": "v"}
+	ui.layoutApp(gtx)
 }

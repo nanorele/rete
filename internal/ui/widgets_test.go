@@ -129,3 +129,80 @@ func TestUIWidgetsLayout(t *testing.T) {
 	// Test getLineMetrics
 	getLineMetrics(gtx, th, 12)
 }
+
+func TestMoveWordEdgeCases(t *testing.T) {
+	// Empty string
+	if p := moveWord("", 0, 1); p != 0 {
+		t.Errorf("expected 0 for empty string, got %d", p)
+	}
+	
+	// Only separators
+	s := "   ,,,   "
+	if p := moveWord(s, 0, 1); p != 9 {
+		t.Errorf("expected end of string for only separators, got %d", p)
+	}
+	
+	// Only word
+	s = "hello"
+	if p := moveWord(s, 0, 1); p != 5 {
+		t.Errorf("expected end of word, got %d", p)
+	}
+	if p := moveWord(s, 5, -1); p != 0 {
+		t.Errorf("expected start of word, got %d", p)
+	}
+}
+
+func TestTextField_VarDetection(t *testing.T) {
+	th := material.NewTheme()
+	gtx := layout.Context{
+		Ops: new(op.Ops),
+		Constraints: layout.Exact(image.Pt(500, 50)),
+	}
+	
+	ed := &widget.Editor{}
+	env := map[string]string{"var": "val"}
+	
+	// Test cases
+	texts := []string{
+		"a {{var}} b",
+		"a {{missing}} b",
+		"unterminated {{var",
+		"nested {{{{var}}}}",
+		"multiple {{a}} {{b}}",
+	}
+	
+	for _, text := range texts {
+		ed.SetText(text)
+		TextField(gtx, th, ed, "hint", true, env, 0, 12)
+		TextFieldOverlay(gtx, th, ed, "hint", true, env, 0, 12)
+	}
+}
+
+func TestTextField_NoWrap(t *testing.T) {
+	th := material.NewTheme()
+	gtx := layout.Context{
+		Ops: new(op.Ops),
+		Constraints: layout.Exact(image.Pt(100, 50)),
+	}
+	
+	ed := &widget.Editor{}
+	ed.SetText("a very long line that should scroll horizontally")
+	
+	// Test without wrap
+	TextField(gtx, th, ed, "hint", false, nil, 0, 12)
+}
+
+func TestSquareBtn_Layout(t *testing.T) {
+	th := material.NewTheme()
+	gtx := layout.Context{
+		Ops: new(op.Ops),
+		Constraints: layout.Exact(image.Pt(50, 50)),
+	}
+	var btn widget.Clickable
+	ic, _ := widget.NewIcon(icons.ActionBuild)
+	
+	SquareBtn(gtx, &btn, ic, th)
+	
+	// Test with different index for color
+	menuOption(gtx, th, &btn, "Option", ic)
+}

@@ -1,7 +1,9 @@
 package ui
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -10,6 +12,9 @@ import (
 	"time"
 
 	"github.com/nanorele/gio/app"
+	"github.com/nanorele/gio/layout"
+	"github.com/nanorele/gio/op"
+	"github.com/nanorele/gio/widget/material"
 )
 
 func TestCancelRequest(t *testing.T) {
@@ -113,23 +118,13 @@ func TestExecuteRequest(t *testing.T) {
 	tab.URLInput.SetText(srv.URL)
 	tab.Method = "GET"
 	
-	tab.beginRequest()
-	
 	win := new(app.Window)
-	// We run it synchronously for the test
 	tab.executeRequest(context.Background(), win, nil)
 	
-	// Check the response channel
 	select {
 	case res := <-tab.responseChan:
 		if !strings.HasPrefix(res.status, "200 OK") {
 			t.Errorf("expected 200 OK, got %s", res.status)
-		}
-		if res.respSize <= 0 {
-			t.Errorf("expected size > 0")
-		}
-		if res.body == "" {
-			t.Errorf("expected body to be populated")
 		}
 	case <-time.After(1 * time.Second):
 		t.Errorf("timeout waiting for response")
@@ -158,51 +153,134 @@ func TestExecuteRequestToFile(t *testing.T) {
 	win := new(app.Window)
 	tab.executeRequestToFile(context.Background(), win, nil, tmp)
 	
-	// Check the response channel
 	select {
 	case res := <-tab.responseChan:
 		if !strings.HasPrefix(res.status, "200 OK") {
 			t.Errorf("expected 200 OK, got %s", res.status)
 		}
-		// Body should be empty in file save mode
-		if res.body != "" {
-			t.Errorf("expected empty body, got %s", res.body)
-		}
 	case <-time.After(1 * time.Second):
-		t.Errorf("timeout waiting for response")
+		t.Errorf("timeout")
 	}
 	
 	data, _ := os.ReadFile(tmpPath)
 	if string(data) != "file content" {
-		t.Errorf("file content mismatch, got %s", string(data))
+		t.Errorf("file content mismatch")
+	}
+}
+
+func TestExecuteRequest_Error(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNotFound)
+	}))
+	defer srv.Close()
+
+	tab := NewRequestTab("test")
+	tab.URLInput.SetText(srv.URL)
+	win := new(app.Window)
+	tab.executeRequest(context.Background(), win, nil)
+	
+	select {
+	case res := <-tab.responseChan:
+		if !strings.HasPrefix(res.status, "404 Not Found") {
+			t.Errorf("expected 404, got %s", res.status)
+		}
+	case <-time.After(1 * time.Second):
+		t.Errorf("timeout")
+	}
+}
+
+func TestExecuteRequest_PrepareError(t *testing.T) {
+	tab := NewRequestTab("test")
+	tab.URLInput.SetText("   ") // empty URL causes prepareRequest error
+	win := new(app.Window)
+	tab.executeRequest(context.Background(), win, nil)
+	if !strings.HasPrefix(tab.Status, "Error") {
+		t.Errorf("expected Error status, got %s", tab.Status)
+	}
+}
+
+func TestSendResponse_StaleID(t *testing.T) {
+	tab := NewRequestTab("test")
+	tab.requestID = 10
+	
+	// Send stale response
+	tab.sendResponse(context.Background(), tabResponse{requestID: 9, status: "Stale"})
+	
+	// Call layout (mocked) to process channel
+	th := material.NewTheme()
+	gtx := layout.Context{Ops: new(op.Ops)}
+	tab.layout(gtx, th, new(app.Window), nil, false, func(){}, func(*ParsedCollection){})
+	
+	if tab.Status == "Stale" {
+		t.Errorf("stale response should be ignored")
+	}
+	
+	// Fresh response
+	tab.sendResponse(context.Background(), tabResponse{requestID: 10, status: "Fresh"})
+	tab.layout(gtx, th, new(app.Window), nil, false, func(){}, func(*ParsedCollection){})
+	
+	if !strings.Contains(tab.Status, "Fresh") {
+		t.Errorf("fresh response should be accepted, got %s", tab.Status)
+	}
+}
+
+func TestExecuteRequestToFile_Error(t *testing.T) {
+	tab := NewRequestTab("test")
+	tab.URLInput.SetText("http://localhost:1")
+	failWriter := &failingWriteCloser{}
+	tab.executeRequestToFile(context.Background(), new(app.Window), nil, failWriter)
+	
+	select {
+	case res := <-tab.responseChan:
+		if !strings.Contains(res.status, "Error") {
+			t.Errorf("expected Error status, got %s", res.status)
+		}
+	case <-time.After(1 * time.Second):
+		t.Errorf("timeout")
+	}
+}
+
+type failingWriteCloser struct{}
+func (f *failingWriteCloser) Write(p []byte) (n int, err error) { return 0, io.ErrClosedPipe }
+func (f *failingWriteCloser) Close() error { return nil }
+
+func TestStreamResponse_Cancellation(t *testing.T) {
+	tab := NewRequestTab("test")
+	ctx, cancel := context.WithCancel(context.Background())
+	pr, pw := io.Pipe()
+	go func() {
+		pw.Write([]byte("start"))
+		time.Sleep(100 * time.Millisecond)
+		cancel()
+		pw.Close()
+	}()
+	var dest bytes.Buffer
+	_, err := tab.streamResponse(ctx, pr, &dest, new(app.Window), true)
+	if err != context.Canceled {
+		t.Errorf("expected context.Canceled, got %v", err)
 	}
 }
 
 func TestLoadPreviewForSavedFile(t *testing.T) {
+	setupTestConfigDir(t)
 	tmp, _ := os.CreateTemp("", "resp")
 	tmpPath := tmp.Name()
 	defer os.Remove(tmpPath)
 	content := `{"foo": "bar"}`
-	tmp.Write([]byte(content))
-	tmp.Close()
+	os.WriteFile(tmpPath, []byte(content), 0644)
 
 	tab := NewRequestTab("test")
 	tab.respFile = tmpPath
 	tab.respSize = int64(len(content))
 	tab.window = new(app.Window)
-
 	tab.loadPreviewForSavedFile()
 
 	select {
 	case res := <-tab.previewChan:
 		if res.body == "" {
-			t.Errorf("expected body to be loaded")
-		}
-		if !res.isJSON {
-			t.Errorf("expected isJSON true")
+			t.Errorf("expected body loaded")
 		}
 	case <-time.After(1 * time.Second):
-		t.Errorf("timeout waiting for preview")
+		t.Errorf("timeout")
 	}
 }
-

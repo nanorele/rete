@@ -19,7 +19,7 @@ func TestTabLayout(t *testing.T) {
 	tab.ReqEditor.SetText("body")
 	tab.addHeader("Auth", "secret")
 	tab.addSystemHeader("Content-Type", "application/json")
-	
+
 	win := new(app.Window)
 	th := material.NewTheme()
 	th.Shaper = material.NewTheme().Shaper
@@ -27,9 +27,10 @@ func TestTabLayout(t *testing.T) {
 	gtx := layout.Context{
 		Ops:         new(op.Ops),
 		Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
-		Constraints: layout.Exact(image.Pt(1024, 768)),
+		Constraints: layout.Exact(image.Pt(800, 600)),
 		Now:         time.Now(),
 	}
+
 
 	tab.layout(gtx, th, win, nil, false, func(){}, func(*ParsedCollection){})
 	
@@ -86,5 +87,9 @@ func TestTabLayout(t *testing.T) {
 	
 	// Test append arriving
 	tab.appendChan <- "more"
+	tab.layout(gtx, th, win, nil, false, func(){}, func(*ParsedCollection){})
+
+	// Test FileSaveChan arriving
+	tab.FileSaveChan <- &failingWriteCloser{}
 	tab.layout(gtx, th, win, nil, false, func(){}, func(*ParsedCollection){})
 }

@@ -2,25 +2,11 @@ package ui
 
 import (
 	"encoding/json"
-	"runtime"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
-
-func setupTestConfigDir(t *testing.T) string {
-	tempDir := t.TempDir()
-	
-	// Mock os.UserConfigDir
-	if runtime.GOOS == "windows" {
-		t.Setenv("AppData", tempDir)
-	} else if runtime.GOOS == "darwin" {
-		t.Setenv("HOME", tempDir)
-	} else {
-		t.Setenv("XDG_CONFIG_HOME", tempDir)
-	}
-	
-	return tempDir
-}
 
 func TestPaths(t *testing.T) {
 	setupTestConfigDir(t)
@@ -169,14 +155,64 @@ func TestSaveEnvironmentAndCollection(t *testing.T) {
 	}
 }
 
-func TestWriteCollectionFileEmpty(t *testing.T) {
-	err := writeCollectionFile("", nil)
-	if err != nil {
-		t.Errorf("expected no error for empty write")
+func TestSnapshotCollection_EmptyNodes(t *testing.T) {
+	col := &ParsedCollection{
+		ID:   "c1",
+		Name: "C1",
+		Root: &CollectionNode{
+			Name: "Root",
+			Children: []*CollectionNode{
+				{Name: "Empty Folder", IsFolder: true},
+				{Name: "Nil Req", Request: nil},
+			},
+		},
 	}
-	err = SaveCollectionToFile(nil)
+	id, ext := snapshotCollection(col)
+	if id != "c1" || len(ext.Item) != 2 {
+		t.Errorf("snapshot failed for empty/nil nodes")
+	}
+}
+
+func TestWriteCollectionFile_Error(t *testing.T) {
+	setupTestConfigDir(t)
+	// Passing nil ext should return nil error but do nothing
+	err := writeCollectionFile("id", nil)
 	if err != nil {
-		t.Errorf("expected no error for nil collection")
+		t.Errorf("expected no error for nil ext")
+	}
+}
+
+func TestStateErrors(t *testing.T) {
+	tempDir := setupTestConfigDir(t)
+	
+	// Directory doesn't exist initially
+	loadSavedCollections()
+	loadSavedEnvironments()
+	
+	// Corrupted state file
+	os.MkdirAll(filepath.Join(tempDir, "tracto"), 0755)
+	os.WriteFile(filepath.Join(tempDir, "tracto", "state.json"), []byte("invalid"), 0644)
+	loadState()
+	
+	// Corrupted collection file
+	os.MkdirAll(filepath.Join(tempDir, "tracto", "collections"), 0755)
+	os.WriteFile(filepath.Join(tempDir, "tracto", "collections", "bad.json"), []byte("invalid"), 0644)
+	loadSavedCollections()
+	
+	// Nested directory in collections (should be skipped)
+	os.MkdirAll(filepath.Join(tempDir, "tracto", "collections", "subdir"), 0755)
+	loadSavedCollections()
+}
+
+func TestGetConfigPath_Error(t *testing.T) {
+	// Unset all variables that os.UserConfigDir might use
+	t.Setenv("AppData", "")
+	t.Setenv("HOME", "")
+	t.Setenv("XDG_CONFIG_HOME", "")
+	
+	path := getConfigPath()
+	if path == "" {
+		t.Errorf("expected at least a fallback path")
 	}
 }
 

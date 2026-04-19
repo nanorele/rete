@@ -76,6 +76,23 @@ func TestEnvEditor(t *testing.T) {
 	}
 }
 
+func TestEnvEditor_Discard(t *testing.T) {
+	setupTestConfigDir(t)
+	ui := NewAppUI()
+	env := &ParsedEnvironment{ID: "e1", Name: "E1"}
+	ui.Environments = append(ui.Environments, &EnvironmentUI{Data: env})
+	ui.EditingEnv = ui.Environments[0]
+	ui.EditingEnv.initEditor()
+	
+	gtx := layout.Context{Ops: new(op.Ops)}
+	ui.EditingEnv.BackBtn.Click()
+	ui.layoutEnvEditor(gtx)
+	
+	if ui.EditingEnv != nil {
+		t.Errorf("expected editing mode closed")
+	}
+}
+
 func TestSaveVarPopup(t *testing.T) {
 	setupTestConfigDir(t)
 	ui := NewAppUI()

@@ -59,6 +59,23 @@ func TestTabBarLayout(t *testing.T) {
 	measureTabWidth(gtx, th, "")
 }
 
+func TestTabBar_Dragging(t *testing.T) {
+	setupTestConfigDir(t)
+	ui := NewAppUI()
+	ui.Tabs = append(ui.Tabs, NewRequestTab("T1"), NewRequestTab("T2"))
+	
+	gtx := layout.Context{
+		Ops: new(op.Ops),
+		Constraints: layout.Exact(image.Pt(800, 100)),
+	}
+	
+	ui.TabDragging = true
+	ui.TabDragIdx = 0
+	ui.TabDragCurrentX = 100
+	ui.TabDragCurrentY = 50
+	ui.layoutTabBar(gtx)
+}
+
 func TestTabBarWrapping(t *testing.T) {
 	setupTestConfigDir(t)
 	ui := NewAppUI()

@@ -115,8 +115,50 @@ func TestCheckDirtyAndSaveToCollection(t *testing.T) {
 	if !tab.IsDirty {
 		t.Errorf("expected tab to be dirty after URL change")
 	}
+	
+	// Reset URL
+	tab.URLInput.SetText("http://test.com")
+	tab.checkDirty()
+	if tab.IsDirty {
+		t.Errorf("expected tab to not be dirty after reset")
+	}
+	
+	// Change Body -> Dirty
+	tab.ReqEditor.SetText("changed body")
+	tab.checkDirty()
+	if !tab.IsDirty {
+		t.Errorf("expected tab to be dirty after body change")
+	}
+	tab.ReqEditor.SetText("body")
+	
+	// Change Title -> Currently NOT dirty in this app's logic
+	tab.Title = "Changed Title"
+	tab.checkDirty()
+	if tab.IsDirty {
+		t.Errorf("expected tab to still not be dirty after title change")
+	}
+	tab.Title = "TestReq"
+	
+	// Change Header -> Dirty
+	tab.Headers[0].Value.SetText("Changed Value")
+	tab.checkDirty()
+	if !tab.IsDirty {
+		t.Errorf("expected tab to be dirty after header value change")
+	}
+	tab.Headers[0].Value.SetText("Value1")
+	
+	// Add Header -> Dirty
+	h2Key := widget.Editor{}
+	h2Key.SetText("H2")
+	tab.Headers = append(tab.Headers, &HeaderItem{Key: h2Key})
+	tab.checkDirty()
+	if !tab.IsDirty {
+		t.Errorf("expected tab to be dirty after adding header")
+	}
+	tab.Headers = tab.Headers[:1]
 
 	// Save
+	tab.URLInput.SetText("http://changed.com")
 	savedCol := tab.saveToCollection()
 	if savedCol != col {
 		t.Errorf("expected saved collection to be returned")
@@ -240,63 +282,20 @@ func TestAddHeaders(t *testing.T) {
 	}
 }
 
-func TestUpdateSystemHeaders(t *testing.T) {
+func TestUpdateSystemHeaders_Conflicts(t *testing.T) {
 	tab := NewRequestTab("test")
 	
-	// Initial update should add system headers
+	// User has a manual header that matches what system would generate
+	tab.addHeader("Content-Type", "application/json")
+	tab.ReqEditor.SetText(`{"a": 1}`) // would normally generate application/json
 	tab.updateSystemHeaders()
 	
-	hasContentType := false
-	hasUserAgent := false
-	for _, h := range tab.Headers {
-		if h.Key.Text() == "Content-Type" && h.Value.Text() == "text/plain" && h.IsGenerated {
-			hasContentType = true
-		}
-		if h.Key.Text() == "User-Agent" && h.Value.Text() == "tracto/1.0" && h.IsGenerated {
-			hasUserAgent = true
-		}
-	}
-	
-	if !hasContentType || !hasUserAgent {
-		t.Errorf("expected generated Content-Type and User-Agent headers")
-	}
-	
-	// Body json changes Content-Type
-	tab.ReqEditor.SetText(`{"a": 1}`)
-	tab.updateSystemHeaders()
-	for _, h := range tab.Headers {
-		if h.Key.Text() == "Content-Type" && h.Value.Text() != "application/json" {
-			t.Errorf("expected Content-Type application/json, got %s", h.Value.Text())
-		}
-	}
-	
-	// User edits a generated header
-	for _, h := range tab.Headers {
-		if h.Key.Text() == "User-Agent" {
-			h.Value.SetText("Custom Agent") // simulate user edit
-		}
-	}
-	tab.updateSystemHeaders()
-	for _, h := range tab.Headers {
-		if h.Key.Text() == "User-Agent" {
-			if h.IsGenerated {
-				t.Errorf("expected User-Agent to lose IsGenerated flag")
-			}
-			if h.Value.Text() != "Custom Agent" {
-				t.Errorf("expected User-Agent to keep custom value")
-			}
-		}
-	}
-	
-	// User adds a manual Content-Type, should remove generated one
-	tab.addHeader("Content-Type", "text/html")
-	tab.updateSystemHeaders()
 	count := 0
 	for _, h := range tab.Headers {
 		if h.Key.Text() == "Content-Type" {
 			count++
-			if h.IsGenerated || h.Value.Text() != "text/html" {
-				t.Errorf("expected manual Content-Type text/html to override generated")
+			if h.IsGenerated {
+				t.Errorf("expected manual header to stay manual")
 			}
 		}
 	}

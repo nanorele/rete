@@ -141,6 +141,11 @@ func (t *RequestTab) streamResponse(ctx context.Context, body io.Reader, dest io
 	var previewSent int64
 	lastUpdate := time.Now()
 	for {
+		select {
+		case <-ctx.Done():
+			return total, ctx.Err()
+		default:
+		}
 		n, readErr := body.Read(buf)
 		if n > 0 {
 			if _, wErr := dest.Write(buf[:n]); wErr != nil {
@@ -168,7 +173,7 @@ func (t *RequestTab) streamResponse(ctx context.Context, body io.Reader, dest io
 			}
 		}
 		if readErr != nil {
-			if readErr != io.EOF && ctx.Err() == context.Canceled {
+			if ctx.Err() != nil {
 				return total, ctx.Err()
 			}
 			break
