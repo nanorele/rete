@@ -7,15 +7,27 @@ on:
     branches: [ master ]
 
 jobs:
-  build-test-lint:
-    runs-on: self-hosted
-
+  # Single gate that decides whether downstream jobs run. Centralises
+  # fork-protection so each new job only needs `needs: gate` — no
+  # duplicated `if:` blocks. Runs on a GitHub-hosted runner so forked
+  # PRs never reach the self-hosted infrastructure even to evaluate the
+  # condition; if the gate is skipped, every dependent job is skipped
+  # transitively.
+  gate:
+    name: Gate · trusted source check
+    runs-on: ubuntu-latest
     if: >-
       github.event_name == 'push' || (
         github.event.pull_request.head.repo.full_name == github.repository
         && github.actor != 'dependabot[bot]'
         && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
       )
+    steps:
+      - run: echo "Trusted source — downstream jobs are allowed to run."
+
+  build-test-lint:
+    needs: gate
+    runs-on: self-hosted
 
     steps:
     - name: Checkout code
