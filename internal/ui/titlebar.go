@@ -91,16 +91,17 @@ func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
 	height := gtx.Dp(unit.Dp(30))
 	gtx.Constraints.Min.Y = height
 	gtx.Constraints.Max.Y = height
+	totalW := gtx.Constraints.Max.X
 
-	paint.FillShape(gtx.Ops, colorBgDark, clip.Rect{Max: image.Point{X: gtx.Constraints.Max.X, Y: height}}.Op())
+	paint.FillShape(gtx.Ops, colorBgDark, clip.Rect{Max: image.Point{X: totalW, Y: height}}.Op())
 
-	if ui.BtnClose.Clicked(gtx) {
+	if ui.BtnClose.Clicked(gtx) && ui.Window != nil {
 		ui.Window.Perform(system.ActionClose)
 	}
-	if ui.BtnMinimize.Clicked(gtx) {
+	if ui.BtnMinimize.Clicked(gtx) && ui.Window != nil {
 		ui.Window.Perform(system.ActionMinimize)
 	}
-	if ui.BtnMaximize.Clicked(gtx) {
+	if ui.BtnMaximize.Clicked(gtx) && ui.Window != nil {
 		if ui.IsMaximized {
 			ui.Window.Perform(system.ActionUnmaximize)
 			ui.IsMaximized = false
@@ -110,69 +111,76 @@ func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			size := gtx.Constraints.Max
+	btnW := gtx.Dp(unit.Dp(46))
+	const numBtns = 3
+	rowW := btnW * numBtns
+	dragW := max(totalW-rowW, 0)
 
-			for {
-				ev, ok := gtx.Event(pointer.Filter{
-					Target: &ui.TitleTag,
-					Kinds:  pointer.Press | pointer.Drag,
-				})
-				if !ok {
-					break
-				}
-				if e, ok := ev.(pointer.Event); ok && e.Buttons == pointer.ButtonPrimary {
-					if e.Kind == pointer.Press {
-						now := time.Now()
-						if now.Sub(ui.LastTitleClick) < 300*time.Millisecond {
-							if ui.IsMaximized {
-								ui.Window.Perform(system.ActionUnmaximize)
-								ui.IsMaximized = false
-							} else {
-								ui.Window.Perform(system.ActionMaximize)
-								ui.IsMaximized = true
-							}
-							ui.LastTitleClick = time.Time{}
-						} else {
-							ui.LastTitleClick = now
-						}
-					} else if e.Kind == pointer.Drag {
-						ui.Window.Perform(system.ActionMove)
+	for {
+		ev, ok := gtx.Event(pointer.Filter{
+			Target: &ui.TitleTag,
+			Kinds:  pointer.Press | pointer.Drag,
+		})
+		if !ok {
+			break
+		}
+		if e, ok := ev.(pointer.Event); ok && e.Buttons == pointer.ButtonPrimary {
+			if e.Kind == pointer.Press {
+				now := time.Now()
+				if now.Sub(ui.LastTitleClick) < 300*time.Millisecond && ui.Window != nil {
+					if ui.IsMaximized {
+						ui.Window.Perform(system.ActionUnmaximize)
+						ui.IsMaximized = false
+					} else {
+						ui.Window.Perform(system.ActionMaximize)
+						ui.IsMaximized = true
 					}
+					ui.LastTitleClick = time.Time{}
+				} else {
+					ui.LastTitleClick = now
 				}
+			} else if e.Kind == pointer.Drag && ui.Window != nil {
+				ui.Window.Perform(system.ActionMove)
 			}
+		}
+	}
 
-			area := clip.Rect{Max: size}.Push(gtx.Ops)
-			event.Op(gtx.Ops, &ui.TitleTag)
-			area.Pop()
+	if dragW > 0 {
+		dragSize := image.Point{X: dragW, Y: height}
+		area := clip.Rect{Max: dragSize}.Push(gtx.Ops)
+		event.Op(gtx.Ops, &ui.TitleTag)
+		area.Pop()
 
-			gtx.Constraints.Min = size
-
+		titleGtx := gtx
+		titleGtx.Constraints = layout.Exact(dragSize)
+		layout.Inset{Left: unit.Dp(12)}.Layout(titleGtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min = image.Point{}
-				return layout.Inset{Left: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					lbl := material.Label(ui.Theme, unit.Sp(14), "Tracto")
-					lbl.MaxLines = 1
-					lbl.Color = colorFgMuted
-					return lbl.Layout(gtx)
-				})
+				lbl := material.Label(ui.Theme, unit.Sp(14), "Tracto")
+				lbl.MaxLines = 1
+				lbl.Color = colorFgMuted
+				return lbl.Layout(gtx)
 			})
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return ui.layoutTitleBtn(gtx, &ui.BtnMinimize, 0)
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			kind := 1
-			if ui.IsMaximized {
-				kind = 2
-			}
-			return ui.layoutTitleBtn(gtx, &ui.BtnMaximize, kind)
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return ui.layoutTitleBtn(gtx, &ui.BtnClose, 3)
-		}),
-	)
+		})
+	}
 
-	return layout.Dimensions{Size: image.Point{X: gtx.Constraints.Max.X, Y: height}}
+	maxKind := 1
+	if ui.IsMaximized {
+		maxKind = 2
+	}
+	btns := [numBtns]struct {
+		btn  *widget.Clickable
+		kind int
+	}{
+		{&ui.BtnMinimize, 0},
+		{&ui.BtnMaximize, maxKind},
+		{&ui.BtnClose, 3},
+	}
+	for i, b := range btns {
+		off := op.Offset(image.Pt(dragW+i*btnW, 0)).Push(gtx.Ops)
+		ui.layoutTitleBtn(gtx, b.btn, b.kind)
+		off.Pop()
+	}
+
+	return layout.Dimensions{Size: image.Point{X: totalW, Y: height}}
 }

@@ -5,6 +5,7 @@ import (
 	"image"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -350,6 +351,34 @@ func TestAppUIStateLoad_Corrupted(t *testing.T) {
 	// Should fallback to default tab
 	if len(ui.Tabs) != 1 {
 		t.Errorf("expected fallback to default tab")
+	}
+}
+
+// TestAppUIStateLoad_LegacyMonoFontRewrites: once a state.json was
+// written by an older build that still had the "mono_font" setting,
+// loading it should flag the state dirty so flushSaveState rewrites
+// the file without the stale field. Regression guard for the migration
+// trigger in ui.loadState().
+func TestAppUIStateLoad_LegacyMonoFontRewrites(t *testing.T) {
+	_ = setupTestConfigDir(t)
+	os.MkdirAll(filepath.Dir(getStateFile()), 0755)
+	legacy := `{"tabs":[],"active_idx":0,"settings":{"theme":"dark","mono_font":"Ubuntu Mono","ui_text_size":14}}`
+	os.WriteFile(getStateFile(), []byte(legacy), 0644)
+
+	ui := NewAppUI()
+	if !ui.saveNeeded {
+		t.Fatalf("expected saveNeeded=true after loading legacy state.json with mono_font")
+	}
+	// Rewrite should remove the legacy field from the file on disk.
+	// Use saveStateSync for determinism (flushSaveState does the write
+	// on a goroutine; we'd race the test read).
+	ui.saveStateSync()
+	rewritten, err := os.ReadFile(getStateFile())
+	if err != nil {
+		t.Fatalf("read after flush: %v", err)
+	}
+	if strings.Contains(string(rewritten), "mono_font") {
+		t.Errorf("state.json still contains 'mono_font' after rewrite:\n%s", rewritten)
 	}
 }
 

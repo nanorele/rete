@@ -4,7 +4,6 @@ import (
 	"context"
 	"image"
 	"io"
-	"net/http"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -37,7 +36,7 @@ var (
 	iconWrap *widget.Icon
 )
 
-var httpClient = &http.Client{}
+var httpClient = buildHTTPClient(defaultSettings())
 
 var streamBufPool = sync.Pool{
 	New: func() any {
@@ -99,7 +98,7 @@ type RequestTab struct {
 	WrapEnabled      bool
 	CopyBtn          widget.Clickable
 	Status           string
-	RespEditor       widget.Editor
+	RespEditor       *ResponseViewer
 	SplitRatio       float32
 	SplitDrag        gesture.Drag
 	SplitDragX       float32
@@ -167,7 +166,10 @@ type RequestTab struct {
 	window            *app.Window
 	pendingRespWidth  int
 	pendingReqWidth   int
-	widthChangeTime   time.Time
+	reqWidthChange    time.Time
+	respWidthChange   time.Time
+	reqHeightChange   time.Time
+	respHeightChange  time.Time
 	reqWidthTimer     *time.Timer
 	respWidthTimer    *time.Timer
 	LastReqHeight     int
@@ -186,7 +188,7 @@ func NewRequestTab(title string) *RequestTab {
 		Title:            title,
 		Method:           "GET",
 		Status:           "Ready",
-		RespEditor:       widget.Editor{ReadOnly: true},
+		RespEditor:       NewResponseViewer(),
 		MethodClickables: make([]widget.Clickable, len(methods)),
 		responseChan:     make(chan tabResponse, 1),
 		previewChan:      make(chan previewResult, 1),
@@ -400,8 +402,12 @@ func (t *RequestTab) updateSystemHeaders() {
 		}
 	}
 
+	ua := currentUserAgent
+	if ua == "" {
+		ua = defaultSettings().UserAgent
+	}
 	sysHeaders := map[string]string{
-		"User-Agent":   "tracto/1.0",
+		"User-Agent":   ua,
 		"Content-Type": autoCT,
 	}
 
@@ -463,15 +469,12 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 				break drainLoop
 			}
 		}
-		caretStart, caretEnd := t.RespEditor.Selection()
-		scrollY := t.RespEditor.GetScrollY()
-		endPos := t.RespEditor.Len()
-		t.RespEditor.SetCaret(endPos, endPos)
-		t.RespEditor.Insert(buf.String())
+		// ResponseViewer is append-only and keeps scroll state across
+		// Append calls without help, so the old save/restore-caret
+		// dance we did with widget.Editor is gone.
+		appended := buf.String()
+		t.RespEditor.Append(appended)
 		t.invalidateSearchCache()
-		t.RespEditor.SetCaret(caretStart, caretEnd)
-		t.RespEditor.SetScrollY(scrollY)
-		t.RespEditor.SetScrollCaret(false)
 	default:
 	}
 
@@ -516,6 +519,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 			} else if !t.PreviewEnabled {
 				t.RespEditor.SetText("")
 			}
+			th.Shaper.ResetLayoutCache()
 		}
 	default:
 	}
@@ -527,6 +531,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 		t.respIsJSON = pr.isJSON
 		t.RespEditor.SetText(pr.body)
 		t.invalidateSearchCache()
+		th.Shaper.ResetLayoutCache()
 	default:
 	}
 
@@ -552,9 +557,15 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 
 	for t.WrapBtn.Clicked(gtx) {
 		t.WrapEnabled = !t.WrapEnabled
+		th.Shaper.ResetLayoutCache()
+		t.LastRespWidth = 0
+		t.pendingRespWidth = 0
 	}
 	for t.ReqWrapBtn.Clicked(gtx) {
 		t.ReqWrapEnabled = !t.ReqWrapEnabled
+		th.Shaper.ResetLayoutCache()
+		t.LastReqWidth = 0
+		t.pendingReqWidth = 0
 	}
 	for t.SearchBtn.Clicked(gtx) {
 		t.SearchOpen = !t.SearchOpen
@@ -613,7 +624,12 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 
 	if t.CopyBtn.Clicked(gtx) {
 		var reader io.ReadCloser
-		if t.respFile != "" {
+		// Selection wins: user explicitly highlighted a range, copy that.
+		if sel := t.RespEditor.SelectedText(); sel != "" {
+			reader = io.NopCloser(strings.NewReader(sel))
+		} else if t.respFile != "" {
+			// No selection — copy the full response from disk so the
+			// clipboard gets the bytes past the editor preview window.
 			if f, err := os.Open(t.respFile); err == nil {
 				reader = f
 			}
@@ -757,7 +773,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 													idx := i
 													methodName := m
 													children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-														btn := material.Button(th, &t.MethodClickables[idx], methodName)
+														btn := monoButton(th, &t.MethodClickables[idx], methodName)
 														btn.Background = colorTransparent
 														btn.Color = getMethodColor(methodName)
 														btn.Inset = layout.UniformInset(unit.Dp(8))
@@ -773,7 +789,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 								return layout.Dimensions{}
 							}),
 							layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-								btn := material.Button(th, &t.MethodBtn, t.Method)
+								btn := monoButton(th, &t.MethodBtn, t.Method)
 								btn.Background = colorBgField
 								btn.Color = getMethodColor(t.Method)
 								btn.TextSize = unit.Sp(12)
@@ -819,8 +835,9 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 						btnMinW := gtx.Dp(unit.Dp(90))
 						if t.isRequesting {
 							gtx.Constraints.Min.X = btnMinW
-							btn := material.Button(th, &t.CancelBtn, "CANCEL")
+							btn := monoButton(th, &t.CancelBtn, "CANCEL")
 							btn.Background = colorCancel
+							btn.Color = colorDangerFg
 							btn.TextSize = unit.Sp(12)
 							btn.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(16), Right: unit.Dp(16)}
 							return btn.Layout(gtx)
@@ -835,7 +852,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return material.Clickable(gtx, &t.SendBtn, func(gtx layout.Context) layout.Dimensions {
 									return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(16), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										lbl := material.Label(th, unit.Sp(12), "SEND")
+										lbl := monoLabel(th, unit.Sp(12), "SEND")
 										lbl.Color = th.Palette.ContrastFg
 										return lbl.Layout(gtx)
 									})
@@ -875,7 +892,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 								return material.Clickable(gtx, &t.SaveToFileBtn, func(gtx layout.Context) layout.Dimensions {
 									return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										gtx.Constraints.Min.X = gtx.Dp(unit.Dp(130))
-										lbl := material.Label(th, unit.Sp(12), "Save to file...")
+										lbl := monoLabel(th, unit.Sp(12), "Save to file...")
 										return lbl.Layout(gtx)
 									})
 								})
@@ -916,21 +933,22 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 										return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 											return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-													lbl := material.Label(th, unit.Sp(12), "Headers")
+													lbl := monoLabel(th, unit.Sp(12), "Headers")
 													lbl.Font.Weight = font.Bold
 													return lbl.Layout(gtx)
 												}),
 												layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-													lbl := material.Label(th, unit.Sp(12), contentType)
+													lbl := monoLabel(th, unit.Sp(12), contentType)
 													lbl.Color = colorFgMuted
 													return lbl.Layout(gtx)
 												}),
 												layout.Flexed(1, layout.Spacer{Width: unit.Dp(1)}.Layout),
 												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-													btn := material.Button(th, &t.AddHeaderBtn, "Add")
+													btn := monoButton(th, &t.AddHeaderBtn, "Add")
 													btn.TextSize = unit.Sp(12)
 													btn.Background = colorBgField
+													btn.Color = th.Palette.Fg
 													btn.Inset = layout.UniformInset(unit.Dp(6))
 													return btn.Layout(gtx)
 												}),
@@ -940,9 +958,10 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 													if t.HeadersExpanded {
 														btnText = "Hide Generated"
 													}
-													btn := material.Button(th, &t.ViewGeneratedBtn, btnText)
+													btn := monoButton(th, &t.ViewGeneratedBtn, btnText)
 													btn.TextSize = unit.Sp(12)
 													btn.Background = colorBgField
+													btn.Color = th.Palette.Fg
 													btn.Inset = layout.UniformInset(unit.Dp(6))
 													return btn.Layout(gtx)
 												}),
@@ -985,7 +1004,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 																		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 																			is := gtx.Dp(unit.Dp(14))
 																			gtx.Constraints.Min = image.Point{X: is, Y: is}
-																			return iconClose.Layout(gtx, th.Palette.ContrastFg)
+																			return iconClose.Layout(gtx, colorDangerFg)
 																		})
 																	})
 																}),
@@ -1037,27 +1056,25 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 										if !t.ReqWrapEnabled {
 											t.ReqListH.Axis = layout.Horizontal
 											return material.List(th, &t.ReqListH).Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
-												stableH := debounceDim(gtx.Constraints.Max.Y, &t.LastReqHeight, &t.pendingReqHeight, &t.widthChangeTime, &t.reqHeightTimer, win, gtx.Now, isDragging)
+												stableH := debounceDim(gtx.Constraints.Max.Y, &t.LastReqHeight, &t.pendingReqHeight, &t.reqHeightChange, &t.reqHeightTimer, win, gtx.Now, isDragging, nil)
 												edGtx := gtx
 												edGtx.Constraints.Max.X = 10000000
 												edGtx.Constraints.Min.Y = stableH
 												edGtx.Constraints.Max.Y = stableH
-												ed := material.Editor(th, &t.ReqEditor, "Request Body")
-												ed.TextSize = unit.Sp(13)
-												ed.Font = font.Font{Typeface: "Ubuntu Mono"}
+												ed := monoEditor(th, &t.ReqEditor, "Request Body")
+												ed.TextSize = bodyTextSize
 												return ed.Layout(edGtx)
 											})
 										}
-										stableW := debounceDim(gtx.Constraints.Max.X, &t.LastReqWidth, &t.pendingReqWidth, &t.widthChangeTime, &t.reqWidthTimer, win, gtx.Now, isDragging)
-										stableH := debounceDim(gtx.Constraints.Max.Y, &t.LastReqHeight, &t.pendingReqHeight, &t.widthChangeTime, &t.reqHeightTimer, win, gtx.Now, isDragging)
+										stableW := debounceDim(gtx.Constraints.Max.X, &t.LastReqWidth, &t.pendingReqWidth, &t.reqWidthChange, &t.reqWidthTimer, win, gtx.Now, isDragging, th.Shaper.ResetLayoutCache)
+										stableH := debounceDim(gtx.Constraints.Max.Y, &t.LastReqHeight, &t.pendingReqHeight, &t.reqHeightChange, &t.reqHeightTimer, win, gtx.Now, isDragging, nil)
 										edGtx := gtx
 										edGtx.Constraints.Max.X = stableW
 										edGtx.Constraints.Min.X = stableW
 										edGtx.Constraints.Max.Y = stableH
 										edGtx.Constraints.Min.Y = stableH
-										ed := material.Editor(th, &t.ReqEditor, "Request Body")
-										ed.TextSize = unit.Sp(13)
-										ed.Font = font.Font{Typeface: "Ubuntu Mono"}
+										ed := monoEditor(th, &t.ReqEditor, "Request Body")
+										ed.TextSize = bodyTextSize
 										ed.Layout(edGtx)
 										return layout.Dimensions{Size: gtx.Constraints.Max}
 									}),
@@ -1093,21 +1110,21 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 															statusText = "Downloading... " + formatSize(dl)
 														}
 													}
-													lbl := material.Label(th, unit.Sp(12), statusText)
+													lbl := monoLabel(th, unit.Sp(12), statusText)
 													return lbl.Layout(gtx)
 												}),
 												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 													if t.SaveToFilePath != "" && !t.PreviewEnabled {
 														return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 															layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-																btn := material.Button(th, &t.OpenFileBtn, "Open")
+																btn := monoButton(th, &t.OpenFileBtn, "Open")
 																btn.TextSize = unit.Sp(10)
 																btn.Inset = layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(8), Right: unit.Dp(8)}
 																return btn.Layout(gtx)
 															}),
 															layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 															layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-																btn := material.Button(th, &t.PropertiesBtn, "Location")
+																btn := monoButton(th, &t.PropertiesBtn, "Location")
 																btn.TextSize = unit.Sp(10)
 																btn.Background = colorBgSecondary
 																btn.Inset = layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(8), Right: unit.Dp(8)}
@@ -1147,13 +1164,13 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 													if len(t.searchResults) > 0 {
 														cur = t.searchCurrent + 1
 													}
-													lbl := material.Label(th, unit.Sp(10), strconv.Itoa(cur)+"/"+strconv.Itoa(len(t.searchResults)))
+													lbl := monoLabel(th, unit.Sp(10), strconv.Itoa(cur)+"/"+strconv.Itoa(len(t.searchResults)))
 													lbl.Color = colorFgDim
 													return lbl.Layout(gtx)
 												}),
 												layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
 												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-													btn := material.Button(th, &t.SearchPrevBtn, "▲")
+													btn := monoButton(th, &t.SearchPrevBtn, "▲")
 													btn.TextSize = unit.Sp(8)
 													btn.Background = colorBgSecondary
 													btn.Inset = layout.UniformInset(unit.Dp(4))
@@ -1161,7 +1178,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 												}),
 												layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
 												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-													btn := material.Button(th, &t.SearchNextBtn, "▼")
+													btn := monoButton(th, &t.SearchNextBtn, "▼")
 													btn.TextSize = unit.Sp(8)
 													btn.Background = colorBgSecondary
 													btn.Inset = layout.UniformInset(unit.Dp(4))
@@ -1169,7 +1186,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 												}),
 												layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
 												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-													btn := material.Button(th, &t.SearchCloseBtn, "✕")
+													btn := monoButton(th, &t.SearchCloseBtn, "✕")
 													btn.TextSize = unit.Sp(8)
 													btn.Background = colorBgSecondary
 													btn.Inset = layout.UniformInset(unit.Dp(4))
@@ -1196,7 +1213,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 													return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 														remaining := t.respSize - t.previewLoaded
 														label := "Load more (" + formatSize(remaining) + " remaining)"
-														btn := material.Button(th, &t.LoadMoreBtn, label)
+														btn := monoButton(th, &t.LoadMoreBtn, label)
 														btn.TextSize = unit.Sp(11)
 														btn.Background = colorBgLoadMore
 														btn.Inset = layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(12), Right: unit.Dp(12)}
@@ -1225,7 +1242,7 @@ func (t *RequestTab) layoutResponseBody(gtx layout.Context, th *material.Theme, 
 					if t.SaveToFilePath != "" {
 						msg += "\n" + filepath.Base(t.SaveToFilePath)
 					}
-					lbl := material.Label(th, unit.Sp(13), msg)
+					lbl := monoLabel(th, unit.Sp(13), msg)
 					lbl.Alignment = text.Middle
 					lbl.Color = colorFgHint
 					return lbl.Layout(gtx)
@@ -1235,7 +1252,7 @@ func (t *RequestTab) layoutResponseBody(gtx layout.Context, th *material.Theme, 
 					if t.respFile == "" {
 						return layout.Dimensions{}
 					}
-					btn := material.Button(th, &t.ShowPreviewBtn, "Show in app")
+					btn := monoButton(th, &t.ShowPreviewBtn, "Show in app")
 					btn.TextSize = unit.Sp(12)
 					btn.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(16), Right: unit.Dp(16)}
 					return btn.Layout(gtx)
@@ -1255,33 +1272,17 @@ func (t *RequestTab) layoutResponseBody(gtx layout.Context, th *material.Theme, 
 
 	return layout.Stack{}.Layout(gtx,
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-			if !t.WrapEnabled {
-				t.RespListH.Axis = layout.Horizontal
-				return material.List(th, &t.RespListH).Layout(gtx, 1, func(gtx layout.Context, _ int) layout.Dimensions {
-					stableH := debounceDim(gtx.Constraints.Max.Y, &t.LastRespHeight, &t.pendingRespHeight, &t.widthChangeTime, &t.respHeightTimer, win, gtx.Now, isDragging)
-					edGtx := gtx
-					edGtx.Constraints.Max.X = 10000000
-					edGtx.Constraints.Min.Y = stableH
-					edGtx.Constraints.Max.Y = stableH
-					ed := material.Editor(th, &t.RespEditor, "")
-					ed.TextSize = unit.Sp(13)
-					ed.Font = font.Font{Typeface: "Ubuntu Mono"}
-					return ed.Layout(edGtx)
-				})
+			vs := ResponseViewerStyle{
+				Viewer:         t.RespEditor,
+				Shaper:         th.Shaper,
+				Font:           monoFont,
+				TextSize:       bodyTextSize,
+				Color:          colorFg,
+				HighlightColor: colorAccentDim,
+				SelectionColor: colorSelection,
+				Wrap:           t.WrapEnabled,
 			}
-
-			stableW := debounceDim(gtx.Constraints.Max.X, &t.LastRespWidth, &t.pendingRespWidth, &t.widthChangeTime, &t.respWidthTimer, win, gtx.Now, isDragging)
-			stableH := debounceDim(gtx.Constraints.Max.Y, &t.LastRespHeight, &t.pendingRespHeight, &t.widthChangeTime, &t.respHeightTimer, win, gtx.Now, isDragging)
-			edGtx := gtx
-			edGtx.Constraints.Max.X = stableW
-			edGtx.Constraints.Min.X = stableW
-			edGtx.Constraints.Max.Y = stableH
-			edGtx.Constraints.Min.Y = stableH
-			ed := material.Editor(th, &t.RespEditor, "")
-			ed.TextSize = unit.Sp(13)
-			ed.Font = font.Font{Typeface: "Ubuntu Mono"}
-			ed.Layout(edGtx)
-			return layout.Dimensions{Size: gtx.Constraints.Max}
+			return vs.Layout(gtx)
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			bounds := t.RespEditor.GetScrollBounds()

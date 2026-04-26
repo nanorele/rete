@@ -24,6 +24,9 @@ var (
 	colorAccent         = color.NRGBA{R: 14, G: 99, B: 156, A: 255}
 	colorAccentHover    = color.NRGBA{R: 20, G: 120, B: 180, A: 255}
 	colorAccentDim      = color.NRGBA{R: 14, G: 99, B: 156, A: 40}
+	colorSelection      = color.NRGBA{R: 14, G: 99, B: 156, A: 96}
+	colorAccentFg       = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	colorDangerFg       = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
 	colorDanger         = color.NRGBA{R: 194, G: 64, B: 56, A: 255}
 	colorCancel         = color.NRGBA{R: 180, G: 40, B: 40, A: 255}
 	colorCloseHover     = color.NRGBA{R: 232, G: 17, B: 35, A: 255}

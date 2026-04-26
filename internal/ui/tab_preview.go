@@ -2,7 +2,6 @@ package ui
 
 import (
 	"bytes"
-	"encoding/json"
 	"io"
 	"os"
 	"os/exec"
@@ -15,7 +14,6 @@ import (
 
 const previewBatchSize = 3 * 1024 * 1024
 const jsonPreviewBatchSize = 2 * 1024 * 1024
-const jsonPrettyMaxSize = 1024 * 1024
 
 var previewBufPool = sync.Pool{
 	New: func() any {
@@ -184,9 +182,6 @@ func loadPreviewFromFile(path string, totalSize int64, state *JSONFormatterState
 	var probe [64]byte
 	pn, _ := f.Read(probe[:])
 	isJSON := looksLikeJSON(probe[:pn])
-	if isJSON && totalSize >= jsonPrettyMaxSize {
-		isJSON = false
-	}
 
 	batchSize := int64(previewBatchSize)
 	if isJSON {
@@ -202,18 +197,17 @@ func loadPreviewFromFile(path string, totalSize int64, state *JSONFormatterState
 	n, _ := io.ReadFull(f, data)
 	data = data[:n]
 
+	// Always use the streaming formatJSON. Previously json.Indent was
+	// taken when the whole body fit in a single batch — but it allocates
+	// the entire JSON DOM (~10× raw size for nested bodies) and then a
+	// second buffer for the indented output, then we read it as a string
+	// for the viewer. formatJSON is O(input) memory and produces
+	// identical output. It also keeps `state` correctly advanced for
+	// loadMorePreview, so partial-batch and full-batch loads share the
+	// same code path.
 	var result string
 	if isJSON {
-		if readSize == totalSize {
-			var buf bytes.Buffer
-			if err := json.Indent(&buf, data, "", "  "); err == nil {
-				result = buf.String()
-			} else {
-				result = formatJSON(data, state)
-			}
-		} else {
-			result = formatJSON(data, state)
-		}
+		result = formatJSON(data, state)
 	} else {
 		result = utils.SanitizeBytes(data)
 	}

@@ -133,6 +133,7 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 						return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							btn := material.Button(ui.Theme, &env.AddBtn, "+ Add Variable")
 							btn.Background = colorBorder
+							btn.Color = ui.Theme.Palette.Fg
 							btn.TextSize = unit.Sp(12)
 							btn.Inset = layout.UniformInset(unit.Dp(8))
 							return btn.Layout(gtx)
@@ -161,13 +162,15 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 								return material.Clickable(gtx, &r.DelBtn, func(gtx layout.Context) layout.Dimensions {
 									rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2)
 									bg := colorBorder
+									iconColor := ui.Theme.Palette.Fg
 									if r.DelBtn.Hovered() {
 										bg = colorDanger
+										iconColor = colorDangerFg
 									}
 									paint.FillShape(gtx.Ops, bg, rect.Op(gtx.Ops))
 									return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										gtx.Constraints.Min = image.Pt(gtx.Dp(16), gtx.Dp(16))
-										return iconClose.Layout(gtx, ui.Theme.Palette.Fg)
+										return iconClose.Layout(gtx, iconColor)
 									})
 								})
 							}),

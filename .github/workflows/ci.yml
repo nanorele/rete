@@ -2,15 +2,21 @@ name: CI
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ master ]
   pull_request:
-    branches: [ main, master ]
+    branches: [ master ]
 
 jobs:
   build-test-lint:
     runs-on: self-hosted
-    # Targeting Ubuntu as requested
-    
+
+    if: >-
+      github.event_name == 'push' || (
+        github.event.pull_request.head.repo.full_name == github.repository
+        && github.actor != 'dependabot[bot]'
+        && contains(fromJSON('["OWNER", "MEMBER", "COLLABORATOR"]'), github.event.pull_request.author_association)
+      )
+
     steps:
     - name: Checkout code
       uses: actions/checkout@v4

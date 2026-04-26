@@ -159,6 +159,64 @@ func TestLoadPreviewFromFile(t *testing.T) {
 	}
 }
 
+// TestLoadPreviewFromFile_LargeJSONStaysFormatted guards the lifted
+// 1 MB cap: bodies above that used to flip isJSON=false and render as
+// raw bytes ("сплошной текст"). They must now come back pretty-printed
+// like small ones — the first jsonPreviewBatchSize is formatted and
+// further bytes load via loadMorePreview with continued state.
+func TestLoadPreviewFromFile_LargeJSONStaysFormatted(t *testing.T) {
+	tmp, _ := os.CreateTemp("", "preview-large")
+	tmpPath := tmp.Name()
+	defer os.Remove(tmpPath)
+
+	var sb strings.Builder
+	sb.WriteString(`{"items":[`)
+	const itemCount = 60000 // ~1.4 MB minified, above the old 1 MB cap
+	for i := 0; i < itemCount; i++ {
+		if i > 0 {
+			sb.WriteByte(',')
+		}
+		sb.WriteString(`{"id":`)
+		sb.WriteString(strings.Repeat("9", 6))
+		sb.WriteString(`,"name":"value"}`)
+	}
+	sb.WriteString(`]}`)
+	content := sb.String()
+	if len(content) <= 1024*1024 {
+		t.Fatalf("test setup: payload %d B is not above the old 1 MB cap", len(content))
+	}
+	os.WriteFile(tmpPath, []byte(content), 0644)
+
+	result, _, isJSON := loadPreviewFromFile(tmpPath, int64(len(content)), &JSONFormatterState{})
+	if !isJSON {
+		t.Fatalf("expected isJSON=true for >1 MB JSON body")
+	}
+	if !strings.Contains(result, "\n  ") {
+		t.Fatalf("expected pretty-printed indentation in result; got first 200 chars: %q", result[:min(200, len(result))])
+	}
+}
+
+// TestFormatJSON_StreamingPreservesStateAcrossBatches mirrors the
+// loadMorePreview path: split a JSON document at an arbitrary byte
+// (mid-string AND mid-number) and feed the halves to formatJSON with
+// shared state. Concatenated output must equal a single-shot format.
+func TestFormatJSON_StreamingPreservesStateAcrossBatches(t *testing.T) {
+	doc := []byte(`{"name":"hello world","count":1234567,"nested":{"a":1,"b":[1,2,3]}}`)
+	state := &JSONFormatterState{}
+	full := formatJSON(doc, state)
+
+	for _, splitAt := range []int{12, 18, 25, 33, 50} {
+		t.Run("split_"+strings.TrimSpace(string(rune('0'+splitAt/10)))+string(rune('0'+splitAt%10)), func(t *testing.T) {
+			s := &JSONFormatterState{}
+			a := formatJSON(doc[:splitAt], s)
+			b := formatJSON(doc[splitAt:], s)
+			if a+b != full {
+				t.Errorf("split at %d:\n full: %q\n  got: %q", splitAt, full, a+b)
+			}
+		})
+	}
+}
+
 func TestEditorInsertWorks(t *testing.T) {
 	var ed widget.Editor
 	ed.Insert("hello")
@@ -210,9 +268,3 @@ func TestLoadMorePreview(t *testing.T) {
 	}
 }
 
-func TestOpenFile_Cover(t *testing.T) {
-	// These will fail to actually open anything in CI, but we want to cover the lines.
-	// We use a dummy path.
-	openFile("dummy")
-	openFileInExplorer("dummy")
-}

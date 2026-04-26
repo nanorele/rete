@@ -28,11 +28,12 @@ type TabState struct {
 }
 
 type AppState struct {
-	Tabs               []TabState `json:"tabs"`
-	ActiveIdx          int        `json:"active_idx"`
-	ActiveEnvID        string     `json:"active_env_id"`
-	SidebarWidthPx     int        `json:"sidebar_width_px"`
-	SidebarEnvHeightPx int        `json:"sidebar_env_height_px"`
+	Tabs               []TabState   `json:"tabs"`
+	ActiveIdx          int          `json:"active_idx"`
+	ActiveEnvID        string       `json:"active_env_id"`
+	SidebarWidthPx     int          `json:"sidebar_width_px"`
+	SidebarEnvHeightPx int          `json:"sidebar_env_height_px"`
+	Settings           *AppSettings `json:"settings,omitempty"`
 }
 
 var configPathOverride string
@@ -67,12 +68,24 @@ func getEnvironmentsDir() string {
 }
 
 func loadState() AppState {
+	state, _ := loadStateWithRaw()
+	return state
+}
+
+// loadStateWithRaw returns both the decoded state and the raw bytes
+// read from state.json. Callers that need to detect legacy fields for
+// migration (e.g. to trigger a rewrite that drops a removed setting)
+// use the raw bytes — json.Unmarshal silently ignores unknown fields,
+// so the decoded struct alone can't reveal whether the file had stale
+// entries. An empty byte slice means the file didn't exist.
+func loadStateWithRaw() (AppState, []byte) {
 	var state AppState
 	data, err := os.ReadFile(getStateFile())
-	if err == nil {
-		json.Unmarshal(data, &state)
+	if err != nil {
+		return state, nil
 	}
-	return state
+	json.Unmarshal(data, &state)
+	return state, data
 }
 
 

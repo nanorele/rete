@@ -33,7 +33,7 @@ const (
 	settleTimerFire = 100 * time.Millisecond
 )
 
-func debounceDim(target int, last, pending *int, changeTime *time.Time, timer **time.Timer, win *app.Window, now time.Time, isDragging bool) int {
+func debounceDim(target int, last, pending *int, changeTime *time.Time, timer **time.Timer, win *app.Window, now time.Time, isDragging bool, onSettle func()) int {
 	if *last <= 0 {
 		*last = target
 	}
@@ -48,6 +48,9 @@ func debounceDim(target int, last, pending *int, changeTime *time.Time, timer **
 	if now.Sub(*changeTime) > settleDelay {
 		*last = *pending
 		*pending = 0
+		if onSettle != nil {
+			onSettle()
+		}
 	}
 	return *last
 }

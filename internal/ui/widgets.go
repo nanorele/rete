@@ -68,7 +68,37 @@ func measureTextWidthCached(gtx layout.Context, th *material.Theme, size unit.Sp
 	return w
 }
 
-var monoFont = font.Font{Typeface: "Ubuntu Mono"}
+// monoFont is the monospace font used for the request/response body
+// editors, var chips, and any other code-shaped UI. The bundled
+// JetBrains Mono collection is registered on the theme's shaper in
+// app.go; this value simply names that typeface so gio resolves it to
+// the right Style/Weight face without touching system font files.
+var monoFont = font.Font{Typeface: jetbrainsMonoTypeface}
+
+// monoLabel / monoButton / monoEditor wrap the corresponding material
+// constructors and force Font.Typeface = JetBrains Mono on the returned
+// value. Default material widgets pick up `th.Face` (the theme
+// default, which we keep as gofont for UI chrome), so any widget that
+// lives inside the "code" zones — URL row, request/response body,
+// request headers, search panel, etc. — goes through these helpers to
+// opt into the mono face explicitly.
+func monoLabel(th *material.Theme, size unit.Sp, txt string) material.LabelStyle {
+	l := material.Label(th, size, txt)
+	l.Font.Typeface = jetbrainsMonoTypeface
+	return l
+}
+
+func monoButton(th *material.Theme, btn *widget.Clickable, txt string) material.ButtonStyle {
+	b := material.Button(th, btn, txt)
+	b.Font.Typeface = jetbrainsMonoTypeface
+	return b
+}
+
+func monoEditor(th *material.Theme, ed *widget.Editor, hint string) material.EditorStyle {
+	e := material.Editor(th, ed, hint)
+	e.Font.Typeface = jetbrainsMonoTypeface
+	return e
+}
 
 type cachedMetrics struct {
 	pxPerEm int
@@ -185,7 +215,7 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 	}
 	var varRects []varRectInfo
 
-	if ed.Len() >= 4 && env != nil {
+	if ed.Len() >= 4 {
 		textStr := ed.Text()
 		if strings.Contains(textStr, "{{") {
 			padY := gtx.Dp(unit.Dp(2))
@@ -378,7 +408,7 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 	}
 	var varRects []varRectInfo
 
-	if ed.Len() >= 4 && env != nil {
+	if ed.Len() >= 4 {
 		textStr := ed.Text()
 		if strings.Contains(textStr, "{{") {
 			padY := gtx.Dp(unit.Dp(2))
@@ -553,7 +583,7 @@ func SquareBtn(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, th *m
 
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{X: gtx.Dp(unit.Dp(16)), Y: gtx.Dp(unit.Dp(16))}
-			return ic.Layout(gtx, th.Palette.ContrastFg)
+			return ic.Layout(gtx, th.Palette.Fg)
 		})
 	})
 }
@@ -581,7 +611,12 @@ func menuOption(gtx layout.Context, th *material.Theme, clk *widget.Clickable, t
 }
 
 func isSeparator(r rune) bool {
-	return unicode.IsSpace(r) || strings.ContainsRune(".,:;!?-()[]{}", r)
+	// `-` is intentionally NOT a separator — names like `my-key` and
+	// `Content-Type` should select as one word on double-click.
+	// Quote characters (`"`, `'`, `` ` ``) ARE separators so a
+	// double-click on a JSON string value picks up the inner text
+	// without dragging the surrounding quotes into the selection.
+	return unicode.IsSpace(r) || strings.ContainsRune(".,:;!?()[]{}\"'`", r)
 }
 
 func moveWord(s string, pos int, dir int) int {

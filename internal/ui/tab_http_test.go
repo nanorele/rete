@@ -199,6 +199,33 @@ func TestExecuteRequest_PrepareError(t *testing.T) {
 	}
 }
 
+// TestSendResponse_DeliversOnCanceledContext guards the Cancel button
+// bug: if sendResponse raced its delivery against ctx.Done(), a
+// canceled context (the exact state when the user hits Cancel) made
+// the "Cancelled" status disappear ~50% of the time via Go's random
+// select, leaving isRequesting stuck at true and the Cancel button
+// permanently on screen.
+func TestSendResponse_DeliversOnCanceledContext(t *testing.T) {
+	tab := NewRequestTab("test")
+	tab.requestID = 5
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // ctx is Done BEFORE sendResponse runs — the Cancel scenario.
+
+	if !tab.sendResponse(ctx, tabResponse{requestID: 5, status: "Cancelled"}) {
+		t.Fatalf("sendResponse returned false even though responseChan was empty")
+	}
+
+	select {
+	case got := <-tab.responseChan:
+		if got.status != "Cancelled" {
+			t.Fatalf("expected status Cancelled, got %q", got.status)
+		}
+	default:
+		t.Fatalf("responseChan was empty — Cancelled status was dropped")
+	}
+}
+
 func TestSendResponse_StaleID(t *testing.T) {
 	tab := NewRequestTab("test")
 	tab.requestID = 10

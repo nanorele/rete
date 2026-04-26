@@ -81,6 +81,13 @@ func (t *RequestTab) prepareRequest(parent context.Context, env map[string]strin
 			req.Header.Add(k, v)
 		}
 	}
+	for _, dh := range currentDefaultHeaders {
+		k := strings.TrimSpace(dh.Key)
+		if k == "" || req.Header.Get(k) != "" {
+			continue
+		}
+		req.Header.Set(k, processTemplate(dh.Value, env))
+	}
 	return req, ctx, cancel, nil
 }
 
@@ -126,7 +133,21 @@ func (t *RequestTab) beginRequest() {
 	t.previewLoaded = 0
 }
 
-func (t *RequestTab) sendResponse(ctx context.Context, resp tabResponse) bool {
+func (t *RequestTab) sendResponse(_ context.Context, resp tabResponse) bool {
+	// Do NOT race the send against the per-request context. When the
+	// user clicks Cancel the context is already Done by the time the
+	// goroutine reaches this point to post its "Cancelled" status;
+	// selecting between `responseChan <- resp` (ready — buffer just
+	// drained) and `<-ctx.Done()` (also ready — already closed) is a
+	// coin flip, so half the time the final status never reaches the
+	// UI and `isRequesting` stays true forever, leaving the Cancel
+	// button stuck on screen.
+	//
+	// Capacity is 1, so after the drain the buffered send is
+	// immediate. The `default` on the send is a defensive guard in
+	// case another goroutine refills the channel between our drain
+	// and our send — we'd rather report "delivery failed" than block
+	// here than hold up the caller's cleanup code.
 	select {
 	case <-t.responseChan:
 	default:
@@ -134,7 +155,7 @@ func (t *RequestTab) sendResponse(ctx context.Context, resp tabResponse) bool {
 	select {
 	case t.responseChan <- resp:
 		return true
-	case <-ctx.Done():
+	default:
 		return false
 	}
 }

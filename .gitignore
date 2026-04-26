@@ -10,9 +10,9 @@ vendor
 .claude
 gio-local
 *tmp.*
-GEMINI.md
 CLAUDE.md
 coverage
 coverage*
 *.env
 .claw
+*.log
