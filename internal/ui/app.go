@@ -3,7 +3,7 @@ package ui
 import (
 	"bytes"
 	"context"
-	_ "embed"
+	"embed"
 	"encoding/json"
 	"image"
 	"image/color"
@@ -47,6 +47,7 @@ var (
 	iconDel      *widget.Icon
 	iconMenu     *widget.Icon
 	iconSearch   *widget.Icon
+	iconBug      *widget.Icon
 	iconDropDown    *widget.Icon
 	iconChevronR    *widget.Icon
 	iconChevronD    *widget.Icon
@@ -65,6 +66,7 @@ func init() {
 	iconDel, _ = widget.NewIcon(icons.ActionDelete)
 	iconMenu, _ = widget.NewIcon(icons.NavigationMoreVert)
 	iconSearch, _ = widget.NewIcon(icons.ActionSearch)
+	iconBug, _ = widget.NewIcon(icons.ActionBugReport)
 	iconDropDown, _ = widget.NewIcon(icons.NavigationArrowDropDown)
 	iconChevronR, _ = widget.NewIcon(icons.NavigationChevronRight)
 	iconChevronD, _ = widget.NewIcon(icons.HardwareKeyboardArrowDown)
@@ -141,6 +143,8 @@ type AppUI struct {
 	SettingsOpen  bool
 	SettingsBtn   widget.Clickable
 	SettingsState *SettingsEditorState
+	BugReportBtn  widget.Clickable
+	BugReportURL  string
 
 	SidebarDropTag   bool
 	TabDragTag       bool
@@ -191,20 +195,18 @@ type AppUI struct {
 	Title string
 }
 
-//go:embed assets/fonts/ttf/NotoColorEmoji.ttf
-var notoColorEmojiBytes []byte
+// ttfFS embeds the entire bundled font directory. Going through embed.FS
+// (rather than per-file `//go:embed []byte` vars) lets us treat the Inter
+// UI font as optional: drop the four Inter-*.ttf files into
+// assets/fonts/ttf and they'll be picked up automatically; without them
+// the build still succeeds and we fall back to Go Sans.
+//
+//go:embed assets/fonts/ttf
+var ttfFS embed.FS
 
-//go:embed assets/fonts/ttf/JetBrainsMono-Regular.ttf
-var jetbrainsMonoRegularBytes []byte
-
-//go:embed assets/fonts/ttf/JetBrainsMono-Bold.ttf
-var jetbrainsMonoBoldBytes []byte
-
-//go:embed assets/fonts/ttf/JetBrainsMono-Italic.ttf
-var jetbrainsMonoItalicBytes []byte
-
-//go:embed assets/fonts/ttf/JetBrainsMono-BoldItalic.ttf
-var jetbrainsMonoBoldItalicBytes []byte
+func loadEmbeddedTTF(name string) ([]byte, error) {
+	return ttfFS.ReadFile("assets/fonts/ttf/" + name)
+}
 
 // jetbrainsMonoTypeface is the Typeface name registered for the four
 // embedded JetBrains Mono faces below. Anything wanting the bundled
@@ -216,17 +218,70 @@ const jetbrainsMonoTypeface font.Typeface = "JetBrains Mono"
 
 func NewAppUI() *AppUI {
 	th := material.NewTheme()
-	fonts := gofont.Collection()
 
-	emojiFace, err := opentype.Parse(notoColorEmojiBytes)
-	if err == nil {
+	// Default UI face: try Inter first, fall back to Go Sans.
+	//
+	// Inter (rsms.me/inter, SIL OFL 1.1) is a humanist sans-serif tuned
+	// specifically for screen UI — its hinting and weights are designed
+	// to stay legible across the four contrast modes the app exposes via
+	// themes (black-on-white, gray-on-white, gray-on-black, white-on-
+	// black). It also covers Latin + full Cyrillic, so transliterated
+	// labels in environments / collections render correctly.
+	//
+	// Drop these files into internal/ui/assets/fonts/ttf to enable Inter:
+	//   Inter-Regular.ttf
+	//   Inter-Bold.ttf
+	//   Inter-Italic.ttf
+	//   Inter-BoldItalic.ttf
+	// Without them the build still works; we just keep using Go Sans.
+	//
+	// We must use face.Font() (the metadata extracted from the TTF) for
+	// the FontFace's Font field rather than building one ourselves. The
+	// gio shaper feeds collection's Typeface strings into fontscan as a
+	// fallback families list when Font.Typeface is empty (the default
+	// for material.Label). If we register Inter with Typeface=""
+	// ourselves, fontscan's families query is ["", "", ...] which can't
+	// reliably resolve to the right face — labels show no glyphs because
+	// the empty-name lookup races against the empty-named NotoColorEmoji
+	// face that ships in the same collection.
+	var fonts []font.FontFace
+	addUIFace := func(name string) bool {
+		b, err := loadEmbeddedTTF(name)
+		if err != nil {
+			return false
+		}
+		face, err := opentype.Parse(b)
+		if err != nil {
+			return false
+		}
 		fonts = append(fonts, font.FontFace{
-			Font: font.Font{},
-			Face: emojiFace,
+			Font: face.Font(),
+			Face: face,
 		})
+		return true
+	}
+	interLoaded := addUIFace("Inter-Regular.ttf")
+	addUIFace("Inter-Bold.ttf")
+	addUIFace("Inter-Italic.ttf")
+	addUIFace("Inter-BoldItalic.ttf")
+	if !interLoaded {
+		fonts = gofont.Collection()
 	}
 
-	addJBM := func(b []byte, style font.Style, weight font.Weight) {
+	if b, err := loadEmbeddedTTF("NotoColorEmoji.ttf"); err == nil {
+		if emojiFace, err := opentype.Parse(b); err == nil {
+			fonts = append(fonts, font.FontFace{
+				Font: font.Font{},
+				Face: emojiFace,
+			})
+		}
+	}
+
+	addJBM := func(name string, style font.Style, weight font.Weight) {
+		b, err := loadEmbeddedTTF(name)
+		if err != nil {
+			return
+		}
 		face, err := opentype.Parse(b)
 		if err != nil {
 			return
@@ -240,10 +295,10 @@ func NewAppUI() *AppUI {
 			Face: face,
 		})
 	}
-	addJBM(jetbrainsMonoRegularBytes, font.Regular, font.Normal)
-	addJBM(jetbrainsMonoBoldBytes, font.Regular, font.Bold)
-	addJBM(jetbrainsMonoItalicBytes, font.Italic, font.Normal)
-	addJBM(jetbrainsMonoBoldItalicBytes, font.Italic, font.Bold)
+	addJBM("JetBrainsMono-Regular.ttf", font.Regular, font.Normal)
+	addJBM("JetBrainsMono-Bold.ttf", font.Regular, font.Bold)
+	addJBM("JetBrainsMono-Italic.ttf", font.Italic, font.Normal)
+	addJBM("JetBrainsMono-BoldItalic.ttf", font.Italic, font.Bold)
 
 	th.Shaper = text.NewShaper(text.WithCollection(fonts))
 
@@ -534,6 +589,15 @@ func (ui *AppUI) loadState() {
 	if bytes.Contains(raw, []byte(`"mono_font"`)) {
 		ui.saveNeeded = true
 	}
+	// Apply settings BEFORE constructing tabs so NewRequestTab picks up
+	// the user's DefaultMethod / DefaultSplitRatio rather than the
+	// transient defaults from the constructor's earlier applyAppSettings call.
+	if state.Settings != nil {
+		ui.Settings = state.Settings.sanitized()
+	} else {
+		ui.Settings = defaultSettings()
+	}
+	applyAppSettings(ui.Theme, ui.Settings)
 	for _, ts := range state.Tabs {
 		tab := NewRequestTab(ts.Title)
 		if tab.Title == "" {
@@ -579,12 +643,6 @@ func (ui *AppUI) loadState() {
 	if state.SidebarEnvHeightPx > 0 {
 		ui.SidebarEnvHeight = state.SidebarEnvHeightPx
 	}
-	if state.Settings != nil {
-		ui.Settings = state.Settings.sanitized()
-	} else {
-		ui.Settings = defaultSettings()
-	}
-	applyAppSettings(ui.Theme, ui.Settings)
 
 	loadedCols := loadSavedCollections()
 	for _, c := range loadedCols {
@@ -1460,7 +1518,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 					}
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx, append(tabBarChildren,
 						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-							if len(ui.Tabs) > 0 && ui.ActiveIdx < len(ui.Tabs) {
+							if len(ui.Tabs) > 0 && ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
 								tab := ui.Tabs[ui.ActiveIdx]
 
 								for tab.SendBtn.Clicked(gtx) {
@@ -1484,8 +1542,20 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 										if err != nil || w == nil {
 											return
 										}
-										tab.FileSaveChan <- w
-										ui.Window.Invalidate()
+										tab.fileSaveMu.Lock()
+										if tab.closed.Load() {
+											tab.fileSaveMu.Unlock()
+											w.Close()
+											return
+										}
+										select {
+										case tab.FileSaveChan <- w:
+											tab.fileSaveMu.Unlock()
+											ui.Window.Invalidate()
+										default:
+											tab.fileSaveMu.Unlock()
+											w.Close()
+										}
 									}()
 								}
 								select {

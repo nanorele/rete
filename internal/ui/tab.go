@@ -126,8 +126,12 @@ type RequestTab struct {
 
 	responseChan    chan tabResponse
 	previewChan     chan previewResult
-	previewLoading  bool
-	requestID       uint64
+	previewLoading  atomic.Bool
+	requestID       atomic.Uint64
+	respMu          sync.Mutex
+	jsonStateMu     sync.Mutex
+	closed          atomic.Bool
+	fileSaveMu      sync.Mutex
 	isRequesting    bool
 	cancelFn        context.CancelFunc
 	respSize        int64
@@ -194,9 +198,17 @@ type RequestTab struct {
 }
 
 func NewRequestTab(title string) *RequestTab {
+	method := currentDefaultMethod
+	if method == "" {
+		method = "GET"
+	}
+	splitRatio := currentDefaultSplitRatio
+	if splitRatio < 0.2 || splitRatio > 0.8 {
+		splitRatio = 0.5
+	}
 	t := &RequestTab{
 		Title:            title,
-		Method:           "GET",
+		Method:           method,
 		Status:           "Ready",
 		RespEditor:       NewResponseViewer(),
 		MethodClickables: make([]widget.Clickable, len(methods)),
@@ -204,7 +216,7 @@ func NewRequestTab(title string) *RequestTab {
 		previewChan:      make(chan previewResult, 1),
 		FileSaveChan:     make(chan io.WriteCloser, 1),
 		appendChan:       make(chan string, 128),
-		SplitRatio:       0.5,
+		SplitRatio:       splitRatio,
 		WrapEnabled:      true,
 		ReqWrapEnabled:   true,
 		jsonFmtState:     &JSONFormatterState{},
@@ -508,7 +520,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 
 	select {
 	case res := <-t.responseChan:
-		if res.requestID == t.requestID {
+		if res.requestID == t.requestID.Load() {
 			t.drainAppendChan()
 			t.Status = res.status
 			t.respSize = res.respSize
@@ -530,7 +542,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 
 	select {
 	case pr := <-t.previewChan:
-		t.previewLoading = false
+		t.previewLoading.Store(false)
 		t.previewLoaded = pr.previewLoaded
 		t.respIsJSON = pr.isJSON
 		t.RespEditor.SetText(pr.body)

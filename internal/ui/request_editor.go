@@ -1654,6 +1654,9 @@ func (v *RequestEditor) estimateChunkHeight(line, lineHeight int, advance fixed.
 	if !wrap || advance <= 0 || viewportW <= 0 {
 		return lineHeight
 	}
+	if line < 0 || line >= len(v.lineStarts) {
+		return lineHeight
+	}
 	start := v.lineStarts[line]
 	var end int
 	if line+1 < len(v.lineStarts) {

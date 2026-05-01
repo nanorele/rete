@@ -213,9 +213,7 @@ func ParseCollection(r io.Reader, id string) (*ParsedCollection, error) {
 			if len(item.Item) > 0 {
 				node.IsFolder = true
 				node.Children = parseNode(item.Item, depth+1)
-			}
-
-			if len(item.Request) > 0 && string(item.Request) != "null" {
+			} else if len(item.Request) > 0 && string(item.Request) != "null" {
 				var reqObj ExtRequest
 				var method string = "GET"
 				var url string

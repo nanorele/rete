@@ -1,11 +1,13 @@
 package ui
 
 import (
+	"bytes"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -91,6 +93,28 @@ func loadStateWithRaw() (AppState, []byte) {
 		return state, nil
 	}
 	json.Unmarshal(data, &state)
+	// Backfill defaults for bool/numeric fields added after the on-disk
+	// state.json was first written. JSON Unmarshal silently uses Go's
+	// zero value for absent keys, but several new settings semantically
+	// default to "on" rather than "off" — without this the upgrade flow
+	// would silently flip Keep-Alive, JSON formatting, etc. off.
+	if state.Settings != nil {
+		if !bytes.Contains(data, []byte(`"keep_alive"`)) {
+			state.Settings.KeepAlive = true
+		}
+		if !bytes.Contains(data, []byte(`"auto_format_json"`)) {
+			state.Settings.AutoFormatJSON = true
+		}
+		if !bytes.Contains(data, []byte(`"strip_json_comments"`)) {
+			state.Settings.StripJSONComments = true
+		}
+		if !bytes.Contains(data, []byte(`"default_method"`)) {
+			state.Settings.DefaultMethod = "GET"
+		}
+		if !bytes.Contains(data, []byte(`"default_split_ratio"`)) {
+			state.Settings.DefaultSplitRatio = 0.5
+		}
+	}
 	return state, data
 }
 
@@ -200,11 +224,16 @@ func buildExtItems(nodes []*CollectionNode) []ExtItem {
 				req.Body.Mode = "raw"
 				req.Body.Raw = n.Request.Body
 			}
-			var headers []map[string]interface{}
-			for k, v := range n.Request.Headers {
-				headers = append(headers, map[string]interface{}{"key": k, "value": v})
-			}
-			if len(headers) > 0 {
+			if len(n.Request.Headers) > 0 {
+				keys := make([]string, 0, len(n.Request.Headers))
+				for k := range n.Request.Headers {
+					keys = append(keys, k)
+				}
+				sort.Strings(keys)
+				headers := make([]map[string]interface{}, 0, len(keys))
+				for _, k := range keys {
+					headers = append(headers, map[string]interface{}{"key": k, "value": n.Request.Headers[k]})
+				}
 				req.Header = headers
 			}
 			reqBytes, _ := json.Marshal(req)

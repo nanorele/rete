@@ -82,7 +82,7 @@ func TestTabLayout(t *testing.T) {
 	tab.layout(gtx, th, win, nil, false, func(){}, func(*ParsedCollection){})
 	
 	// Test response arriving
-	tab.responseChan <- tabResponse{status: "200 OK", respSize: 1000, body: "ok", requestID: tab.requestID}
+	tab.responseChan <- tabResponse{status: "200 OK", respSize: 1000, body: "ok", requestID: tab.requestID.Load()}
 	tab.layout(gtx, th, win, nil, false, func(){}, func(*ParsedCollection){})
 	
 	// Test append arriving

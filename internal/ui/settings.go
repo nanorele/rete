@@ -28,16 +28,23 @@ type AppSettings struct {
 
 	RequestTimeoutSec int             `json:"request_timeout_sec"`
 	UserAgent         string          `json:"user_agent"`
+	DefaultMethod     string          `json:"default_method"`
 	FollowRedirects   bool            `json:"follow_redirects"`
 	MaxRedirects      int             `json:"max_redirects"`
 	VerifySSL         bool            `json:"verify_ssl"`
+	KeepAlive         bool            `json:"keep_alive"`
+	DisableHTTP2      bool            `json:"disable_http2"`
+	MaxConnsPerHost   int             `json:"max_conns_per_host"`
 	Proxy             string          `json:"proxy"`
 	DefaultHeaders    []DefaultHeader `json:"default_headers"`
 
-	JSONIndentSpaces    int  `json:"json_indent_spaces"`
-	WrapLinesDefault    bool `json:"wrap_lines_default"`
-	PreviewMaxMB        int  `json:"preview_max_mb"`
-	ResponseBodyPadding int  `json:"response_body_padding"`
+	JSONIndentSpaces    int     `json:"json_indent_spaces"`
+	WrapLinesDefault    bool    `json:"wrap_lines_default"`
+	PreviewMaxMB        int     `json:"preview_max_mb"`
+	ResponseBodyPadding int     `json:"response_body_padding"`
+	DefaultSplitRatio   float32 `json:"default_split_ratio"`
+	AutoFormatJSON      bool    `json:"auto_format_json"`
+	StripJSONComments   bool    `json:"strip_json_comments"`
 }
 
 func defaultSettings() AppSettings {
@@ -51,9 +58,13 @@ func defaultSettings() AppSettings {
 
 		RequestTimeoutSec: 30,
 		UserAgent:         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+		DefaultMethod:     "GET",
 		FollowRedirects:   true,
 		MaxRedirects:      10,
 		VerifySSL:         true,
+		KeepAlive:         true,
+		DisableHTTP2:      false,
+		MaxConnsPerHost:   0,
 		Proxy:             "",
 		DefaultHeaders:    nil,
 
@@ -61,6 +72,9 @@ func defaultSettings() AppSettings {
 		WrapLinesDefault:    false,
 		PreviewMaxMB:        15,
 		ResponseBodyPadding: 4,
+		DefaultSplitRatio:   0.5,
+		AutoFormatJSON:      true,
+		StripJSONComments:   true,
 	}
 }
 
@@ -497,17 +511,44 @@ func (s AppSettings) sanitized() AppSettings {
 		s.ResponseBodyPadding = 32
 	}
 
+	validMethod := false
+	for _, m := range methods {
+		if s.DefaultMethod == m {
+			validMethod = true
+			break
+		}
+	}
+	if !validMethod {
+		s.DefaultMethod = "GET"
+	}
+	if s.DefaultSplitRatio < 0.2 {
+		s.DefaultSplitRatio = 0.5
+	}
+	if s.DefaultSplitRatio > 0.8 {
+		s.DefaultSplitRatio = 0.8
+	}
+	if s.MaxConnsPerHost < 0 {
+		s.MaxConnsPerHost = 0
+	}
+	if s.MaxConnsPerHost > 10000 {
+		s.MaxConnsPerHost = 10000
+	}
+
 	return s
 }
 
 var bodyTextSize = unit.Sp(13)
 
 var (
-	currentUserAgent      = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-	currentDefaultHeaders []DefaultHeader
-	currentJSONIndent     = 2
-	currentPreviewMaxMB   = 15
-	currentRespBodyPad    = unit.Dp(4)
+	currentUserAgent         = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+	currentDefaultHeaders    []DefaultHeader
+	currentJSONIndent        = 2
+	currentPreviewMaxMB      = 15
+	currentRespBodyPad       = unit.Dp(4)
+	currentDefaultMethod     = "GET"
+	currentDefaultSplitRatio = float32(0.5)
+	currentAutoFormatJSON    = true
+	currentStripJSONComments = true
 )
 
 func applyAppSettings(th *material.Theme, s AppSettings) {
@@ -527,6 +568,16 @@ func applyAppSettings(th *material.Theme, s AppSettings) {
 		currentPreviewMaxMB = 15
 	}
 	currentRespBodyPad = unit.Dp(s.ResponseBodyPadding)
+	currentDefaultMethod = s.DefaultMethod
+	if currentDefaultMethod == "" {
+		currentDefaultMethod = "GET"
+	}
+	currentDefaultSplitRatio = s.DefaultSplitRatio
+	if currentDefaultSplitRatio < 0.2 || currentDefaultSplitRatio > 0.8 {
+		currentDefaultSplitRatio = 0.5
+	}
+	currentAutoFormatJSON = s.AutoFormatJSON
+	currentStripJSONComments = s.StripJSONComments
 	httpClient = buildHTTPClient(s)
 	if th != nil {
 		th.Palette.Bg = colorBg
@@ -549,6 +600,19 @@ func buildHTTPClient(s AppSettings) *http.Client {
 		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
 	} else {
 		tr.TLSClientConfig = nil
+	}
+	tr.DisableKeepAlives = !s.KeepAlive
+	if s.MaxConnsPerHost > 0 {
+		tr.MaxConnsPerHost = s.MaxConnsPerHost
+	} else {
+		tr.MaxConnsPerHost = 0
+	}
+	if s.DisableHTTP2 {
+		tr.ForceAttemptHTTP2 = false
+		tr.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
+	} else {
+		tr.ForceAttemptHTTP2 = true
+		tr.TLSNextProto = nil
 	}
 	if strings.TrimSpace(s.Proxy) != "" {
 		if u, err := url.Parse(strings.TrimSpace(s.Proxy)); err == nil && u.Host != "" {

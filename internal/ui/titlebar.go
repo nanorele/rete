@@ -144,6 +144,56 @@ func (ui *AppUI) layoutTitleSettingsBtn(gtx layout.Context) layout.Dimensions {
 	})
 }
 
+func (ui *AppUI) layoutTitleBugBtn(gtx layout.Context) layout.Dimensions {
+	btnSize := image.Pt(gtx.Dp(unit.Dp(100)), gtx.Dp(unit.Dp(30)))
+	gtx.Constraints.Min = btnSize
+	gtx.Constraints.Max = btnSize
+
+	for ui.BugReportBtn.Clicked(gtx) {
+		if ui.BugReportURL != "" {
+			go openFile(ui.BugReportURL)
+		}
+	}
+
+	return ui.BugReportBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		// Mark as client area so the patched gio's Win32 hit test returns
+		// HTCLIENT here instead of the title-bar's hardcoded HTCAPTION.
+		areaStack := clip.Rect{Max: btnSize}.Push(gtx.Ops)
+		system.ActionInputOp(system.ActionRaise).Add(gtx.Ops)
+		areaStack.Pop()
+
+		bg := colorBgDark
+		if ui.BugReportBtn.Hovered() {
+			bg = colorBgHover
+		}
+		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: btnSize}.Op())
+
+		col := colorFgMuted
+		if ui.BugReportBtn.Hovered() {
+			col = colorDanger
+		}
+
+		layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					size := gtx.Dp(unit.Dp(16))
+					gtx.Constraints = layout.Exact(image.Pt(size, size))
+					return iconBug.Layout(gtx, col)
+				}),
+				layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					lbl := material.Label(ui.Theme, unit.Sp(12), "Report Bug")
+					lbl.MaxLines = 1
+					lbl.Color = col
+					return lbl.Layout(gtx)
+				}),
+			)
+		})
+
+		return layout.Dimensions{Size: btnSize}
+	})
+}
+
 func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
 	height := gtx.Dp(unit.Dp(30))
 	gtx.Constraints.Min.Y = height
@@ -171,7 +221,10 @@ func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
 	btnW := gtx.Dp(unit.Dp(46))
 	const numBtns = 3
 	rowW := btnW * numBtns
-	leftMaxW := max(totalW-rowW, 0)
+	bugBtnW := gtx.Dp(unit.Dp(100))
+	minimizeStartX := totalW - rowW
+	bugStartX := max(minimizeStartX-bugBtnW, 0)
+	leftMaxW := bugStartX
 
 	for {
 		ev, ok := gtx.Event(pointer.Filter{
@@ -265,6 +318,12 @@ func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
+	if bugStartX < minimizeStartX {
+		bugOff := op.Offset(image.Pt(bugStartX, 0)).Push(gtx.Ops)
+		ui.layoutTitleBugBtn(gtx)
+		bugOff.Pop()
+	}
+
 	maxKind := 1
 	if ui.IsMaximized {
 		maxKind = 2
@@ -278,7 +337,7 @@ func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
 		{&ui.BtnClose, 3},
 	}
 	for i, b := range btns {
-		off := op.Offset(image.Pt(leftMaxW+i*btnW, 0)).Push(gtx.Ops)
+		off := op.Offset(image.Pt(minimizeStartX+i*btnW, 0)).Push(gtx.Ops)
 		ui.layoutTitleBtn(gtx, b.btn, b.kind)
 		off.Pop()
 	}

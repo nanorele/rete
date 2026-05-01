@@ -181,7 +181,7 @@ func loadPreviewFromFile(path string, totalSize int64, state *JSONFormatterState
 
 	var probe [64]byte
 	pn, _ := f.Read(probe[:])
-	isJSON := looksLikeJSON(probe[:pn])
+	isJSON := currentAutoFormatJSON && looksLikeJSON(probe[:pn])
 
 	batchSize := int64(previewBatchSize)
 	if isJSON {
@@ -219,6 +219,13 @@ func (t *RequestTab) loadMorePreview() {
 	if t.respFile == "" || t.previewLoaded >= t.respSize {
 		return
 	}
+	// Single-flight: rapid clicks would otherwise spawn N goroutines that
+	// race on t.jsonFmtState (formatJSON mutates it) and produce out-of-
+	// order chunks. CompareAndSwap claims the slot; the goroutine releases
+	// it just before publishing its chunk so the next click can fire.
+	if !t.previewLoading.CompareAndSwap(false, true) {
+		return
+	}
 
 	filePath := t.respFile
 	offset := t.previewLoaded
@@ -235,6 +242,7 @@ func (t *RequestTab) loadMorePreview() {
 	isJSON := t.respIsJSON
 
 	go func() {
+		defer t.previewLoading.Store(false)
 		f, err := os.Open(filePath)
 		if err != nil {
 			return
@@ -248,7 +256,9 @@ func (t *RequestTab) loadMorePreview() {
 
 		var extra string
 		if isJSON {
+			t.jsonStateMu.Lock()
 			extra = formatJSON(data, t.jsonFmtState)
+			t.jsonStateMu.Unlock()
 		} else {
 			extra = utils.SanitizeBytes(data)
 		}

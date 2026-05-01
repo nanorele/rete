@@ -61,6 +61,9 @@ func (ui *AppUI) closeTab(idx int) {
 	} else if ui.ActiveIdx >= len(ui.Tabs) {
 		ui.ActiveIdx = len(ui.Tabs) - 1
 	}
+	if ui.ActiveIdx < 0 {
+		ui.ActiveIdx = 0
+	}
 	ui.saveState()
 }
 

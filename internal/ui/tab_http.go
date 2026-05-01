@@ -22,6 +22,21 @@ func (t *RequestTab) cancelRequest() {
 }
 
 func (t *RequestTab) cleanupRespFile() {
+	// Mark closed and reclaim any file writer the save dialog goroutine may
+	// have already pushed onto FileSaveChan but the (now-defunct) tab.layout
+	// will never drain. The fileSaveMu pairing with the goroutine's pre-send
+	// closed-check closes the rest of the race.
+	t.fileSaveMu.Lock()
+	t.closed.Store(true)
+	select {
+	case w := <-t.FileSaveChan:
+		if w != nil {
+			w.Close()
+		}
+	default:
+	}
+	t.fileSaveMu.Unlock()
+
 	if t.respFile != "" {
 		os.Remove(t.respFile)
 		t.respFile = ""
@@ -59,9 +74,11 @@ func (t *RequestTab) prepareRequest(parent context.Context, env map[string]strin
 
 	reqBody := bodyReplacer.Replace(t.ReqEditor.Text())
 	reqBody = processTemplate(reqBody, env)
-	strippedBody := utils.StripJSONComments(reqBody)
-	if json.Valid([]byte(strippedBody)) {
-		reqBody = strippedBody
+	if currentStripJSONComments {
+		strippedBody := utils.StripJSONComments(reqBody)
+		if json.Valid([]byte(strippedBody)) {
+			reqBody = strippedBody
+		}
 	}
 
 	if parent == nil {
@@ -109,7 +126,7 @@ func (t *RequestTab) streamToEditor(text string, win *app.Window) {
 
 func (t *RequestTab) beginRequest() {
 	t.cancelRequest()
-	t.requestID++
+	t.requestID.Add(1)
 	t.drainAppendChan()
 	select {
 	case <-t.responseChan:
@@ -119,7 +136,7 @@ func (t *RequestTab) beginRequest() {
 	case <-t.previewChan:
 	default:
 	}
-	t.previewLoading = false
+	t.previewLoading.Store(false)
 	t.jsonFmtState = &JSONFormatterState{}
 	t.Status = "Sending..."
 	t.RespEditor.SetText("")
@@ -135,20 +152,15 @@ func (t *RequestTab) beginRequest() {
 }
 
 func (t *RequestTab) sendResponse(_ context.Context, resp tabResponse) bool {
-	// Do NOT race the send against the per-request context. When the
-	// user clicks Cancel the context is already Done by the time the
-	// goroutine reaches this point to post its "Cancelled" status;
-	// selecting between `responseChan <- resp` (ready — buffer just
-	// drained) and `<-ctx.Done()` (also ready — already closed) is a
-	// coin flip, so half the time the final status never reaches the
-	// UI and `isRequesting` stays true forever, leaving the Cancel
-	// button stuck on screen.
-	//
-	// Capacity is 1, so after the drain the buffered send is
-	// immediate. The `default` on the send is a defensive guard in
-	// case another goroutine refills the channel between our drain
-	// and our send — we'd rather report "delivery failed" than block
-	// here than hold up the caller's cleanup code.
+	// respMu serializes drain+send across goroutines so a stale goroutine
+	// can't pull a fresh response out of the buffer between its own drain
+	// and send. The active-id check (paired with atomic requestID) lets
+	// stale goroutines bail out without touching the channel at all.
+	t.respMu.Lock()
+	defer t.respMu.Unlock()
+	if resp.requestID != t.requestID.Load() {
+		return false
+	}
 	select {
 	case <-t.responseChan:
 	default:
@@ -223,7 +235,7 @@ func (t *RequestTab) executeRequest(parent context.Context, win *app.Window, env
 		return
 	}
 	t.cancelFn = cancel
-	reqID := t.requestID
+	reqID := t.requestID.Load()
 
 	go func() {
 		var tmpPath string
@@ -297,7 +309,7 @@ func (t *RequestTab) executeRequestToFile(parent context.Context, win *app.Windo
 		return
 	}
 	t.cancelFn = cancel
-	reqID := t.requestID
+	reqID := t.requestID.Load()
 
 	go func() {
 		var tmpPath string
@@ -362,11 +374,13 @@ func (t *RequestTab) executeRequestToFile(parent context.Context, win *app.Windo
 }
 
 func (t *RequestTab) loadPreviewForSavedFile() {
-	if t.respFile == "" || t.respSize == 0 || t.previewLoading {
+	if t.respFile == "" || t.respSize == 0 {
+		return
+	}
+	if !t.previewLoading.CompareAndSwap(false, true) {
 		return
 	}
 	t.PreviewEnabled = true
-	t.previewLoading = true
 	t.jsonFmtState = &JSONFormatterState{}
 
 	filePath := t.respFile

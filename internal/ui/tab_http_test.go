@@ -207,7 +207,7 @@ func TestExecuteRequest_PrepareError(t *testing.T) {
 // permanently on screen.
 func TestSendResponse_DeliversOnCanceledContext(t *testing.T) {
 	tab := NewRequestTab("test")
-	tab.requestID = 5
+	tab.requestID.Store(5)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // ctx is Done BEFORE sendResponse runs — the Cancel scenario.
@@ -228,8 +228,8 @@ func TestSendResponse_DeliversOnCanceledContext(t *testing.T) {
 
 func TestSendResponse_StaleID(t *testing.T) {
 	tab := NewRequestTab("test")
-	tab.requestID = 10
-	
+	tab.requestID.Store(10)
+
 	// Send stale response
 	tab.sendResponse(context.Background(), tabResponse{requestID: 9, status: "Stale"})
 	

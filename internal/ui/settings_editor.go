@@ -14,7 +14,7 @@ import (
 	"github.com/nanorele/gio/widget/material"
 )
 
-var settingsCategories = []string{"Appearance", "Sizes", "Layout", "HTTP", "Advanced"}
+var settingsCategories = []string{"Appearance", "Sizes", "HTTP", "Advanced"}
 
 type SettingsEditorState struct {
 	Draft AppSettings
@@ -36,34 +36,44 @@ type SettingsEditorState struct {
 	UIScaleInc     widget.Clickable
 	BodyPaddingDec widget.Clickable
 	BodyPaddingInc widget.Clickable
+	SplitRatioDec  widget.Clickable
+	SplitRatioInc  widget.Clickable
 
 	HideTabBar  widget.Bool
 	HideSidebar widget.Bool
 
-	TimeoutDec      widget.Clickable
-	TimeoutInc      widget.Clickable
-	MaxRedirectsDec widget.Clickable
-	MaxRedirectsInc widget.Clickable
-	FollowRedirects widget.Bool
-	VerifySSL       widget.Bool
-	UserAgentEditor widget.Editor
-	ProxyEditor     widget.Editor
-	DefaultHdrEdit  widget.Editor
+	TimeoutDec       widget.Clickable
+	TimeoutInc       widget.Clickable
+	MaxRedirectsDec  widget.Clickable
+	MaxRedirectsInc  widget.Clickable
+	MaxConnsDec      widget.Clickable
+	MaxConnsInc      widget.Clickable
+	FollowRedirects  widget.Bool
+	VerifySSL        widget.Bool
+	KeepAlive        widget.Bool
+	DisableHTTP2     widget.Bool
+	UserAgentEditor  widget.Editor
+	ProxyEditor      widget.Editor
+	DefaultHdrEdit   widget.Editor
+	DefaultMethodBtn []widget.Clickable
 
-	JSONIndentDec widget.Clickable
-	JSONIndentInc widget.Clickable
-	PreviewMaxDec widget.Clickable
-	PreviewMaxInc widget.Clickable
-	WrapLines     widget.Bool
+	JSONIndentDec     widget.Clickable
+	JSONIndentInc     widget.Clickable
+	PreviewMaxDec     widget.Clickable
+	PreviewMaxInc     widget.Clickable
+	WrapLines         widget.Bool
+	AutoFormatJSON    widget.Bool
+	StripJSONComments widget.Bool
 
 	initialized bool
 }
 
 func newSettingsEditorState(current AppSettings) *SettingsEditorState {
 	s := &SettingsEditorState{
-		Draft:       current,
-		CategoryBtn: make([]widget.Clickable, len(settingsCategories)),
-		ThemeBtns:   make([]widget.Clickable, len(themeRegistry)),
+		Draft:            current,
+		CategoryBtn:      make([]widget.Clickable, len(settingsCategories)),
+		ThemeBtns:        make([]widget.Clickable, len(themeRegistry)),
+		DefaultMethodBtn: make([]widget.Clickable, len(methods)),
 	}
 	s.ContentList.Axis = layout.Vertical
 
@@ -81,7 +91,11 @@ func newSettingsEditorState(current AppSettings) *SettingsEditorState {
 	s.HideSidebar.Value = current.HideSidebar
 	s.FollowRedirects.Value = current.FollowRedirects
 	s.VerifySSL.Value = current.VerifySSL
+	s.KeepAlive.Value = current.KeepAlive
+	s.DisableHTTP2.Value = current.DisableHTTP2
 	s.WrapLines.Value = current.WrapLinesDefault
+	s.AutoFormatJSON.Value = current.AutoFormatJSON
+	s.StripJSONComments.Value = current.StripJSONComments
 
 	s.initialized = true
 	return s
@@ -140,8 +154,12 @@ func (ui *AppUI) applyDraftSettings() {
 	st.Draft.Proxy = strings.TrimSpace(st.ProxyEditor.Text())
 	st.Draft.FollowRedirects = st.FollowRedirects.Value
 	st.Draft.VerifySSL = st.VerifySSL.Value
+	st.Draft.KeepAlive = st.KeepAlive.Value
+	st.Draft.DisableHTTP2 = st.DisableHTTP2.Value
 	st.Draft.DefaultHeaders = textToHeaders(st.DefaultHdrEdit.Text())
 	st.Draft.WrapLinesDefault = st.WrapLines.Value
+	st.Draft.AutoFormatJSON = st.AutoFormatJSON.Value
+	st.Draft.StripJSONComments = st.StripJSONComments.Value
 
 	st.Draft = st.Draft.sanitized()
 	ui.Settings = st.Draft
@@ -170,8 +188,12 @@ func (ui *AppUI) resetSettings() {
 	st.ProxyEditor.SetText(def.Proxy)
 	st.FollowRedirects.Value = def.FollowRedirects
 	st.VerifySSL.Value = def.VerifySSL
+	st.KeepAlive.Value = def.KeepAlive
+	st.DisableHTTP2.Value = def.DisableHTTP2
 	st.DefaultHdrEdit.SetText(headersToText(def.DefaultHeaders))
 	st.WrapLines.Value = def.WrapLinesDefault
+	st.AutoFormatJSON.Value = def.AutoFormatJSON
+	st.StripJSONComments.Value = def.StripJSONComments
 }
 
 func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
@@ -252,6 +274,52 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 	for st.BodyPaddingInc.Clicked(gtx) {
 		if st.Draft.ResponseBodyPadding < 32 {
 			st.Draft.ResponseBodyPadding++
+			changed = true
+		}
+	}
+	for st.SplitRatioDec.Clicked(gtx) {
+		if st.Draft.DefaultSplitRatio > 0.2 {
+			st.Draft.DefaultSplitRatio -= 0.05
+			if st.Draft.DefaultSplitRatio < 0.2 {
+				st.Draft.DefaultSplitRatio = 0.2
+			}
+			changed = true
+		}
+	}
+	for st.SplitRatioInc.Clicked(gtx) {
+		if st.Draft.DefaultSplitRatio < 0.8 {
+			st.Draft.DefaultSplitRatio += 0.05
+			if st.Draft.DefaultSplitRatio > 0.8 {
+				st.Draft.DefaultSplitRatio = 0.8
+			}
+			changed = true
+		}
+	}
+	for i := range st.DefaultMethodBtn {
+		for st.DefaultMethodBtn[i].Clicked(gtx) {
+			if st.Draft.DefaultMethod != methods[i] {
+				st.Draft.DefaultMethod = methods[i]
+				changed = true
+			}
+		}
+	}
+	for st.MaxConnsDec.Clicked(gtx) {
+		step := connsStep(st.Draft.MaxConnsPerHost)
+		if st.Draft.MaxConnsPerHost > 0 {
+			st.Draft.MaxConnsPerHost -= step
+			if st.Draft.MaxConnsPerHost < 0 {
+				st.Draft.MaxConnsPerHost = 0
+			}
+			changed = true
+		}
+	}
+	for st.MaxConnsInc.Clicked(gtx) {
+		step := connsStep(st.Draft.MaxConnsPerHost)
+		if st.Draft.MaxConnsPerHost < 10000 {
+			st.Draft.MaxConnsPerHost += step
+			if st.Draft.MaxConnsPerHost > 10000 {
+				st.Draft.MaxConnsPerHost = 10000
+			}
 			changed = true
 		}
 	}
@@ -339,7 +407,19 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 	if st.VerifySSL.Update(gtx) {
 		changed = true
 	}
+	if st.KeepAlive.Update(gtx) {
+		changed = true
+	}
+	if st.DisableHTTP2.Update(gtx) {
+		changed = true
+	}
 	if st.WrapLines.Update(gtx) {
+		changed = true
+	}
+	if st.AutoFormatJSON.Update(gtx) {
+		changed = true
+	}
+	if st.StripJSONComments.Update(gtx) {
 		changed = true
 	}
 
@@ -388,6 +468,59 @@ func timeoutStep(current int) int {
 	default:
 		return 60
 	}
+}
+
+func connsStep(current int) int {
+	switch {
+	case current < 10:
+		return 1
+	case current < 100:
+		return 10
+	case current < 1000:
+		return 50
+	default:
+		return 100
+	}
+}
+
+func methodGrid(th *material.Theme, st *SettingsEditorState, gtx layout.Context) layout.Dimensions {
+	gap := gtx.Dp(unit.Dp(6))
+	var children []layout.FlexChild
+	for i, m := range methods {
+		i, m := i, m
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return material.Clickable(gtx, &st.DefaultMethodBtn[i], func(gtx layout.Context) layout.Dimensions {
+				size := image.Pt(gtx.Dp(unit.Dp(72)), gtx.Dp(unit.Dp(28)))
+				gtx.Constraints.Min = size
+				gtx.Constraints.Max = size
+				borderC := colorBorder
+				borderW := gtx.Dp(unit.Dp(1))
+				active := st.Draft.DefaultMethod == m
+				if active {
+					borderC = colorAccent
+					borderW = gtx.Dp(unit.Dp(2))
+				} else if st.DefaultMethodBtn[i].Hovered() {
+					borderC = colorBorderLight
+				}
+				outer := clip.UniformRRect(image.Rectangle{Max: size}, 4)
+				paint.FillShape(gtx.Ops, borderC, outer.Op(gtx.Ops))
+				inner := image.Rect(borderW, borderW, size.X-borderW, size.Y-borderW)
+				paint.FillShape(gtx.Ops, colorBgField, clip.UniformRRect(inner, 3).Op(gtx.Ops))
+				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					lbl := monoLabel(th, unit.Sp(11), m)
+					lbl.Color = getMethodColor(m)
+					if active {
+						lbl.Font.Weight = font.Bold
+					}
+					return lbl.Layout(gtx)
+				})
+			})
+		}))
+		if i < len(methods)-1 {
+			children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(float32(gap) / gtx.Metric.PxPerDp)}.Layout))
+		}
+	}
+	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
 }
 
 func (ui *AppUI) layoutSettingsHeader(gtx layout.Context) layout.Dimensions {
@@ -481,10 +614,8 @@ func (ui *AppUI) layoutSettingsContent(gtx layout.Context) layout.Dimensions {
 	case 1:
 		sections = ui.sectionsSizes()
 	case 2:
-		sections = ui.sectionsLayout()
-	case 3:
 		sections = ui.sectionsHTTP()
-	case 4:
+	case 3:
 		sections = ui.sectionsAdvanced()
 	}
 	return material.List(ui.Theme, &ui.SettingsState.ContentList).Layout(gtx, len(sections), func(gtx layout.Context, i int) layout.Dimensions {
@@ -502,7 +633,21 @@ func (ui *AppUI) sectionsAppearance() []layout.Widget {
 			break
 		}
 	}
+	tabHint := "Hide the row of request tabs above the editor. " + defaultShownHidden(def.HideTabBar)
+	sideHint := "Hide the collections/environments sidebar. " + defaultShownHidden(def.HideSidebar)
 	return []layout.Widget{
+		settingsSectionTitle(ui.Theme, "Visibility"),
+		spacerH(8),
+		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(ui.Theme, &st.HideTabBar)
+			return settingsSwitchRow(ui.Theme, "Hide tab bar", tabHint, sw.Layout)(gtx)
+		},
+		spacerH(12),
+		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(ui.Theme, &st.HideSidebar)
+			return settingsSwitchRow(ui.Theme, "Hide sidebar", sideHint, sw.Layout)(gtx)
+		},
+		spacerH(20),
 		settingsSectionTitle(ui.Theme, "Color theme"),
 		spacerH(4),
 		settingsHint(ui.Theme, fmt.Sprintf("VS Code–inspired themes. Default: %s.", defName)),
@@ -540,26 +685,12 @@ func (ui *AppUI) sectionsSizes() []layout.Widget {
 		settingsHint(ui.Theme, fmt.Sprintf("Inner padding around the response body text. Same for wrap and no-wrap modes. Default: %d px.", def.ResponseBodyPadding)),
 		spacerH(8),
 		stepperRow(ui.Theme, &st.BodyPaddingDec, &st.BodyPaddingInc, fmt.Sprintf("%d px", st.Draft.ResponseBodyPadding)),
-	}
-}
-
-func (ui *AppUI) sectionsLayout() []layout.Widget {
-	st := ui.SettingsState
-	def := defaultSettings()
-	tabHint := "Hide the row of request tabs above the editor. " + defaultShownHidden(def.HideTabBar)
-	sideHint := "Hide the collections/environments sidebar. " + defaultShownHidden(def.HideSidebar)
-	return []layout.Widget{
-		settingsSectionTitle(ui.Theme, "Visibility"),
+		spacerH(20),
+		settingsSectionTitle(ui.Theme, "Default request/response split"),
+		spacerH(4),
+		settingsHint(ui.Theme, fmt.Sprintf("Initial width ratio of the request pane in new tabs. Default: %.0f%%.", def.DefaultSplitRatio*100)),
 		spacerH(8),
-		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.HideTabBar)
-			return settingsSwitchRow(ui.Theme, "Hide tab bar", tabHint, sw.Layout)(gtx)
-		},
-		spacerH(12),
-		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.HideSidebar)
-			return settingsSwitchRow(ui.Theme, "Hide sidebar", sideHint, sw.Layout)(gtx)
-		},
+		stepperRow(ui.Theme, &st.SplitRatioDec, &st.SplitRatioInc, fmt.Sprintf("%.0f%%", st.Draft.DefaultSplitRatio*100)),
 	}
 }
 
@@ -570,8 +701,14 @@ func (ui *AppUI) sectionsHTTP() []layout.Widget {
 	if st.Draft.RequestTimeoutSec == 0 {
 		timeoutLabel = "no timeout"
 	}
+	connsLabel := fmt.Sprintf("%d", st.Draft.MaxConnsPerHost)
+	if st.Draft.MaxConnsPerHost == 0 {
+		connsLabel = "unlimited"
+	}
 	redirectHint := "Follow HTTP 3xx redirects automatically. " + defaultOnOff(def.FollowRedirects)
 	verifyHint := "Verify TLS certificates for HTTPS requests. Disable only for local dev against self-signed certs. " + defaultOnOff(def.VerifySSL)
+	keepAliveHint := "Reuse TCP connections across requests to the same host. " + defaultOnOff(def.KeepAlive)
+	http2Hint := "Force HTTP/1.1 only — disables HTTP/2 ALPN negotiation on TLS connections. " + defaultOnOff(def.DisableHTTP2)
 	return []layout.Widget{
 		settingsSectionTitle(ui.Theme, "Request timeout"),
 		spacerH(4),
@@ -580,14 +717,20 @@ func (ui *AppUI) sectionsHTTP() []layout.Widget {
 		stepperRow(ui.Theme, &st.TimeoutDec, &st.TimeoutInc, timeoutLabel),
 		spacerH(20),
 
+		settingsSectionTitle(ui.Theme, "Default request method"),
+		spacerH(4),
+		settingsHint(ui.Theme, fmt.Sprintf("Method assigned to newly created tabs. Default: %s.", def.DefaultMethod)),
+		spacerH(8),
+		func(gtx layout.Context) layout.Dimensions {
+			return methodGrid(ui.Theme, st, gtx)
+		},
+		spacerH(20),
+
 		settingsSectionTitle(ui.Theme, "Default User-Agent"),
 		spacerH(4),
 		settingsHint(ui.Theme, fmt.Sprintf("Sent on every request unless overridden by a per-request header. Default: %s.", def.UserAgent)),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			// User-Agent strings can be long; let the field span the
-			// available width and rely on TextField's single-line
-			// horizontal scrolling for overflow.
 			return TextField(gtx, ui.Theme, &st.UserAgentEditor, "User-Agent", true, nil, 0, unit.Sp(13))
 		},
 		spacerH(20),
@@ -610,6 +753,23 @@ func (ui *AppUI) sectionsHTTP() []layout.Widget {
 			sw := styledSwitch(ui.Theme, &st.VerifySSL)
 			return settingsSwitchRow(ui.Theme, "Verify SSL certificates", verifyHint, sw.Layout)(gtx)
 		},
+		spacerH(20),
+
+		settingsSectionTitle(ui.Theme, "Connection"),
+		spacerH(8),
+		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(ui.Theme, &st.KeepAlive)
+			return settingsSwitchRow(ui.Theme, "Keep-Alive", keepAliveHint, sw.Layout)(gtx)
+		},
+		spacerH(12),
+		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(ui.Theme, &st.DisableHTTP2)
+			return settingsSwitchRow(ui.Theme, "Disable HTTP/2", http2Hint, sw.Layout)(gtx)
+		},
+		spacerH(12),
+		settingsHint(ui.Theme, fmt.Sprintf("Maximum concurrent connections per host. 0 = unlimited. Default: %d.", def.MaxConnsPerHost)),
+		spacerH(8),
+		stepperRow(ui.Theme, &st.MaxConnsDec, &st.MaxConnsInc, connsLabel),
 		spacerH(20),
 
 		settingsSectionTitle(ui.Theme, "HTTP proxy"),
@@ -638,6 +798,8 @@ func (ui *AppUI) sectionsAdvanced() []layout.Widget {
 	st := ui.SettingsState
 	def := defaultSettings()
 	wrapHint := "Wrap long lines by default in new editors. " + defaultOnOff(def.WrapLinesDefault)
+	autoFmtHint := "Pretty-print JSON responses in the preview viewer. Disable to display raw bytes as received. " + defaultOnOff(def.AutoFormatJSON)
+	stripHint := "Remove // line comments from JSON request bodies before sending if the result is valid JSON. " + defaultOnOff(def.StripJSONComments)
 	indentLabel := fmt.Sprintf("%d spaces", st.Draft.JSONIndentSpaces)
 	if st.Draft.JSONIndentSpaces == 0 {
 		indentLabel = "minified"
@@ -662,6 +824,19 @@ func (ui *AppUI) sectionsAdvanced() []layout.Widget {
 		func(gtx layout.Context) layout.Dimensions {
 			sw := styledSwitch(ui.Theme, &st.WrapLines)
 			return settingsSwitchRow(ui.Theme, "Wrap long lines by default", wrapHint, sw.Layout)(gtx)
+		},
+		spacerH(20),
+
+		settingsSectionTitle(ui.Theme, "JSON handling"),
+		spacerH(8),
+		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(ui.Theme, &st.AutoFormatJSON)
+			return settingsSwitchRow(ui.Theme, "Auto-format JSON responses", autoFmtHint, sw.Layout)(gtx)
+		},
+		spacerH(12),
+		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(ui.Theme, &st.StripJSONComments)
+			return settingsSwitchRow(ui.Theme, "Strip // comments before send", stripHint, sw.Layout)(gtx)
 		},
 	}
 }
