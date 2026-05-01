@@ -3,6 +3,7 @@ package ui
 import (
 	"encoding/json"
 	"io"
+	"time"
 
 	"github.com/nanorele/gio/widget"
 )
@@ -40,6 +41,7 @@ type EnvironmentUI struct {
 	Click     widget.Clickable
 	SelectBtn widget.Clickable
 	EditBtn   widget.Clickable
+	DelBtn    widget.Clickable
 
 	List       widget.List
 	Rows       []*EnvVarRow
@@ -47,6 +49,15 @@ type EnvironmentUI struct {
 	SaveBtn    widget.Clickable
 	BackBtn    widget.Clickable
 	NameEditor widget.Editor
+
+	// Inline rename in the sidebar — separate flow from the full
+	// EnvEditor panel that EditBtn opens. Double-click on the row's
+	// name in the sidebar flips IsRenaming to true; commit (Enter /
+	// loss of focus) writes back to Data.Name.
+	IsRenaming      bool
+	RenamingFocused bool
+	InlineNameEd    widget.Editor
+	LastClickAt     time.Time
 }
 
 func (ui *EnvironmentUI) initEditor() {

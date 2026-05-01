@@ -34,9 +34,10 @@ type AppSettings struct {
 	Proxy             string          `json:"proxy"`
 	DefaultHeaders    []DefaultHeader `json:"default_headers"`
 
-	JSONIndentSpaces int  `json:"json_indent_spaces"`
-	WrapLinesDefault bool `json:"wrap_lines_default"`
-	PreviewMaxMB     int  `json:"preview_max_mb"`
+	JSONIndentSpaces    int  `json:"json_indent_spaces"`
+	WrapLinesDefault    bool `json:"wrap_lines_default"`
+	PreviewMaxMB        int  `json:"preview_max_mb"`
+	ResponseBodyPadding int  `json:"response_body_padding"`
 }
 
 func defaultSettings() AppSettings {
@@ -56,9 +57,10 @@ func defaultSettings() AppSettings {
 		Proxy:             "",
 		DefaultHeaders:    nil,
 
-		JSONIndentSpaces: 2,
-		WrapLinesDefault: false,
-		PreviewMaxMB:     15,
+		JSONIndentSpaces:    2,
+		WrapLinesDefault:    false,
+		PreviewMaxMB:        15,
+		ResponseBodyPadding: 4,
 	}
 }
 
@@ -431,6 +433,7 @@ func applyPalette(p palette) {
 	colorVarFound = p.VarFound
 	colorVarMissing = p.VarMissing
 	colorDividerLight = p.DividerLight
+	applyMethodPalette(methodPaletteFor(p.Bg))
 }
 
 func (s AppSettings) sanitized() AppSettings {
@@ -487,6 +490,12 @@ func (s AppSettings) sanitized() AppSettings {
 	if s.PreviewMaxMB > 500 {
 		s.PreviewMaxMB = 500
 	}
+	if s.ResponseBodyPadding < 0 {
+		s.ResponseBodyPadding = 0
+	}
+	if s.ResponseBodyPadding > 32 {
+		s.ResponseBodyPadding = 32
+	}
 
 	return s
 }
@@ -498,6 +507,7 @@ var (
 	currentDefaultHeaders []DefaultHeader
 	currentJSONIndent     = 2
 	currentPreviewMaxMB   = 15
+	currentRespBodyPad    = unit.Dp(4)
 )
 
 func applyAppSettings(th *material.Theme, s AppSettings) {
@@ -516,6 +526,7 @@ func applyAppSettings(th *material.Theme, s AppSettings) {
 	if currentPreviewMaxMB < 1 {
 		currentPreviewMaxMB = 15
 	}
+	currentRespBodyPad = unit.Dp(s.ResponseBodyPadding)
 	httpClient = buildHTTPClient(s)
 	if th != nil {
 		th.Palette.Bg = colorBg

@@ -55,6 +55,7 @@ func (t *RequestTab) prepareRequest(parent context.Context, env map[string]strin
 	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
 		url = "http://" + url
 	}
+	url = strings.ReplaceAll(url, " ", "%20")
 
 	reqBody := bodyReplacer.Replace(t.ReqEditor.Text())
 	reqBody = processTemplate(reqBody, env)

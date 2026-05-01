@@ -9,6 +9,7 @@ import (
 	"image/color"
 	"io"
 	"os"
+	"path/filepath"
 	"time"
 
 	"github.com/nanorele/gio-x/explorer"
@@ -46,7 +47,9 @@ var (
 	iconDel      *widget.Icon
 	iconMenu     *widget.Icon
 	iconSearch   *widget.Icon
-	iconDropDown *widget.Icon
+	iconDropDown    *widget.Icon
+	iconChevronR    *widget.Icon
+	iconChevronD    *widget.Icon
 )
 
 func init() {
@@ -63,6 +66,8 @@ func init() {
 	iconMenu, _ = widget.NewIcon(icons.NavigationMoreVert)
 	iconSearch, _ = widget.NewIcon(icons.ActionSearch)
 	iconDropDown, _ = widget.NewIcon(icons.NavigationArrowDropDown)
+	iconChevronR, _ = widget.NewIcon(icons.NavigationChevronRight)
+	iconChevronD, _ = widget.NewIcon(icons.HardwareKeyboardArrowDown)
 }
 
 type cachedTab struct {
@@ -92,6 +97,7 @@ type AppUI struct {
 	TabsList         widget.List
 	AddTabBtn        widget.Clickable
 	ImportBtn        widget.Clickable
+	AddColBtn        widget.Clickable
 	Collections      []*CollectionUI
 	VisibleCols      []*CollectionNode
 	SidebarWidth     int
@@ -100,11 +106,19 @@ type AppUI struct {
 	ColList          widget.List
 	ColLoadedChan    chan *CollectionUI
 	ImportEnvBtn     widget.Clickable
+	AddEnvBtn        widget.Clickable
 	Environments     []*EnvironmentUI
 	ActiveEnvID      string
 	EnvList          widget.List
 	EnvLoadedChan    chan *EnvironmentUI
 	SidebarEnvHeight int
+	// envRowH / colRowH are measured from the first rendered row each
+	// frame; used by the sidebar's vertical-divider drag handler to
+	// snap the envs/cols section heights to a whole number of rows
+	// when the user releases the drag, so no row is left half-cut.
+	// Both stay at 0 until the first paint.
+	envRowH int
+	colRowH int
 	SidebarEnvDrag   gesture.Drag
 	SidebarEnvDragY  float32
 	EditingEnv       *EnvironmentUI
@@ -146,7 +160,7 @@ type AppUI struct {
 	VarPopupEnvID       string
 	VarPopupEditor      widget.Editor
 	VarPopupRange       struct{ Start, End int }
-	VarPopupSrcEditor   *widget.Editor
+	VarPopupSrcEditor   any
 	VarPopupSave        widget.Clickable
 	VarPopupList        widget.List
 	VarPopupClicks      []widget.Clickable
@@ -170,6 +184,11 @@ type AppUI struct {
 	tabInfoBuf []tabBarInfo
 	tabRowsBuf [][]int
 	tabRowBuf  []int
+
+	// Title is the brand label shown in the title bar. Set by the caller
+	// (cmd/main.go) so the binary can be rebranded without touching UI
+	// code. Falls back to "Tracto" when empty.
+	Title string
 }
 
 //go:embed assets/fonts/ttf/NotoColorEmoji.ttf
@@ -338,13 +357,79 @@ func (ui *AppUI) refreshActiveEnv() {
 		if e.Data.ID == ui.ActiveEnvID {
 			ui.activeEnvVars = make(map[string]string)
 			for _, v := range e.Data.Vars {
-				if v.Enabled {
+				// Treat empty value as "not defined" — keeps a row
+				// around in the env editor without the variable
+				// counting as resolved at substitution time.
+				if v.Enabled && v.Value != "" {
 					ui.activeEnvVars[v.Key] = v.Value
 				}
 			}
 			break
 		}
 	}
+}
+
+func (ui *AppUI) addNewCollection() {
+	id := newRandomID()
+	root := &CollectionNode{
+		Name:     "New Collection",
+		IsFolder: true,
+		Depth:    0,
+		Expanded: true,
+	}
+	root.NameEditor.SingleLine = true
+	root.NameEditor.Submit = true
+	col := &ParsedCollection{
+		ID:   id,
+		Name: "New Collection",
+		Root: root,
+	}
+	assignParents(root, nil, col)
+	ui.Collections = append(ui.Collections, &CollectionUI{Data: col})
+	ui.ColsExpanded = true
+	ui.markCollectionDirty(col)
+	ui.updateVisibleCols()
+	ui.Window.Invalidate()
+}
+
+func (ui *AppUI) deleteEnvironment(env *EnvironmentUI) {
+	if env == nil || env.Data == nil {
+		return
+	}
+	for i, e := range ui.Environments {
+		if e == env {
+			ui.Environments = append(ui.Environments[:i], ui.Environments[i+1:]...)
+			break
+		}
+	}
+	if ui.ActiveEnvID == env.Data.ID {
+		ui.ActiveEnvID = ""
+		ui.activeEnvDirty = true
+	}
+	if ui.EditingEnv == env {
+		ui.EditingEnv = nil
+	}
+	if env.Data.ID != "" {
+		os.Remove(filepath.Join(getEnvironmentsDir(), env.Data.ID+".json"))
+	}
+	ui.saveState()
+	ui.Window.Invalidate()
+}
+
+func (ui *AppUI) addNewEnvironment() {
+	id := newRandomID()
+	env := &ParsedEnvironment{
+		ID:   id,
+		Name: "New Environment",
+	}
+	envUI := &EnvironmentUI{Data: env}
+	SaveEnvironment(env)
+	ui.Environments = append(ui.Environments, envUI)
+	ui.EnvsExpanded = true
+	ui.EditingEnv = envUI
+	envUI.initEditor()
+	ui.saveState()
+	ui.Window.Invalidate()
 }
 
 func (ui *AppUI) importDroppedData(data []byte) {
@@ -391,20 +476,12 @@ func (ui *AppUI) Run() error {
 		case app.ConfigEvent:
 			ui.IsMaximized = e.Config.Mode == app.Maximized || e.Config.Mode == app.Fullscreen
 		case app.FrameEvent:
-			// Global pointer tracking
-			for {
-				ev, ok := e.Source.Event(pointer.Filter{
-					Target: ui,
-					Kinds:  pointer.Move | pointer.Press,
-				})
-				if !ok {
-					break
-				}
-				if pe, ok := ev.(pointer.Event); ok {
-					ui.LastPointerPos = pe.Position
-				}
-			}
-			event.Op(&ops, pointer.Filter{Target: ui, Kinds: pointer.Move | pointer.Press})
+			// Global pointer tracking is wired up inside layoutApp via
+			// gtx.Event + a window-level event.Op so the tag actually
+			// gets registered as a pointer target. The previous attempt
+			// here passed a pointer.Filter to event.Op (which expects a
+			// Tag), so no events ever reached `ui` and GlobalPointerPos
+			// stayed at (0, 0) — breaking the var popup positioning.
 
 			for {
 				select {
@@ -482,6 +559,10 @@ func (ui *AppUI) loadState() {
 		}
 		tab.pendingColID = ts.CollectionID
 		tab.pendingNodePath = ts.NodePath
+		// Recompute Content-Type / User-Agent from the loaded body and
+		// active settings — without this, a tab restored from disk shows
+		// no Content-Type header until the user touches the body.
+		tab.updateSystemHeaders()
 		ui.Tabs = append(ui.Tabs, tab)
 	}
 	if len(ui.Tabs) == 0 {
@@ -681,6 +762,9 @@ func (ui *AppUI) openRequestInTab(node *CollectionNode) {
 	for k, v := range req.Headers {
 		tab.addHeader(k, v)
 	}
+	// Sync auto-managed headers (Content-Type, User-Agent) so the new
+	// tab matches what would be sent on first request.
+	tab.updateSystemHeaders()
 
 	if len(ui.Tabs) > 0 && ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
 		tab.SplitRatio = ui.Tabs[ui.ActiveIdx].SplitRatio
@@ -693,7 +777,62 @@ func (ui *AppUI) openRequestInTab(node *CollectionNode) {
 }
 
 func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
-	GlobalVarHover = nil
+	// Pull window-level pointer tracking from the previous frame so
+	// GlobalPointerPos reflects the cursor's window-coords this frame.
+	// Position comes back relative to the area where the matching
+	// event.Op tag is registered (below) — without a clip, that's the
+	// full frame, which is what we want.
+	for {
+		ev, ok := gtx.Event(pointer.Filter{
+			Target: ui,
+			Kinds:  pointer.Move | pointer.Press,
+		})
+		if !ok {
+			break
+		}
+		pe, ok := ev.(pointer.Event)
+		if !ok {
+			continue
+		}
+		ui.LastPointerPos = pe.Position
+		if pe.Kind == pointer.Press {
+			// Background focus-drop. The root tag's area covers the
+			// full window, so it sees every Press in the frame.
+			// Widgets that want focus (request/response editors, the
+			// URL field, header editors, etc.) call FocusCmd{Tag:
+			// self} from their own click handler — those run after
+			// us this frame, so their command overrides this nil
+			// reset. Clicks on chrome (toolbars, dividers, scrollbar
+			// gutter, etc.) leave the nil reset in place, which is
+			// what makes the request editor's caret disappear when
+			// the user clicks anywhere outside it.
+			gtx.Execute(key.FocusCmd{Tag: nil})
+
+			// Click-outside-the-env-editor dismiss. The env editor
+			// occupies the area to the right of the sidebar (and
+			// below the title bar). Any press in the sidebar
+			// commits the draft and closes the editor — same idea
+			// as clicking the BackBtn but covers the natural "I'm
+			// done, switch to a different env / collection" flow.
+			if ui.EditingEnv != nil && !ui.SettingsOpen {
+				sidebarRight := 0
+				if !ui.Settings.HideSidebar {
+					sidebarRight = ui.SidebarWidth + gtx.Dp(unit.Dp(6))
+				}
+				titleBarH := gtx.Dp(unit.Dp(30))
+				if int(pe.Position.X) < sidebarRight && int(pe.Position.Y) >= titleBarH {
+					ui.commitEditingEnv()
+					ui.EditingEnv = nil
+					ui.Window.Invalidate()
+				}
+			}
+		}
+	}
+	event.Op(gtx.Ops, ui)
+	// GlobalVarHover is *not* reset each frame — it's now driven by
+	// pointer.Enter / pointer.Leave events on each var chip's tag, so
+	// it persists between frames while the cursor stays inside a chip
+	// and clears on Leave.
 	GlobalPointerPos = ui.LastPointerPos
 
 	dim := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
@@ -717,8 +856,22 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 			break
 		}
 	}
+	var activeTab *RequestTab
+	if ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
+		activeTab = ui.Tabs[ui.ActiveIdx]
+	}
+	tabMenuOpen := activeTab != nil && (activeTab.SendMenuOpen || activeTab.MethodListOpen)
 
-	if ui.TabCtxMenuOpen || anySidebarMenuOpen {
+	closeAllPopups := func() {
+		ui.TabCtxMenuOpen = false
+		ui.closeAllSidebarMenus()
+		if activeTab != nil {
+			activeTab.SendMenuOpen = false
+			activeTab.MethodListOpen = false
+		}
+	}
+
+	if ui.TabCtxMenuOpen || anySidebarMenuOpen || tabMenuOpen {
 		layout.Stack{}.Layout(gtx,
 			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
@@ -731,13 +884,11 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 						break
 					}
 					if pe, ok := ev.(pointer.Event); ok && pe.Kind == pointer.Press {
-						ui.TabCtxMenuOpen = false
-						ui.closeAllSidebarMenus()
+						closeAllPopups()
 						ui.Window.Invalidate()
 					}
 					if ke, ok := ev.(key.Event); ok && ke.State == key.Press && ke.Name == key.NameEscape {
-						ui.TabCtxMenuOpen = false
-						ui.closeAllSidebarMenus()
+						closeAllPopups()
 						ui.Window.Invalidate()
 					}
 				}
@@ -829,8 +980,11 @@ func (ui *AppUI) layoutVarPopup(gtx layout.Context) {
 		popupH = gtx.Dp(unit.Dp(340))
 	}
 
+	gap := gtx.Dp(unit.Dp(4))
+	// VarPopupPos is the bottom-left corner of the variable chip in window
+	// coords, so the popup naturally appears flush under the variable.
 	px := int(ui.VarPopupPos.X)
-	py := int(ui.VarPopupPos.Y) + gtx.Dp(unit.Dp(18))
+	py := int(ui.VarPopupPos.Y) + gap
 	if px+popupW > gtx.Constraints.Max.X {
 		px = gtx.Constraints.Max.X - popupW
 	}
@@ -838,22 +992,38 @@ func (ui *AppUI) layoutVarPopup(gtx layout.Context) {
 		px = 0
 	}
 	if py+popupH > gtx.Constraints.Max.Y {
-		py = int(ui.VarPopupPos.Y) - popupH - gtx.Dp(unit.Dp(8))
+		// Flip above the chip if there's no room below.
+		py = int(ui.VarPopupPos.Y) - popupH - gap
 	}
 	if py < 0 {
 		py = 0
 	}
 
+	popupRect := image.Rect(px, py, px+popupW, py+popupH)
+
 	layout.Stack{}.Layout(gtx,
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			paint.FillShape(gtx.Ops, color.NRGBA{A: 80}, clip.Rect{Max: gtx.Constraints.Max}.Op())
 			for {
-				_, ok := gtx.Event(pointer.Filter{
+				ev, ok := gtx.Event(pointer.Filter{
 					Target: &ui.VarPopupOpen,
 					Kinds:  pointer.Press,
 				})
 				if !ok {
 					break
+				}
+				pe, ok := ev.(pointer.Event)
+				if !ok {
+					continue
+				}
+				// Ignore clicks that land inside the popup body — they belong to
+				// the popup itself (env menu, value editor, etc.) and shouldn't
+				// dismiss it. Backdrop receives all presses because gio
+				// dispatches each event to every matching tag, not just the
+				// topmost.
+				p := image.Pt(int(pe.Position.X), int(pe.Position.Y))
+				if p.In(popupRect) {
+					continue
 				}
 				ui.saveVarPopup()
 				ui.VarPopupOpen = false
@@ -902,6 +1072,11 @@ func (ui *AppUI) layoutVarPopup(gtx layout.Context) {
 }
 
 func (ui *AppUI) layoutVarPopupEnvSelect(gtx layout.Context) layout.Dimensions {
+	// widget.List.Axis defaults to Horizontal (zero value), which made
+	// the env dropdown render as a horizontal strip — only the first
+	// 1-2 environments fit before being clipped. Force Vertical so the
+	// list scrolls as expected.
+	ui.VarPopupEnvList.Axis = layout.Vertical
 	if ui.VarPopupEnvBtn.Clicked(gtx) {
 		ui.VarPopupEnvMenuOpen = !ui.VarPopupEnvMenuOpen
 	}
@@ -980,7 +1155,7 @@ func (ui *AppUI) layoutVarPopupEnvSelect(gtx layout.Context) layout.Dimensions {
 							envID = e.Data.ID
 							envName = e.Data.Name
 							for _, v := range e.Data.Vars {
-								if v.Enabled && v.Key == ui.VarPopupName {
+								if v.Enabled && v.Key == ui.VarPopupName && v.Value != "" {
 									preview = v.Value
 									break
 								}
@@ -1066,9 +1241,20 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 		if e, ok := ev.(key.Event); ok && e.State == key.Press {
 			switch e.Name {
 			case "S":
-				if ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
-					if col := ui.Tabs[ui.ActiveIdx].saveToCollection(); col != nil {
-						ui.markCollectionDirty(col)
+				// Save target depends on what's currently focused/open:
+				// settings → flush draft, env editor → save env (no close,
+				// per task 3), otherwise → save active tab to collection.
+				switch {
+				case ui.SettingsOpen:
+					ui.applyDraftSettings()
+					ui.saveState()
+				case ui.EditingEnv != nil:
+					ui.commitEditingEnv()
+				default:
+					if ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
+						if col := ui.Tabs[ui.ActiveIdx].saveToCollection(); col != nil {
+							ui.markCollectionDirty(col)
+						}
 					}
 				}
 			case "W":
@@ -1087,6 +1273,26 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 					ui.saveState()
 				}
 			}
+		}
+	}
+
+	// Over-limit "Load from file" handler — lives here because the
+	// Explorer is owned by AppUI. Each tab's RequestEditor exposes
+	// OversizeMsg() and the click flag via LoadFromFileBtn; we route
+	// the chosen file's contents back through LoadFromReader, which
+	// re-checks the 100 MB ceiling.
+	for i := range ui.Tabs {
+		tab := ui.Tabs[i]
+		for tab.LoadFromFileBtn.Clicked(gtx) {
+			go func(tab *RequestTab) {
+				rc, err := ui.Explorer.ChooseFile()
+				if err != nil || rc == nil {
+					return
+				}
+				defer rc.Close()
+				_ = tab.ReqEditor.LoadFromReader(rc)
+				ui.Window.Invalidate()
+			}(tab)
 		}
 	}
 
@@ -1221,6 +1427,21 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 						defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 						pointer.CursorColResize.Add(gtx.Ops)
 						ui.SidebarDrag.Add(gtx.Ops)
+						// gio only honours the cursor hint over an area
+						// that actively listens for pointer events. The
+						// drag gesture only subscribes to press/drag, so
+						// hover (no buttons held) wouldn't trigger the
+						// cursor change. Subscribe to Move/Enter/Leave on
+						// a private tag and discard the events — the
+						// subscription itself is what makes the cursor
+						// hint take effect during plain hover.
+						event.Op(gtx.Ops, &ui.SidebarDrag)
+						for {
+							_, ok := gtx.Event(pointer.Filter{Target: &ui.SidebarDrag, Kinds: pointer.Move | pointer.Enter | pointer.Leave})
+							if !ok {
+								break
+							}
+						}
 						return layout.Dimensions{Size: size}
 					}),
 				)

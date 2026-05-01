@@ -43,14 +43,16 @@ func TestEnvEditor(t *testing.T) {
 		t.Errorf("expected 2 rows after add, got %d", len(ui.EditingEnv.Rows))
 	}
 
-	// Test Save
+	// Test Save — should persist data WITHOUT closing the editor (that
+	// "save also closes" behaviour was removed; closing is the back
+	// button's job now).
 	ui.EditingEnv.NameEditor.SetText("Updated Env")
 	ui.EditingEnv.Rows[0].KeyEditor.SetText("newKey")
 	ui.EditingEnv.SaveBtn.Click()
 	ui.layoutEnvEditor(gtx)
 
-	if ui.EditingEnv != nil {
-		t.Errorf("expected editing mode to be closed after save")
+	if ui.EditingEnv == nil {
+		t.Errorf("expected editing mode to remain open after save")
 	}
 	if env.Name != "Updated Env" {
 		t.Errorf("expected name to be updated, got %s", env.Name)
@@ -59,13 +61,13 @@ func TestEnvEditor(t *testing.T) {
 		t.Errorf("expected var key to be updated")
 	}
 
-	// Test Delete
-	ui.EditingEnv = ui.Environments[0]
-	ui.EditingEnv.initEditor()
+	// Test Delete (editor still open from previous save). After Add+Save
+	// the row list keeps its 2 drafty entries (the saved one + the empty
+	// added one); deleting the first should leave 1.
 	ui.EditingEnv.Rows[0].DelBtn.Click()
 	ui.layoutEnvEditor(gtx)
-	if len(ui.EditingEnv.Rows) != 0 {
-		t.Errorf("expected 0 rows after delete")
+	if len(ui.EditingEnv.Rows) != 1 {
+		t.Errorf("expected 1 row after delete, got %d", len(ui.EditingEnv.Rows))
 	}
 
 	// Test Back

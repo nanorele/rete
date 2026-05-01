@@ -4,16 +4,20 @@ import (
 	"image"
 	"image/color"
 	"io"
+	"os"
 	"strings"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/io/clipboard"
 	"github.com/nanorele/gio/io/event"
 	"github.com/nanorele/gio/io/key"
 	"github.com/nanorele/gio/io/pointer"
+	"github.com/nanorele/gio/io/transfer"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
 	"github.com/nanorele/gio/op/clip"
@@ -24,63 +28,22 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
-// byteToRuneIdx walks `text` and returns the rune column reached at
-// byteIdx (0-based count of complete runes preceding that byte). Used
-// to map stored byte offsets (selection/highlight ranges) into the
-// rune columns that gio's monospace layout actually paints — for
-// 2-byte UTF-8 chars (Cyrillic etc.) byte_offset != visual_column,
-// and using bytes for column math stretches selection rects past the
-// rendered text.
-func byteToRuneIdx(text []byte, byteIdx int) int {
-	if byteIdx > len(text) {
-		byteIdx = len(text)
-	}
-	n := 0
-	i := 0
-	for i < byteIdx {
-		_, sz := utf8.DecodeRune(text[i:])
-		if sz < 1 {
-			sz = 1
-		}
-		i += sz
-		n++
-	}
-	return n
-}
 
-// runeIdxToByte returns the byte offset of the start of the
-// runeIdx-th rune in text. Inverse of byteToRuneIdx; used by
-// hit-testing to convert a rune column (derived from pixel x) back
-// into the byte offset stored in selStart/selEnd.
-func runeIdxToByte(text []byte, runeIdx int) int {
-	n := 0
-	i := 0
-	for n < runeIdx && i < len(text) {
-		_, sz := utf8.DecodeRune(text[i:])
-		if sz < 1 {
-			sz = 1
-		}
-		i += sz
-		n++
-	}
-	return i
-}
-
-// ResponseViewer is a read-only, viewport-virtualised text widget.
+// RequestEditor is an editable, viewport-virtualised text widget — a
+// drop-in for widget.Editor in scenarios where the body can grow
+// well past widget.Editor's comfortable working size (large JSON
+// payloads, file-backed bodies up to ~100 MB).
 //
 // widget.Editor pre-shapes the entire text into a persistent per-glyph
-// index (text.Glyph + combinedPos, ~112 B per glyph). For a 3 MB response
-// that's ~370 MB of live heap for the index alone, held for the whole
-// session. Viewer sidesteps that entirely: it keeps the source bytes and
-// a small []int index of line starts (one int per '\n'), and shapes only
-// the lines currently inside the viewport. Per-frame memory cost is
-// O(visible lines) rather than O(total glyphs).
+// index (~112 B per glyph), which for a 10 MB body costs gigabytes of
+// heap and several seconds per layout. RequestEditor stores the raw
+// bytes plus a []int line-start index and shapes only the lines that
+// fall inside the viewport — per-frame cost is O(visible lines).
 //
-// The API mirrors the subset of widget.Editor that tab.go actually uses
-// for the response pane: SetText, Insert, Text, Len, plus scroll +
-// highlight accessors. Caret/selection are degenerate (single byte-range
-// highlight driven by search) since viewing is read-only.
-type ResponseViewer struct {
+// Editing operations: Insert(pos, s), DeleteRange(start, end),
+// Replace(start, end, s). text input + IME, undo/redo, caret blink
+// and {{var}} highlighting are layered on top in subsequent commits.
+type RequestEditor struct {
 	text       []byte
 	lineStarts []int // byte offset of each chunk start (first entry always 0)
 
@@ -122,16 +85,94 @@ type ResponseViewer struct {
 	lastLineHeight int
 	lastTotalH     int
 	lastViewportH  int
+
+	// IME composing region. While the user is mid-composition (e.g. a
+	// pinyin/hiragana sequence), the system reports the partial text via
+	// SnippetEvent with a non-empty range; we mirror it here so the
+	// render pass can underline / tint that span. Stored in byte
+	// offsets even though gio's IME API works in rune indices —
+	// conversion happens at the boundary.
+	imeStart int
+	imeEnd   int
+	// imeSentSnippet remembers the last snippet pushed via SnippetCmd
+	// so we don't re-push identical state every frame.
+	imeSentSnippet key.Snippet
+
+	// blinkStart marks the moment the caret last "did something" — we
+	// hold the caret solid for a beat after every move/edit so the user
+	// can track it, then resume blinking. Reset on FocusEvent and on
+	// every buffer mutation.
+	blinkStart time.Time
+
+	// undo / redo diff stacks. Each entry stores only the bytes that
+	// changed (deleted ↔ inserted), not a full snapshot — critical
+	// for 100 MB bodies where 100 snapshots would otherwise cost
+	// gigabytes. SetText clears both stacks (it's a fresh history).
+	// Replay is straightforward: undo restores `deleted` at `pos` and
+	// removes `inserted`; redo does the inverse.
+	undoStack []editOp
+	redoStack []editOp
+	// suppressHistory pauses undo/redo recording. Used while
+	// undoing/redoing so the inverse mutation doesn't itself land on
+	// the stack and stop the chain.
+	suppressHistory bool
+
+	// dirty is set on every buffer mutation and cleared by Changed().
+	// Mirrors widget.Editor's ChangeEvent contract so callers (tab.go)
+	// can keep using the same dirty/system-headers polling pattern.
+	dirty bool
+
+	// oversizeMsg is set by Insert/SetText/LoadFromFile when an input
+	// would push the buffer past RequestBodyMaxBytes. The UI shows it
+	// as a banner with a "Load from file" affordance until the user
+	// dismisses it or successfully attaches a file.
+	oversizeMsg string
 }
 
-func NewResponseViewer() *ResponseViewer {
-	return &ResponseViewer{
+type editOp struct {
+	pos       int
+	deleted   []byte
+	inserted  []byte
+	selBefore int  // caret/selection anchor before the edit
+	endBefore int  // caret end before the edit
+	selAfter  int  // caret position after the edit
+}
+
+const requestEditorUndoLimit = 1000
+
+// RequestBodyMaxBytes is the hard ceiling on the body the editor
+// will hold in memory. Beyond this, callers should hand the body off
+// to a file-backed transmit path (the request stays attached to a
+// file path, the editor shows a placeholder). 100 MB matches the
+// product target ("ожидаем до 1MB в 95% случаев"; 100 MB is the
+// power-user upper bound).
+const RequestBodyMaxBytes = 100 * 1024 * 1024
+
+// requestEditorVarScanCutoff disables {{var}} highlighting once the
+// buffer grows past this size. Var scanning is per-visible-chunk so
+// it stays cheap even on huge bodies, but for >10 MB the scan starts
+// to dominate frame time — and at that scale the body is almost
+// certainly machine-generated, so per-var feedback is less useful
+// than smooth scrolling.
+const requestEditorVarScanCutoff = 10 * 1024 * 1024
+
+func NewRequestEditor() *RequestEditor {
+	return &RequestEditor{
 		lineStarts: []int{0},
 	}
 }
 
-// SetText replaces the viewer's content and resets scroll and highlight.
-func (v *ResponseViewer) SetText(s string) {
+// SetText replaces the editor's content and resets scroll/highlight.
+// Programmatic content swap — clears undo/redo because the new text
+// is not a continuation of the previous editing session. Returns
+// false if the input exceeds RequestBodyMaxBytes (the caller is
+// expected to switch to a file-backed body in that case).
+func (v *RequestEditor) SetText(s string) bool {
+	if len(s) > RequestBodyMaxBytes {
+		v.oversizeMsg = "Body exceeds 100 MB. Load from file instead."
+		return false
+	}
+	v.oversizeMsg = ""
 	if cap(v.text) < len(s) {
 		v.text = make([]byte, 0, len(s))
 	}
@@ -146,12 +187,85 @@ func (v *ResponseViewer) SetText(s string) {
 	v.selStart = 0
 	v.selEnd = 0
 	v.dragActive = false
+	v.undoStack = v.undoStack[:0]
+	v.redoStack = v.redoStack[:0]
+	return true
 }
+
+// IsOverSoftLimit reports whether the body has crossed the size at
+// which UI should suggest switching to a file-backed payload.
+func (v *RequestEditor) IsOverSoftLimit() bool {
+	return len(v.text) >= RequestBodyMaxBytes
+}
+
+// OversizeMsg returns the latest reason an Insert/SetText/Load call
+// was rejected for size, or "" when no rejection is pending. The UI
+// shows it as a banner; DismissOversize clears it.
+func (v *RequestEditor) OversizeMsg() string { return v.oversizeMsg }
+
+// DismissOversize clears the over-limit banner. Called by the UI's
+// "OK / dismiss" affordance.
+func (v *RequestEditor) DismissOversize() { v.oversizeMsg = "" }
+
+// SizeBytes returns the current buffer length.
+func (v *RequestEditor) SizeBytes() int { return len(v.text) }
+
+// LoadFromReader pulls bytes from r (up to RequestBodyMaxBytes+1 to
+// detect overflow) and replaces the buffer with them. Used by the
+// over-limit banner's "Load from file" affordance, which gets a
+// ReadCloser from explorer.ChooseFile rather than a filesystem path.
+func (v *RequestEditor) LoadFromReader(r io.Reader) error {
+	limited := io.LimitReader(r, int64(RequestBodyMaxBytes)+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		v.oversizeMsg = "Load failed: " + err.Error()
+		return err
+	}
+	if len(data) > RequestBodyMaxBytes {
+		v.oversizeMsg = "File exceeds 100 MB; cannot load inline."
+		return errBodyTooLarge
+	}
+	if !v.SetText(string(data)) {
+		return errBodyTooLarge
+	}
+	return nil
+}
+
+// LoadFromFile reads `path` into the editor as a fresh document.
+// Files past RequestBodyMaxBytes are rejected with an error so the
+// caller can wire the file directly into the request transmit path
+// instead of pulling its bytes through the editor.
+func (v *RequestEditor) LoadFromFile(path string) error {
+	fi, err := os.Stat(path)
+	if err != nil {
+		v.oversizeMsg = "Load failed: " + err.Error()
+		return err
+	}
+	if fi.Size() > int64(RequestBodyMaxBytes) {
+		v.oversizeMsg = "File exceeds 100 MB; cannot load inline."
+		return errBodyTooLarge
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		v.oversizeMsg = "Load failed: " + err.Error()
+		return err
+	}
+	if !v.SetText(string(data)) {
+		return errBodyTooLarge
+	}
+	return nil
+}
+
+var errBodyTooLarge = errBody("request body exceeds 100 MB; load directly via the request's file source instead")
+
+type errBody string
+
+func (e errBody) Error() string { return string(e) }
 
 // SelectedText returns the bytes between the user's selection anchor
 // and current selection end. Empty when no selection. The Copy button
 // in tab.go uses this when present, falling back to the full text.
-func (v *ResponseViewer) SelectedText() string {
+func (v *RequestEditor) SelectedText() string {
 	if v.selStart == v.selEnd {
 		return ""
 	}
@@ -170,7 +284,7 @@ func (v *ResponseViewer) SelectedText() string {
 
 // Append adds text to the end. Cheap: just extends the byte slice and
 // appends new line-start offsets.
-func (v *ResponseViewer) Append(s string) {
+func (v *RequestEditor) Append(s string) {
 	startIdx := len(v.text)
 	v.text = append(v.text, s...)
 	v.appendLineStartsFrom(startIdx)
@@ -178,13 +292,13 @@ func (v *ResponseViewer) Append(s string) {
 	v.padChunkHeights()
 }
 
-func (v *ResponseViewer) invalidateChunkHeights() {
+func (v *RequestEditor) invalidateChunkHeights() {
 	v.chunkHeights = v.chunkHeights[:0]
 }
 
 // padChunkHeights extends chunkHeights with zero entries (placeholder
 // "use default") so it stays the same length as lineStarts after Append.
-func (v *ResponseViewer) padChunkHeights() {
+func (v *RequestEditor) padChunkHeights() {
 	for len(v.chunkHeights) < len(v.lineStarts) {
 		v.chunkHeights = append(v.chunkHeights, 0)
 	}
@@ -193,24 +307,398 @@ func (v *ResponseViewer) padChunkHeights() {
 	}
 }
 
-// Insert is an alias for Append. The streaming code treats the response
-// editor as append-only, so we don't support mid-text insertion.
-func (v *ResponseViewer) Insert(s string) { v.Append(s) }
+// Insert places s at byte offset pos and updates lineStarts /
+// chunkHeights / maxLineWidth so subsequent renders see the new
+// content. Out-of-range pos values are clamped to [0, len(text)].
+//
+// Implementation detail: lineStarts is rebuilt from the start of the
+// chunk containing pos, not from byte 0. For 1 MB bodies this is a
+// fraction of a millisecond per keystroke; for 100 MB it can be
+// noticeable but still workable. A future optimisation could shift
+// existing lineStarts entries past pos by len(s) and only rescan the
+// modified chunk, but the current naive rebuild is correct and easy
+// to reason about.
+func (v *RequestEditor) Insert(pos int, s string) {
+	if s == "" {
+		return
+	}
+	// Reject mutations that would push the buffer past 100 MB. Callers
+	// that legitimately want a larger body should use LoadFromFile and
+	// the file-backed transmit path; inline editing past 100 MB
+	// degrades layout/IME/undo into uselessness anyway.
+	if len(v.text)+len(s) > RequestBodyMaxBytes {
+		v.oversizeMsg = "Paste rejected: would exceed 100 MB. Load from file instead."
+		return
+	}
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > len(v.text) {
+		pos = len(v.text)
+	}
+	selBefore, endBefore := v.selStart, v.selEnd
+	// Splice the bytes in.
+	v.text = append(v.text[:pos], append([]byte(s), v.text[pos:]...)...)
+
+	// Shift selection / highlight that sits past the insertion point.
+	shift := len(s)
+	v.shiftRanges(pos, shift)
+
+	v.rebuildLineStartsFrom(pos)
+	v.maxLineWidth = 0
+	v.padChunkHeights()
+	v.recordEdit(editOp{
+		pos:       pos,
+		deleted:   nil,
+		inserted:  []byte(s),
+		selBefore: selBefore,
+		endBefore: endBefore,
+		selAfter:  pos + len(s),
+	})
+}
+
+// DeleteRange removes bytes in [start, end) and adjusts indices.
+// Out-of-range / inverted args are clamped + sorted.
+func (v *RequestEditor) DeleteRange(start, end int) {
+	if start > end {
+		start, end = end, start
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > len(v.text) {
+		end = len(v.text)
+	}
+	if start == end {
+		return
+	}
+	selBefore, endBefore := v.selStart, v.selEnd
+	deletedCopy := make([]byte, end-start)
+	copy(deletedCopy, v.text[start:end])
+	v.text = append(v.text[:start], v.text[end:]...)
+
+	v.shiftRanges(end, -(end - start))
+
+	v.rebuildLineStartsFrom(start)
+	v.maxLineWidth = 0
+	v.padChunkHeights()
+	v.recordEdit(editOp{
+		pos:       start,
+		deleted:   deletedCopy,
+		inserted:  nil,
+		selBefore: selBefore,
+		endBefore: endBefore,
+		selAfter:  start,
+	})
+}
+
+// Replace is DeleteRange(start, end) followed by Insert(start, s)
+// recorded as a single undo step. We toggle suppressHistory around the
+// inner calls so they don't push their own (now redundant) entries,
+// then record the combined op manually.
+func (v *RequestEditor) Replace(start, end int, s string) {
+	if start > end {
+		start, end = end, start
+	}
+	if start < 0 {
+		start = 0
+	}
+	if end > len(v.text) {
+		end = len(v.text)
+	}
+	selBefore, endBefore := v.selStart, v.selEnd
+	var deletedCopy []byte
+	if end > start {
+		deletedCopy = make([]byte, end-start)
+		copy(deletedCopy, v.text[start:end])
+	}
+	v.suppressHistory = true
+	v.DeleteRange(start, end)
+	v.Insert(start, s)
+	v.suppressHistory = false
+	if len(deletedCopy) == 0 && s == "" {
+		return
+	}
+	v.recordEdit(editOp{
+		pos:       start,
+		deleted:   deletedCopy,
+		inserted:  []byte(s),
+		selBefore: selBefore,
+		endBefore: endBefore,
+		selAfter:  start + len(s),
+	})
+}
+
+// recordEdit pushes the op onto the undo stack and clears redo (a
+// fresh edit invalidates the redo timeline). No-op while replaying.
+// Also flips the dirty flag so callers polling Changed() pick up the
+// edit on the next frame.
+func (v *RequestEditor) recordEdit(op editOp) {
+	v.dirty = true
+	if v.suppressHistory {
+		return
+	}
+	// Try to merge with the previous step. Without grouping, every
+	// keystroke becomes its own undo entry — typing "hello" then
+	// Ctrl+Z removes one letter at a time, which feels broken.
+	// Editors group adjacent same-kind edits up to a "type break"
+	// (whitespace, newline, navigation, paste).
+	if n := len(v.undoStack); n > 0 && canMergeEdit(v.undoStack[n-1], op) {
+		mergeEditInto(&v.undoStack[n-1], op)
+	} else {
+		v.undoStack = append(v.undoStack, op)
+	}
+	if len(v.undoStack) > requestEditorUndoLimit {
+		v.undoStack = v.undoStack[len(v.undoStack)-requestEditorUndoLimit:]
+	}
+	v.redoStack = v.redoStack[:0]
+}
+
+// canMergeEdit decides whether op continues the previous step in a
+// way that should be undone in one shot.
+//
+// Rules (kept conservative — better to err on the side of "two undo
+// steps" than to swallow user-distinguishable actions into one):
+//
+//   - Both must be pure insertions OR both must be pure deletions
+//     (Replace ops, recorded with both deleted+inserted, never merge).
+//   - Insertions merge only when contiguous (op.pos == prev.pos +
+//     len(prev.inserted)) and neither inserted blob contains '\n' or
+//     '\t' — newlines and tabs make natural "type breaks".
+//   - Deletions merge in two flavours:
+//       * Backspace chain: op.pos + len(op.deleted) == prev.pos
+//         (each new delete sits immediately to the left of prev).
+//       * Forward-Delete chain: op.pos == prev.pos and op.deleted's
+//         bytes start where prev.deleted ended.
+//     Same no-newline/no-tab restriction so paragraph boundaries
+//     remain undo-able as their own step.
+func canMergeEdit(prev, op editOp) bool {
+	prevIns := len(prev.inserted) > 0 && len(prev.deleted) == 0
+	prevDel := len(prev.deleted) > 0 && len(prev.inserted) == 0
+	opIns := len(op.inserted) > 0 && len(op.deleted) == 0
+	opDel := len(op.deleted) > 0 && len(op.inserted) == 0
+
+	// Whitespace, newlines and tabs are natural undo boundaries —
+	// users expect Ctrl+Z to undo "one word at a time", not the
+	// entire paragraph.
+	noBreak := func(b []byte) bool {
+		for _, c := range b {
+			if c == '\n' || c == '\t' || c == ' ' {
+				return false
+			}
+		}
+		return true
+	}
+
+	switch {
+	case prevIns && opIns:
+		if !noBreak(prev.inserted) || !noBreak(op.inserted) {
+			return false
+		}
+		return op.pos == prev.pos+len(prev.inserted)
+	case prevDel && opDel:
+		if !noBreak(prev.deleted) || !noBreak(op.deleted) {
+			return false
+		}
+		// Backspace: new delete sits to the left of prev.
+		if op.pos+len(op.deleted) == prev.pos {
+			return true
+		}
+		// Forward delete: new delete sits at the same anchor (since
+		// prev's bytes are gone, the next forward delete still
+		// reports its pos as prev.pos).
+		if op.pos == prev.pos {
+			return true
+		}
+	}
+	return false
+}
+
+// mergeEditInto folds op into prev so both edits replay/unreplay as
+// one. Caller has already verified compatibility via canMergeEdit.
+func mergeEditInto(prev *editOp, op editOp) {
+	switch {
+	case len(prev.inserted) > 0 && len(op.inserted) > 0:
+		// Insertion chain: append the new bytes to the running run
+		// and slide selAfter forward.
+		prev.inserted = append(prev.inserted, op.inserted...)
+		prev.selAfter = op.selAfter
+	case len(prev.deleted) > 0 && len(op.deleted) > 0:
+		if op.pos+len(op.deleted) == prev.pos {
+			// Backspace: the new bytes are *before* prev.deleted.
+			prev.deleted = append(append([]byte{}, op.deleted...), prev.deleted...)
+			prev.pos = op.pos
+		} else {
+			// Forward delete: new bytes follow prev.deleted.
+			prev.deleted = append(prev.deleted, op.deleted...)
+		}
+		prev.selAfter = op.selAfter
+	}
+}
+
+// Changed reports whether the buffer was mutated since the last call,
+// then clears the dirty flag. Mirrors widget.Editor's ChangeEvent so
+// callers can keep their existing per-frame poll loop.
+func (v *RequestEditor) Changed() bool {
+	d := v.dirty
+	v.dirty = false
+	return d
+}
+
+// Undo applies the inverse of the last edit. Returns true if anything
+// was undone (false on empty stack). Pushes the undone op onto the
+// redo stack so Redo can replay it.
+func (v *RequestEditor) Undo() bool {
+	if len(v.undoStack) == 0 {
+		return false
+	}
+	op := v.undoStack[len(v.undoStack)-1]
+	v.undoStack = v.undoStack[:len(v.undoStack)-1]
+	v.suppressHistory = true
+	// Reverse the op: remove `inserted`, splice `deleted` back in.
+	if len(op.inserted) > 0 {
+		v.DeleteRange(op.pos, op.pos+len(op.inserted))
+	}
+	if len(op.deleted) > 0 {
+		v.Insert(op.pos, string(op.deleted))
+	}
+	v.suppressHistory = false
+	v.selStart = op.selBefore
+	v.selEnd = op.endBefore
+	v.redoStack = append(v.redoStack, op)
+	return true
+}
+
+// Redo replays the most recently undone op.
+func (v *RequestEditor) Redo() bool {
+	if len(v.redoStack) == 0 {
+		return false
+	}
+	op := v.redoStack[len(v.redoStack)-1]
+	v.redoStack = v.redoStack[:len(v.redoStack)-1]
+	v.suppressHistory = true
+	if len(op.deleted) > 0 {
+		v.DeleteRange(op.pos, op.pos+len(op.deleted))
+	}
+	if len(op.inserted) > 0 {
+		v.Insert(op.pos, string(op.inserted))
+	}
+	v.suppressHistory = false
+	caret := op.selAfter
+	v.selStart = caret
+	v.selEnd = caret
+	v.undoStack = append(v.undoStack, op)
+	return true
+}
+
+// normSel returns selection bounds normalised so start <= end.
+// Convenience for code that needs to act on the selection range as
+// "this text was/will be replaced" without caring which end is the
+// drag anchor.
+func (v *RequestEditor) normSel() (int, int) {
+	if v.selStart <= v.selEnd {
+		return v.selStart, v.selEnd
+	}
+	return v.selEnd, v.selStart
+}
+
+// pushIMEState syncs gio's IME state with our buffer + selection so
+// composing popups (Windows IME, macOS dead keys, mobile soft kbd
+// suggestions) stay anchored to the right text. We send a Snippet
+// covering a small window around the caret + a SelectionCmd locating
+// the caret in rune indices. Both ranges are converted byte→rune at
+// the boundary (gio's IME API is rune-indexed).
+func (v *RequestEditor) pushIMEState(gtx layout.Context) {
+	caretByte := v.selEnd
+	caretRune := byteToRuneIdx(v.text, caretByte)
+	selStartRune := byteToRuneIdx(v.text, v.selStart)
+	selEndRune := caretRune
+
+	gtx.Execute(key.SelectionCmd{
+		Tag:   v,
+		Range: key.Range{Start: selStartRune, End: selEndRune},
+	})
+
+	// Snippet covers a ±256-rune window around the caret. The IME may
+	// use this to anticipate context (e.g. Asian-language word
+	// segmentation) without us streaming the whole document each
+	// frame.
+	const window = 256
+	startRune := caretRune - window
+	if startRune < 0 {
+		startRune = 0
+	}
+	endRune := caretRune + window
+	totalRunes := utf8.RuneCount(v.text)
+	if endRune > totalRunes {
+		endRune = totalRunes
+	}
+	startByte := runeIdxToByte(v.text, startRune)
+	endByte := runeIdxToByte(v.text, endRune)
+	snip := key.Snippet{
+		Range: key.Range{Start: startRune, End: endRune},
+		Text:  string(v.text[startByte:endByte]),
+	}
+	if snip == v.imeSentSnippet {
+		return
+	}
+	v.imeSentSnippet = snip
+	gtx.Execute(key.SnippetCmd{Tag: v, Snippet: snip})
+}
+
+// shiftRanges adjusts selection / highlight byte offsets when the
+// underlying buffer is edited at boundary `from` by `delta` bytes
+// (positive on insertion, negative on deletion). Offsets at or past
+// the boundary slide; offsets before the boundary are untouched.
+// Selection that straddled a deletion gets clamped down to the
+// deletion start so the caret doesn't end up dangling past EOF.
+func (v *RequestEditor) shiftRanges(from, delta int) {
+	adjust := func(off int) int {
+		if off >= from {
+			return off + delta
+		}
+		// On deletion: offset that fell inside the removed range
+		// (i.e. between from+delta and from with delta<0) lands at the
+		// new boundary.
+		if delta < 0 && off > from+delta {
+			return from + delta
+		}
+		return off
+	}
+	v.selStart = adjust(v.selStart)
+	v.selEnd = adjust(v.selEnd)
+	if v.highlightEnd > 0 {
+		v.highlightStart = adjust(v.highlightStart)
+		v.highlightEnd = adjust(v.highlightEnd)
+	}
+	if v.selStart < 0 {
+		v.selStart = 0
+	}
+	if v.selEnd < 0 {
+		v.selEnd = 0
+	}
+	if v.selStart > len(v.text) {
+		v.selStart = len(v.text)
+	}
+	if v.selEnd > len(v.text) {
+		v.selEnd = len(v.text)
+	}
+}
 
 // Text returns a string copy of the buffer. Uses the same unsafe-looking
 // but standard pattern as gio's editor.
-func (v *ResponseViewer) Text() string { return string(v.text) }
+func (v *RequestEditor) Text() string { return string(v.text) }
 
 // Len returns the byte length of the buffer.
-func (v *ResponseViewer) Len() int { return len(v.text) }
+func (v *RequestEditor) Len() int { return len(v.text) }
 
 // Selection returns the current highlight range. Kept for API parity.
-func (v *ResponseViewer) Selection() (int, int) {
+func (v *RequestEditor) Selection() (int, int) {
 	return v.highlightStart, v.highlightEnd
 }
 
 // SetCaret sets the highlight range and scrolls to bring it into view.
-func (v *ResponseViewer) SetCaret(start, end int) {
+func (v *RequestEditor) SetCaret(start, end int) {
 	if start < 0 {
 		start = 0
 	}
@@ -229,13 +717,13 @@ func (v *ResponseViewer) SetCaret(start, end int) {
 }
 
 // SetScrollCaret is a no-op; present only for widget.Editor API parity.
-func (v *ResponseViewer) SetScrollCaret(bool) {}
+func (v *RequestEditor) SetScrollCaret(bool) {}
 
 // GetScrollY returns the current vertical scroll position in pixels.
-func (v *ResponseViewer) GetScrollY() int { return v.scrollY }
+func (v *RequestEditor) GetScrollY() int { return v.scrollY }
 
 // SetScrollY sets the vertical scroll position in pixels.
-func (v *ResponseViewer) SetScrollY(y int) {
+func (v *RequestEditor) SetScrollY(y int) {
 	v.scrollY = y
 	v.clampScroll()
 }
@@ -243,7 +731,7 @@ func (v *ResponseViewer) SetScrollY(y int) {
 // GetScrollBounds returns the scrollable extents. Y extent is a running
 // estimate based on the last-rendered line height; it stabilises once
 // a frame has run.
-func (v *ResponseViewer) GetScrollBounds() image.Rectangle {
+func (v *RequestEditor) GetScrollBounds() image.Rectangle {
 	if v.lastLineHeight == 0 {
 		return image.Rectangle{}
 	}
@@ -251,7 +739,7 @@ func (v *ResponseViewer) GetScrollBounds() image.Rectangle {
 	return image.Rectangle{Max: image.Point{Y: totalH}}
 }
 
-func (v *ResponseViewer) clampScroll() {
+func (v *RequestEditor) clampScroll() {
 	if v.scrollY < 0 {
 		v.scrollY = 0
 	}
@@ -269,7 +757,7 @@ func (v *ResponseViewer) clampScroll() {
 	}
 }
 
-func (v *ResponseViewer) scrollToByteOffset(off int) {
+func (v *RequestEditor) scrollToByteOffset(off int) {
 	if v.lastLineHeight == 0 {
 		return
 	}
@@ -284,7 +772,7 @@ func (v *ResponseViewer) scrollToByteOffset(off int) {
 }
 
 // lineForByteOffset returns the source-line index that contains off. O(log n).
-func (v *ResponseViewer) lineForByteOffset(off int) int {
+func (v *RequestEditor) lineForByteOffset(off int) int {
 	lo, hi := 0, len(v.lineStarts)-1
 	for lo < hi {
 		mid := (lo + hi + 1) / 2
@@ -305,9 +793,8 @@ func (v *ResponseViewer) lineForByteOffset(off int) int {
 // the cache-entry size for repeated renders. Word-wrap may break at
 // chunk boundaries for long unbroken lines, which is acceptable for
 // response bodies.
-const chunkMaxBytes = 2048
 
-func (v *ResponseViewer) rebuildLineStartsFrom(startIdx int) {
+func (v *RequestEditor) rebuildLineStartsFrom(startIdx int) {
 	// Truncate existing entries past startIdx, then re-scan.
 	for len(v.lineStarts) > 0 && v.lineStarts[len(v.lineStarts)-1] > startIdx {
 		v.lineStarts = v.lineStarts[:len(v.lineStarts)-1]
@@ -318,7 +805,7 @@ func (v *ResponseViewer) rebuildLineStartsFrom(startIdx int) {
 	v.scanChunks(v.lineStarts[len(v.lineStarts)-1])
 }
 
-func (v *ResponseViewer) appendLineStartsFrom(startIdx int) {
+func (v *RequestEditor) appendLineStartsFrom(startIdx int) {
 	// Start scanning from the previous chunk's start so we correctly
 	// apply chunkMaxBytes across the Append boundary.
 	if len(v.lineStarts) == 0 {
@@ -341,7 +828,7 @@ func (v *ResponseViewer) appendLineStartsFrom(startIdx int) {
 // UTF-8 codepoint boundary so the resulting chunk is always valid
 // UTF-8 — otherwise rendering replaces the broken byte with U+FFFD
 // and the surrounding characters disappear.
-func (v *ResponseViewer) scanChunks(from int) {
+func (v *RequestEditor) scanChunks(from int) {
 	lastBreak := from
 	for i := from; i < len(v.text); i++ {
 		if v.text[i] == '\n' {
@@ -367,10 +854,10 @@ func (v *ResponseViewer) scanChunks(from int) {
 	}
 }
 
-// ResponseViewerStyle renders a ResponseViewer. Create one per Layout
+// RequestEditorStyle renders a RequestEditor. Create one per Layout
 // call — it's a value type holding only refs and style knobs.
-type ResponseViewerStyle struct {
-	Viewer         *ResponseViewer
+type RequestEditorStyle struct {
+	Viewer         *RequestEditor
 	Shaper         *text.Shaper
 	Font           font.Font
 	TextSize       unit.Sp
@@ -378,14 +865,24 @@ type ResponseViewerStyle struct {
 	HighlightColor color.NRGBA // search match background
 	SelectionColor color.NRGBA // mouse selection background
 	Wrap           bool
+	// ReadOnly suppresses the caret and ignores keyboard input that
+	// would mutate the buffer (text input, Backspace, Delete, paste,
+	// cut, Tab, Enter). Selection and copy still work.
+	ReadOnly bool
 	// Padding is applied inside the viewer's clip — text and selection
 	// rectangles shift by Padding while gestures and scroll bounds still
 	// cover the full clipped region. Same value applies to wrap and
 	// non-wrap modes so users see consistent breathing room.
 	Padding unit.Dp
+	// Env is the active environment's resolved variable map. When
+	// non-nil, the editor scans visible chunks for {{var}} patterns
+	// and paints colorVarFound / colorVarMissing rectangles behind
+	// them — same colour scheme as TextField in widgets.go. Pass nil
+	// to disable highlighting (cheap; the scan is skipped entirely).
+	Env map[string]string
 }
 
-func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
+func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 	v := s.Viewer
 
 	size := gtx.Constraints.Max
@@ -518,16 +1015,19 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 	v.Drag.Add(gtx.Ops)
 	v.Click.Add(gtx.Ops)
 	event.Op(gtx.Ops, v)
-	// Pull (and discard) Move events on the viewer's tag — gio only
-	// applies cursor hints for areas that have an active pointer
-	// target, so without an event subscription the I-beam stays
-	// inactive even with CursorText.Add.
+	// Drain hover events on the viewer's tag — gio only applies the
+	// cursor hint where a pointer target is actively listening, so
+	// without this Move/Enter/Leave subscription the I-beam stays
+	// dormant even with CursorText.Add registered.
 	for {
 		_, ok := gtx.Event(pointer.Filter{Target: v, Kinds: pointer.Move | pointer.Enter | pointer.Leave})
 		if !ok {
 			break
 		}
 	}
+	// Input hint so soft keyboards open in plain-text mode (matters on
+	// Android / mobile; desktop ignores it).
+	key.InputHintOp{Tag: v, Hint: key.HintText}.Add(gtx.Ops)
 
 	// Push the inner-padding offset *after* registering gestures and the
 	// event tag so they keep covering the full clipped rect (clicks in
@@ -588,6 +1088,14 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 			v.dragActive = true
 		}
 		hasSel = v.selStart != v.selEnd
+		v.blinkStart = gtx.Now
+		// Push the new selection back to gio so the next EditEvent's
+		// Range matches the user-visible caret. Without this, gio
+		// keeps reporting the stale range from the last SelectionCmd
+		// (typically the end-of-buffer baseline pushed on focus),
+		// which makes the very first keystroke insert at the wrong
+		// position and the caret "jump to end of line".
+		v.pushIMEState(gtx)
 	}
 
 	// 2. Drag motion to extend the selection in flight. Press is
@@ -610,23 +1118,177 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		case pointer.Release, pointer.Cancel:
 			v.dragActive = false
 			hasSel = v.selStart != v.selEnd
+			// Same reason as in the Click handler: keep gio in sync
+			// with the user-visible selection so the next keystroke
+			// inserts at the right place.
+			v.pushIMEState(gtx)
 		}
 	}
 
-	// 3. Keyboard shortcuts when the viewer has focus. Modifier-shortcuts
-	//    (Ctrl+A select-all, Ctrl+C copy, Ctrl+Home/End document jump,
-	//    Ctrl+Left/Right word move) and bare navigation (arrows, Home,
-	//    End, PageUp/PageDown) — Shift extends the existing selection;
-	//    bare keypress collapses it onto the new caret position.
+	// 3a. Text input + IME. Subscribing the editor's tag to FocusFilter +
+	//     transfer.TargetFilter routes EditEvent / SnippetEvent /
+	//     SelectionEvent / FocusEvent / DataEvent to us automatically
+	//     once the widget is focused. EditEvent ranges are rune indices
+	//     (gio's IME API), but our internal selection is byte-based —
+	//     so we convert at the boundary using runeIdxToByte /
+	//     byteToRuneIdx. After every textual mutation we push a
+	//     SnippetCmd + SelectionCmd back to gio so the IME stays in
+	//     sync with the buffer.
 	for {
-		// FocusFilter must be in the filter list — without it gio
-		// silently ignores key.FocusCmd, leaving the viewer un-focused
-		// and starving the named key.Filters below of events
-		// (Ctrl+A / Ctrl+C / arrows etc. silently drop).
 		ev, ok := gtx.Event(
 			key.FocusFilter{Target: v},
+			transfer.TargetFilter{Target: v, Type: "application/text"},
+			key.Filter{Focus: v, Name: key.NameDeleteBackward, Optional: key.ModShortcut | key.ModShift},
+			key.Filter{Focus: v, Name: key.NameDeleteForward, Optional: key.ModShortcut | key.ModShift},
+			key.Filter{Focus: v, Name: key.NameReturn, Optional: key.ModShift},
+			key.Filter{Focus: v, Name: key.NameEnter, Optional: key.ModShift},
+			key.Filter{Focus: v, Name: key.NameTab, Optional: key.ModShift},
+			key.Filter{Focus: v, Name: "V", Required: key.ModShortcut},
+			key.Filter{Focus: v, Name: "X", Required: key.ModShortcut},
+		)
+		if !ok {
+			break
+		}
+		// Any handled event resets blink so the caret stays solid for a
+		// beat after the user does something. The render loop reads
+		// blinkStart and schedules the next invalidate accordingly.
+		v.blinkStart = gtx.Now
+		switch ke := ev.(type) {
+		case key.FocusEvent:
+			if ke.Focus {
+				gtx.Execute(key.SoftKeyboardCmd{Show: true})
+				v.pushIMEState(gtx)
+			} else {
+				v.imeStart, v.imeEnd = 0, 0
+			}
+		case key.EditEvent:
+			// gio sends ke.Range in rune indices, derived from the IME
+			// state we last pushed. In wrap mode that state can lag the
+			// caret by one position when the user clicks-then-types in
+			// quick succession (the SelectionCmd from the click hasn't
+			// been processed yet, so gio still uses the old selection
+			// and the inserted char lands one column to the left of the
+			// visible caret). v.selStart / v.selEnd are updated
+			// synchronously by the click handler, so insert there
+			// directly. IME composition (where ke.Range diverges from
+			// the active selection) is bracketed by SnippetEvent and
+			// uses imeStart/imeEnd, which we still respect on the
+			// next render.
+			start, end := v.normSel()
+			v.Replace(start, end, ke.Text)
+			caret := start + len(ke.Text)
+			v.selStart = caret
+			v.selEnd = caret
+			v.imeStart, v.imeEnd = 0, 0
+			v.ensureCaretVisible()
+			v.pushIMEState(gtx)
+		case key.SnippetEvent:
+			// IME composing region update. Stored in byte offsets so
+			// our render pass can paint an underline; gio reports it
+			// in rune indices.
+			v.imeStart = runeIdxToByte(v.text, ke.Start)
+			v.imeEnd = runeIdxToByte(v.text, ke.End)
+		case key.SelectionEvent:
+			startB := runeIdxToByte(v.text, ke.Start)
+			endB := runeIdxToByte(v.text, ke.End)
+			v.selStart = startB
+			v.selEnd = endB
+			v.ensureCaretVisible()
+		case transfer.DataEvent:
+			// Paste payload arrives via the transfer pipeline once
+			// clipboard.ReadCmd has resolved. Insert at caret and
+			// collapse the selection onto the end of the inserted
+			// text.
+			rd := ke.Open()
+			data, err := io.ReadAll(rd)
+			rd.Close()
+			if err == nil && len(data) > 0 {
+				start, end := v.normSel()
+				v.Replace(start, end, string(data))
+				caret := start + len(data)
+				v.selStart = caret
+				v.selEnd = caret
+				v.ensureCaretVisible()
+				v.pushIMEState(gtx)
+			}
+		case key.Event:
+			if ke.State != key.Press {
+				continue
+			}
+			switch ke.Name {
+			case key.NameDeleteBackward:
+				if v.selStart != v.selEnd {
+					start, end := v.normSel()
+					v.DeleteRange(start, end)
+					v.selStart = start
+					v.selEnd = start
+				} else if v.selEnd > 0 {
+					prev := v.charLeft(v.selEnd)
+					v.DeleteRange(prev, v.selEnd)
+					v.selStart = prev
+					v.selEnd = prev
+				}
+				v.ensureCaretVisible()
+				v.pushIMEState(gtx)
+			case key.NameDeleteForward:
+				if v.selStart != v.selEnd {
+					start, end := v.normSel()
+					v.DeleteRange(start, end)
+					v.selStart = start
+					v.selEnd = start
+				} else if v.selEnd < len(v.text) {
+					next := v.charRight(v.selEnd)
+					v.DeleteRange(v.selEnd, next)
+				}
+				v.ensureCaretVisible()
+				v.pushIMEState(gtx)
+			case key.NameReturn, key.NameEnter:
+				start, end := v.normSel()
+				v.Replace(start, end, "\n")
+				caret := start + 1
+				v.selStart = caret
+				v.selEnd = caret
+				v.ensureCaretVisible()
+				v.pushIMEState(gtx)
+			case key.NameTab:
+				start, end := v.normSel()
+				v.Replace(start, end, "\t")
+				caret := start + 1
+				v.selStart = caret
+				v.selEnd = caret
+				v.ensureCaretVisible()
+				v.pushIMEState(gtx)
+			case "V":
+				gtx.Execute(clipboard.ReadCmd{Tag: v})
+			case "X":
+				if sel := v.SelectedText(); sel != "" {
+					gtx.Execute(clipboard.WriteCmd{
+						Type: "application/text",
+						Data: io.NopCloser(strings.NewReader(sel)),
+					})
+					start, end := v.normSel()
+					v.DeleteRange(start, end)
+					v.selStart = start
+					v.selEnd = start
+					v.ensureCaretVisible()
+					v.pushIMEState(gtx)
+				}
+			}
+		}
+		hasSel = v.selStart != v.selEnd
+	}
+
+	// 3b. Keyboard navigation + shortcuts (no buffer mutation).
+	//     Modifier-shortcuts (Ctrl+A/Ctrl+C/Ctrl+Home/End/Ctrl+arrow) and
+	//     bare navigation (arrows, Home, End, PageUp/PageDown) — Shift
+	//     extends the existing selection; bare keypress collapses it
+	//     onto the new caret position.
+	for {
+		ev, ok := gtx.Event(
 			key.Filter{Focus: v, Name: "A", Required: key.ModShortcut},
 			key.Filter{Focus: v, Name: "C", Required: key.ModShortcut},
+			key.Filter{Focus: v, Name: "Z", Required: key.ModShortcut, Optional: key.ModShift},
+			key.Filter{Focus: v, Name: "Y", Required: key.ModShortcut},
 			key.Filter{Focus: v, Name: key.NameLeftArrow, Optional: key.ModShortcut | key.ModShift},
 			key.Filter{Focus: v, Name: key.NameRightArrow, Optional: key.ModShortcut | key.ModShift},
 			key.Filter{Focus: v, Name: key.NameUpArrow, Optional: key.ModShift},
@@ -639,16 +1301,11 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		if !ok {
 			break
 		}
-		// Drain FocusEvent silently — we don't need any state change
-		// (the viewer is read-only, no IME hookup) but we must consume
-		// the event so the iteration progresses.
-		if _, ok := ev.(key.FocusEvent); ok {
-			continue
-		}
 		ke, ok := ev.(key.Event)
 		if !ok || ke.State != key.Press {
 			continue
 		}
+		v.blinkStart = gtx.Now
 		extend := ke.Modifiers.Contain(key.ModShift)
 		wordwise := ke.Modifiers.Contain(key.ModShortcut)
 		switch ke.Name {
@@ -660,6 +1317,23 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 					Type: "application/text",
 					Data: io.NopCloser(strings.NewReader(sel)),
 				})
+			}
+		case "Z":
+			if ke.Modifiers.Contain(key.ModShift) {
+				if v.Redo() {
+					v.ensureCaretVisible()
+					v.pushIMEState(gtx)
+				}
+			} else {
+				if v.Undo() {
+					v.ensureCaretVisible()
+					v.pushIMEState(gtx)
+				}
+			}
+		case "Y":
+			if v.Redo() {
+				v.ensureCaretVisible()
+				v.pushIMEState(gtx)
 			}
 		case key.NameLeftArrow:
 			pos := v.selEnd
@@ -779,6 +1453,32 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 			v.ensureCaretVisible()
 		}
 		hasSel = v.selStart != v.selEnd
+		// Mirror the new caret/selection back to gio so the next
+		// keystroke routed through EditEvent inserts where the user
+		// just navigated to (otherwise gio keeps the stale range
+		// from the last SelectionCmd and inserts off-position).
+		v.pushIMEState(gtx)
+	}
+
+	// Caret blink: hold solid for one period after the last move/edit
+	// (so the user can track it), then alternate every 500ms. Schedule
+	// the next invalidate at the toggle boundary so the cursor pulses
+	// without forcing a continuous redraw.
+	const blinkPeriod = 500 * time.Millisecond
+	const blinkSolid = blinkPeriod
+	caretFocused := gtx.Focused(v) && v.selStart == v.selEnd && !s.ReadOnly
+	caretShow := caretFocused
+	if caretFocused {
+		elapsed := gtx.Now.Sub(v.blinkStart)
+		if elapsed < blinkSolid {
+			gtx.Execute(op.InvalidateCmd{At: v.blinkStart.Add(blinkSolid)})
+		} else {
+			rem := elapsed - blinkSolid
+			phase := rem / blinkPeriod
+			caretShow = phase%2 == 0
+			next := v.blinkStart.Add(blinkSolid + (phase+1)*blinkPeriod)
+			gtx.Execute(op.InvalidateCmd{At: next})
+		}
 	}
 
 	yOff := accumY - v.scrollY
@@ -797,6 +1497,13 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		if hasHL && v.highlightEnd > start && v.highlightStart < end {
 			v.paintHighlight(gtx, start, end, chunkH, yOff, charAdv, s.Wrap, innerW, s.HighlightColor, v.highlightStart, v.highlightEnd)
 		}
+
+		// Caret: a 1-px vertical bar at the cursor position. Only drawn
+		// when this chunk contains the cursor and we're in the visible
+		// half of the blink cycle.
+		if caretShow && v.selEnd >= start && v.selEnd <= end {
+			v.paintCaret(gtx, start, end, yOff, charAdv, exactLineH, s.Wrap, innerW, s.Color)
+		}
 		// Selection rectangle on top of (or instead of) the highlight.
 		if hasSel {
 			selS, selE := v.selStart, v.selEnd
@@ -806,6 +1513,16 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 			if selE > start && selS < end {
 				v.paintHighlight(gtx, start, end, chunkH, yOff, charAdv, s.Wrap, innerW, s.SelectionColor, selS, selE)
 			}
+		}
+
+		// {{var}} highlighting — scans only the bytes of this visible
+		// chunk so the per-frame cost is O(visible chars) instead of
+		// O(whole document). Disabled past requestEditorVarScanCutoff
+		// because at that scale the body is almost always
+		// machine-generated and per-var feedback isn't worth the
+		// scan + extra paint ops.
+		if len(v.text) <= requestEditorVarScanCutoff {
+			v.paintVarHighlights(gtx, start, end, yOff, charAdv, exactLineH, s.Wrap, innerW, s.Env)
 		}
 
 		tr := op.Offset(image.Pt(-v.scrollX, yOff)).Push(gtx.Ops)
@@ -851,7 +1568,7 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 // wrapped sub-line unselectable. Y math uses the same exact line
 // height as the render loop, so the chunk found by the click is the
 // one that actually appears at that pixel.
-func (v *ResponseViewer) coordToByteOffset(
+func (v *RequestEditor) coordToByteOffset(
 	posX, posY int,
 	advance fixed.Int26_6,
 	exactLineH, viewportW int,
@@ -933,7 +1650,7 @@ func (v *ResponseViewer) coordToByteOffset(
 // lineHeight (~18 px) for every unmeasured chunk, so on the first
 // frame after a SetText/wrap-toggle/resize it renders ~40 chunks
 // instead of the 2–3 that actually fit.
-func (v *ResponseViewer) estimateChunkHeight(line, lineHeight int, advance fixed.Int26_6, viewportW int, wrap bool) int {
+func (v *RequestEditor) estimateChunkHeight(line, lineHeight int, advance fixed.Int26_6, viewportW int, wrap bool) int {
 	if !wrap || advance <= 0 || viewportW <= 0 {
 		return lineHeight
 	}
@@ -971,22 +1688,12 @@ func (v *ResponseViewer) estimateChunkHeight(line, lineHeight int, advance fixed
 // with int pixels mis-counts by ~5–10 chars per viewport on
 // non-integer advances (Ubuntu Mono at 13sp, etc.), so the last
 // few chars of every wrapped sub-line ended up unselectable.
-func charsPerLineFor(viewportW int, advance fixed.Int26_6) int {
-	if advance <= 0 {
-		return 1
-	}
-	n := int(fixed.I(viewportW) / advance)
-	if n < 1 {
-		n = 1
-	}
-	return n
-}
 
 // firstChunkAtFn returns the chunk index whose vertical range contains
 // pixel offset y from the document top, plus the accumulated y where
 // that chunk begins. Unmeasured chunks contribute estimateChunkHeight
 // each (a per-chunk byte-length × chars_per_line projection).
-func (v *ResponseViewer) firstChunkAtFn(y, lineH int, advance fixed.Int26_6, viewportW int, wrap bool) (int, int) {
+func (v *RequestEditor) firstChunkAtFn(y, lineH int, advance fixed.Int26_6, viewportW int, wrap bool) (int, int) {
 	if y <= 0 {
 		return 0, 0
 	}
@@ -1011,7 +1718,7 @@ func (v *ResponseViewer) firstChunkAtFn(y, lineH int, advance fixed.Int26_6, vie
 // produce a phantom column past the visible text — the selection
 // rectangle extends ~1 char wider than the rendered glyphs and the
 // copied bytes include the lone '\r'.
-func (v *ResponseViewer) lineBounds(n int) (int, int) {
+func (v *RequestEditor) lineBounds(n int) (int, int) {
 	start := v.lineStarts[n]
 	var end int
 	if n+1 < len(v.lineStarts) {
@@ -1041,7 +1748,7 @@ func (v *ResponseViewer) lineBounds(n int) (int, int) {
 //     brackets, etc.): select just that one rune. This keeps each
 //     punctuation char as its own click target instead of grouping
 //     adjacent punctuation into one selection like `": "`.
-func (v *ResponseViewer) wordBoundsAt(byteOff int) (int, int) {
+func (v *RequestEditor) wordBoundsAt(byteOff int) (int, int) {
 	if byteOff < 0 {
 		byteOff = 0
 	}
@@ -1117,7 +1824,7 @@ func (v *ResponseViewer) wordBoundsAt(byteOff int) (int, int) {
 // selection. The result excludes the trailing '\n' so triple-clicking
 // inside a line and dragging into the next doesn't visually leak past
 // the end of the highlighted line.
-func (v *ResponseViewer) sourceLineBoundsAt(byteOff int) (int, int) {
+func (v *RequestEditor) sourceLineBoundsAt(byteOff int) (int, int) {
 	if byteOff < 0 {
 		byteOff = 0
 	}
@@ -1141,7 +1848,7 @@ func (v *ResponseViewer) sourceLineBoundsAt(byteOff int) (int, int) {
 // SelectAll selects every byte in the viewer's text. Wired to Ctrl+A
 // when the viewer has keyboard focus. Public so the parent (e.g. tab
 // toolbar buttons) could trigger it programmatically too.
-func (v *ResponseViewer) SelectAll() {
+func (v *RequestEditor) SelectAll() {
 	v.selStart = 0
 	v.selEnd = len(v.text)
 	v.dragActive = false
@@ -1151,7 +1858,7 @@ func (v *ResponseViewer) SelectAll() {
 // selection extension. extend=false collapses any selection onto the
 // new caret position; extend=true keeps selStart as the anchor and
 // follows with selEnd, matching native editor convention.
-func (v *ResponseViewer) moveCaret(newPos int, extend bool) {
+func (v *RequestEditor) moveCaret(newPos int, extend bool) {
 	if newPos < 0 {
 		newPos = 0
 	}
@@ -1169,7 +1876,7 @@ func (v *ResponseViewer) moveCaret(newPos int, extend bool) {
 
 // charLeft / charRight walk one rune at a time so the caret never
 // lands inside a multi-byte UTF-8 codepoint.
-func (v *ResponseViewer) charLeft(off int) int {
+func (v *RequestEditor) charLeft(off int) int {
 	if off <= 0 {
 		return 0
 	}
@@ -1177,7 +1884,7 @@ func (v *ResponseViewer) charLeft(off int) int {
 	return off - sz
 }
 
-func (v *ResponseViewer) charRight(off int) int {
+func (v *RequestEditor) charRight(off int) int {
 	if off >= len(v.text) {
 		return len(v.text)
 	}
@@ -1188,7 +1895,7 @@ func (v *ResponseViewer) charRight(off int) int {
 // wordLeft / wordRight: move past adjacent separators, then over a
 // run of word chars. Same separator definition as double-click word
 // selection (isSeparator).
-func (v *ResponseViewer) wordLeft(off int) int {
+func (v *RequestEditor) wordLeft(off int) int {
 	if off <= 0 {
 		return 0
 	}
@@ -1212,7 +1919,7 @@ func (v *ResponseViewer) wordLeft(off int) int {
 	return i
 }
 
-func (v *ResponseViewer) wordRight(off int) int {
+func (v *RequestEditor) wordRight(off int) int {
 	if off >= len(v.text) {
 		return len(v.text)
 	}
@@ -1239,7 +1946,7 @@ func (v *ResponseViewer) wordRight(off int) int {
 // columnAt returns the rune-column of off within its source line.
 // Used as the "preferred column" when moving up/down so the caret
 // stays in the same visual column across lines of varying length.
-func (v *ResponseViewer) columnAt(off int) int {
+func (v *RequestEditor) columnAt(off int) int {
 	lineStart, _ := v.sourceLineBoundsAt(off)
 	if off <= lineStart {
 		return 0
@@ -1251,7 +1958,7 @@ func (v *ResponseViewer) columnAt(off int) int {
 // at lineStart that lies at the given rune-column, clamped to the
 // line's end (so over-shooting on a short line lands at end-of-line
 // rather than wrapping into the next).
-func (v *ResponseViewer) offsetAtColumn(lineStart, col int) int {
+func (v *RequestEditor) offsetAtColumn(lineStart, col int) int {
 	_, lineEnd := v.sourceLineBoundsAt(lineStart)
 	if col <= 0 {
 		return lineStart
@@ -1271,7 +1978,7 @@ func (v *ResponseViewer) offsetAtColumn(lineStart, col int) int {
 // keypress rather than a wrapped sub-line — simpler than tracking
 // visual lines and matches what most users actually want when paging
 // through structured payloads (JSON keys etc.).
-func (v *ResponseViewer) lineUp(off, col int) int {
+func (v *RequestEditor) lineUp(off, col int) int {
 	lineStart, _ := v.sourceLineBoundsAt(off)
 	if lineStart == 0 {
 		return 0
@@ -1280,7 +1987,7 @@ func (v *ResponseViewer) lineUp(off, col int) int {
 	return v.offsetAtColumn(prevLineStart, col)
 }
 
-func (v *ResponseViewer) lineDown(off, col int) int {
+func (v *RequestEditor) lineDown(off, col int) int {
 	_, lineEnd := v.sourceLineBoundsAt(off)
 	if lineEnd >= len(v.text) {
 		return len(v.text)
@@ -1297,7 +2004,7 @@ func (v *ResponseViewer) lineDown(off, col int) int {
 // (wrapped) sub-line. Used as the "preferred visual column" when
 // moving up/down in wrap mode so the caret stays in the same x even
 // across sub-lines of varying length. cpl must be >0.
-func (v *ResponseViewer) visualColumnAt(off, cpl int) int {
+func (v *RequestEditor) visualColumnAt(off, cpl int) int {
 	if cpl < 1 {
 		return 0
 	}
@@ -1314,11 +2021,9 @@ func (v *ResponseViewer) visualColumnAt(off, cpl int) int {
 
 // wrapLineMove moves one *visual* line in dir (-1 up, +1 down),
 // keeping the caret near prefVisualCol. Splits the document by chunk
-// (lineStarts) and within a chunk by sub-line of width cpl. Falls
-// back to source-line motion when wrap is off (cpl<=0).
-func (v *ResponseViewer) wrapLineMove(off, prefVisualCol, cpl, dir int) int {
+// (lineStarts) and within a chunk by sub-line of width cpl.
+func (v *RequestEditor) wrapLineMove(off, prefVisualCol, cpl, dir int) int {
 	if cpl < 1 {
-		// Without a wrap width, fall back to source-line motion.
 		if dir < 0 {
 			return v.lineUp(off, prefVisualCol)
 		}
@@ -1341,10 +2046,7 @@ func (v *ResponseViewer) wrapLineMove(off, prefVisualCol, cpl, dir int) int {
 	chunkText := v.text[chunkStart:chunkEnd]
 	chunkRunes := utf8.RuneCount(chunkText)
 	inChunkRune := byteToRuneIdx(chunkText, off-chunkStart)
-	subLine := 0
-	if cpl > 0 {
-		subLine = inChunkRune / cpl
-	}
+	subLine := inChunkRune / cpl
 
 	if dir < 0 {
 		if subLine > 0 {
@@ -1378,7 +2080,7 @@ func (v *ResponseViewer) wrapLineMove(off, prefVisualCol, cpl, dir int) int {
 // ensureCaretVisible adjusts scrollY so the caret's source line sits
 // inside the viewport. Approximate — uses lastLineHeight for the line
 // pitch since that's what the render loop uses for unmeasured chunks.
-func (v *ResponseViewer) ensureCaretVisible() {
+func (v *RequestEditor) ensureCaretVisible() {
 	if v.lastLineHeight == 0 {
 		return
 	}
@@ -1401,9 +2103,285 @@ func (v *ResponseViewer) ensureCaretVisible() {
 // emit one rect per affected sub-line. In non-wrap mode it's always a
 // single rectangle.
 //
+// requestVarClickTag is the per-{{var}} pointer target for hover /
+// click. start is the byte offset in the buffer where `{{` begins —
+// it's the stable identity gio sees, so that as Insert/Delete shift
+// the rest of the buffer the same chip keeps generating events
+// against the same tag instance only while its byte position is
+// unchanged within a frame.
+type requestVarClickTag struct {
+	ed    *RequestEditor
+	start int
+}
+
+// paintVarHighlights scans [chunkStart, chunkEnd) for `{{name}}`
+// patterns and paints a coloured rect behind each one (green when
+// present in env, red when missing — matches TextField). Also
+// registers a per-chip pointer target so hover shows the value
+// tooltip and click opens the var-edit popup, matching TextField's
+// behaviour. Renders in the same coordinate space as the chunk's
+// text (after the chunk op.Offset and scrollX shift).
+//
+// Wrap mode: a `{{var}}` that would straddle a wrapped sub-line
+// boundary is split visually by gio's WrapGraphemes policy. We split
+// the highlight to match — one rect per affected sub-line.
+func (v *RequestEditor) paintVarHighlights(
+	gtx layout.Context,
+	chunkStart, chunkEnd int,
+	yOff int,
+	advance fixed.Int26_6,
+	exactLineH int,
+	wrap bool,
+	viewportW int,
+	env map[string]string,
+) {
+	if advance <= 0 || chunkEnd <= chunkStart {
+		return
+	}
+	chunkText := v.text[chunkStart:chunkEnd]
+	if !bytesContainsTwoBraces(chunkText) {
+		return
+	}
+	cornerR := gtx.Dp(unit.Dp(3))
+	padY := gtx.Dp(unit.Dp(2))
+	cpl := 0
+	if wrap {
+		cpl = charsPerLineFor(viewportW, advance)
+	}
+
+	idx := 0
+	for idx < len(chunkText) {
+		s := bytesIndex(chunkText[idx:], "{{")
+		if s == -1 {
+			break
+		}
+		s += idx
+		e := bytesIndex(chunkText[s+2:], "}}")
+		if e == -1 {
+			break
+		}
+		e = s + 2 + e + 2
+		name := strings.TrimSpace(string(chunkText[s+2 : e-2]))
+		bgColor := colorVarMissing
+		if _, ok := env[name]; ok && len(env) > 0 {
+			bgColor = colorVarFound
+		}
+
+		startRune := byteToRuneIdx(chunkText, s)
+		endRune := byteToRuneIdx(chunkText, e)
+
+		// Same fixed-point gotcha as paintCaret: multiply Int26_6
+		// advance by a plain int rune column, then Round().
+		colToPx := func(c int) int {
+			return (advance * fixed.Int26_6(c)).Round()
+		}
+		// Compute the chip's primary rect (first sub-line in wrap
+		// mode) and use that as the pointer-event area. Multi-line
+		// wrap chips get the highlight on every sub-line but only
+		// the first sub-line is interactive — same trade-off the
+		// TextField overlay makes (the popup target is one rect).
+		var hitRect image.Rectangle
+		if !wrap {
+			x1 := colToPx(startRune) - v.scrollX
+			x2 := colToPx(endRune) - v.scrollX
+			hitRect = image.Rect(x1, yOff-padY, x2, yOff+exactLineH+padY)
+			paint.FillShape(gtx.Ops, bgColor, clip.UniformRRect(hitRect, cornerR).Op(gtx.Ops))
+		} else {
+			if cpl < 1 {
+				cpl = 1
+			}
+			startLine := startRune / cpl
+			endLine := (endRune - 1) / cpl
+			for ln := startLine; ln <= endLine; ln++ {
+				colStart := 0
+				colEnd := cpl
+				if ln == startLine {
+					colStart = startRune % cpl
+				}
+				if ln == endLine {
+					colEnd = ((endRune - 1) % cpl) + 1
+				}
+				x1 := colToPx(colStart)
+				x2 := colToPx(colEnd)
+				y := yOff + ln*exactLineH
+				rect := image.Rect(x1, y-padY, x2, y+exactLineH+padY)
+				paint.FillShape(gtx.Ops, bgColor, clip.UniformRRect(rect, cornerR).Op(gtx.Ops))
+				if ln == startLine {
+					hitRect = rect
+				}
+			}
+		}
+
+		// Register a pointer target on the chip rect so app.go's
+		// var-popup machinery picks up press / hover / leave. The
+		// tag's `start` is the chip's byte offset within the buffer
+		// (not within the chunk) so identity stays stable across
+		// chunk boundaries.
+		chipStart := chunkStart + s
+		chipEnd := chunkStart + e
+		tag := requestVarClickTag{ed: v, start: chipStart}
+		stack := clip.Rect(hitRect).Push(gtx.Ops)
+		event.Op(gtx.Ops, tag)
+		v.processVarChipEvents(gtx, tag, hitRect, name, chipStart, chipEnd)
+		stack.Pop()
+
+		idx = e
+	}
+}
+
+// processVarChipEvents drains pointer events for a var chip's tag
+// and routes them to the global hover / click state that app.go's
+// popup layer reads. Mirrors widgets.go's varClickTag handling so
+// the same popup fires whether the chip lives in a TextField or in
+// the request body.
+func (v *RequestEditor) processVarChipEvents(
+	gtx layout.Context,
+	tag requestVarClickTag,
+	rect image.Rectangle,
+	name string,
+	chipStart, chipEnd int,
+) {
+	for {
+		ev, ok := gtx.Event(pointer.Filter{
+			Target: tag,
+			Kinds:  pointer.Press | pointer.Enter | pointer.Leave,
+		})
+		if !ok {
+			return
+		}
+		pe, ok := ev.(pointer.Event)
+		if !ok {
+			continue
+		}
+		switch pe.Kind {
+		case pointer.Press:
+			if !pe.Buttons.Contain(pointer.ButtonPrimary) {
+				continue
+			}
+			// pe.Position is in handler-local coords (origin =
+			// rect.Min); GlobalPointerPos is window coords. Their
+			// delta gives the window-space origin of the chip's
+			// rect. We use the bottom-left so the popup sits flush
+			// under the chip.
+			originX := GlobalPointerPos.X - pe.Position.X
+			originY := GlobalPointerPos.Y - pe.Position.Y
+			GlobalVarClick = &VarHoverState{
+				Name:   name,
+				Pos:    f32.Pt(originX, originY+float32(rect.Dy())),
+				Editor: v,
+				Range:  struct{ Start, End int }{chipStart, chipEnd},
+			}
+		case pointer.Enter:
+			originX := GlobalPointerPos.X - pe.Position.X
+			originY := GlobalPointerPos.Y - pe.Position.Y
+			GlobalVarHover = &VarHoverState{
+				Name:   name,
+				Pos:    f32.Pt(originX, originY+float32(rect.Dy())),
+				Editor: v,
+				Range:  struct{ Start, End int }{chipStart, chipEnd},
+			}
+		case pointer.Leave:
+			if GlobalVarHover != nil &&
+				GlobalVarHover.Editor == v &&
+				GlobalVarHover.Range.Start == chipStart {
+				GlobalVarHover = nil
+			}
+		}
+	}
+}
+
+// bytesIndex is strings.Index for []byte without allocating a string.
+func bytesIndex(b []byte, sub string) int {
+	if len(sub) == 0 {
+		return 0
+	}
+	return strings.Index(string(b), sub)
+}
+
+func bytesContainsTwoBraces(b []byte) bool {
+	for i := 0; i+1 < len(b); i++ {
+		if b[i] == '{' && b[i+1] == '{' {
+			return true
+		}
+	}
+	return false
+}
+
+// paintCaret draws a 1-pixel vertical bar at v.selEnd inside the
+// chunk [chunkStart, chunkEnd). Translates byte offset → rune column
+// → pixel x using the same fixed-point advance the render path uses,
+// so the bar lines up with the gap between glyphs even on
+// non-integer advances. In wrap mode the rune column wraps every
+// charsPerLine characters (matching our chars_per_line math), and
+// the y is offset by the wrapped sub-line.
+func (v *RequestEditor) paintCaret(
+	gtx layout.Context,
+	chunkStart, chunkEnd int,
+	yOff int,
+	advance fixed.Int26_6,
+	exactLineH int,
+	wrap bool,
+	viewportW int,
+	col color.NRGBA,
+) {
+	if advance <= 0 {
+		return
+	}
+	caretByte := v.selEnd - chunkStart
+	if caretByte < 0 {
+		caretByte = 0
+	}
+	chunkText := v.text[chunkStart:chunkEnd]
+	caretRune := byteToRuneIdx(chunkText, caretByte)
+
+	// Use the same colToPx pattern as paintHighlight: multiply
+	// advance (Int26_6) by a plain int rune column, then Round() back
+	// to pixels. fixed.I(col) * advance is wrong here — it shifts col
+	// into Int26_6, so the multiplication promotes to Int52_12 and
+	// .Floor() returns garbage in pixels (~64× too large).
+	colToPx := func(c int) int {
+		return (advance * fixed.Int26_6(c)).Round()
+	}
+	var x, y int
+	if !wrap {
+		x = colToPx(caretRune) - v.scrollX
+		y = yOff
+	} else {
+		cpl := charsPerLineFor(viewportW, advance)
+		if cpl < 1 {
+			cpl = 1
+		}
+		subLine := caretRune / cpl
+		colIdx := caretRune % cpl
+		// End-of-chunk-text on a wrap boundary: the rune index is
+		// exactly the start of the next visual line, but there's no
+		// next-line glyph to anchor it to (the chunk ended). Render
+		// at the trailing edge of the previous visual line instead so
+		// the caret sits visually after the last printable char,
+		// which matches what a click at end-of-line just produced.
+		// Without this, a click after the last char of a fully-
+		// packed line drops the caret onto a phantom next line, and
+		// the next typed char appears below+left of where the user
+		// clicked.
+		chunkRunes := utf8.RuneCount(chunkText)
+		if caretRune > 0 && caretRune == chunkRunes && colIdx == 0 {
+			subLine = (caretRune - 1) / cpl
+			colIdx = cpl
+		}
+		x = colToPx(colIdx)
+		y = yOff + subLine*exactLineH
+	}
+	caretW := gtx.Dp(unit.Dp(1))
+	if caretW < 1 {
+		caretW = 1
+	}
+	rect := image.Rect(x, y, x+caretW, y+exactLineH)
+	paint.FillShape(gtx.Ops, col, clip.Rect(rect).Op())
+}
+
 // Used by both search highlight and mouse selection — the same
 // machinery, just different colours and ranges.
-func (v *ResponseViewer) paintHighlight(
+func (v *RequestEditor) paintHighlight(
 	gtx layout.Context,
 	chunkStart, chunkEnd int,
 	chunkH, yOff int,
@@ -1530,55 +2508,3 @@ func (v *ResponseViewer) paintHighlight(
 // gio does, instead of accumulating one-pixel rounding errors per
 // column that drift the selection rect off the actual glyphs.
 // Cached by the shaper's layoutCache (single short string).
-func measureCharAdvance(shaper *text.Shaper, fnt font.Font, size unit.Sp, gtx layout.Context) fixed.Int26_6 {
-	shaper.LayoutString(text.Parameters{
-		Font:    fnt,
-		PxPerEm: fixed.I(gtx.Sp(size)),
-	}, "M")
-	g, ok := shaper.NextGlyph()
-	if !ok {
-		return 0
-	}
-	return g.Advance
-}
-
-// measureLineHeight returns the inter-baseline pixel distance gio
-// uses when stacking wrapped sub-lines — i.e. the value that lines up
-// with the actual sub-line tops in a multi-line widget.Label render.
-//
-// This is NOT the same as `single_line_label.Size.Y`, which equals
-// only ascent+descent of one line. The shaper places consecutive
-// baselines `lineHeight` apart, where lineHeight = ascent + descent +
-// lineGap (font metric). For monospace fonts with a non-zero lineGap
-// the difference is several pixels; using ascent+descent for sub-line
-// stacking drifts the selection rect up by lineGap × sub-line index,
-// reaching half-to-full-line offsets after two or three sub-lines.
-//
-// We extract the true inter-line distance by laying out one and two
-// lines and subtracting: dims2 = ascent + lineHeight + descent;
-// dims1 = ascent + descent; dims2 - dims1 = lineHeight.
-func measureLineHeight(
-	shaper *text.Shaper,
-	fnt font.Font,
-	size unit.Sp,
-	textColor op.CallOp,
-	gtx layout.Context,
-) int {
-	measure := func(maxLines int, txt string) int {
-		macro := op.Record(gtx.Ops)
-		l := widget.Label{MaxLines: maxLines}
-		lg := gtx
-		lg.Constraints.Min = image.Point{}
-		lg.Constraints.Max.X = 1 << 24
-		lg.Constraints.Max.Y = 1 << 24
-		dims := l.Layout(lg, shaper, fnt, size, txt, textColor)
-		macro.Stop()
-		return dims.Size.Y
-	}
-	h1 := measure(1, "M")
-	h2 := measure(2, "M\nM")
-	if h2 > h1 {
-		return h2 - h1
-	}
-	return h1
-}

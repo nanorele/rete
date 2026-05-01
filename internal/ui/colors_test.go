@@ -14,6 +14,7 @@ func TestGetMethodColor(t *testing.T) {
 		{"POST", colorMethodPost},
 		{"PUT", colorMethodPut},
 		{"DELETE", colorMethodDelete},
+		{"HEAD", colorMethodHead},
 		{"PATCH", colorMethodPatch},
 		{"OPTIONS", colorMethodOptions},
 		{"UNKNOWN", colorMethodFallback},

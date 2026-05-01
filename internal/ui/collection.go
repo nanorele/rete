@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"strings"
+	"time"
 	"tracto/internal/utils"
 
 	"github.com/nanorele/gio/widget"
@@ -55,6 +56,13 @@ type CollectionNode struct {
 	IsRenaming      bool
 	RenamingFocused bool
 	NameEditor      widget.Editor
+
+	// LastClickAt is the timestamp of the last sidebar click on this
+	// node. The render loop compares against gtx.Now and treats two
+	// clicks within 300 ms as a "double click", which switches the
+	// node into rename mode. We do this by hand because widget.Clickable
+	// only exposes single-click events.
+	LastClickAt time.Time
 }
 
 type ParsedCollection struct {

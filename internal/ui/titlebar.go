@@ -87,6 +87,63 @@ func (ui *AppUI) layoutTitleBtn(gtx layout.Context, btn *widget.Clickable, kind 
 	})
 }
 
+func (ui *AppUI) layoutTitleSettingsBtn(gtx layout.Context) layout.Dimensions {
+	btnSize := image.Pt(gtx.Dp(unit.Dp(100)), gtx.Dp(unit.Dp(30)))
+	gtx.Constraints.Min = btnSize
+	gtx.Constraints.Max = btnSize
+
+	for ui.SettingsBtn.Clicked(gtx) {
+		ui.SettingsOpen = !ui.SettingsOpen
+		if ui.SettingsOpen && ui.SettingsState == nil {
+			ui.SettingsState = newSettingsEditorState(ui.Settings)
+		}
+		if ui.Window != nil {
+			ui.Window.Invalidate()
+		}
+	}
+
+	col := colorFgMuted
+	if ui.SettingsOpen {
+		col = colorAccent
+	}
+
+	return ui.SettingsBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		// Mark this region as interactive client area so the patched gio's
+		// Win32 hit test (os_windows.go) returns HTCLIENT here instead of the
+		// hardcoded HTCAPTION. ActionRaise is harmless — gio's Win32 path only
+		// auto-performs ActionMove from the hit test, other actions just act
+		// as a "this is client area" marker.
+		areaStack := clip.Rect{Max: btnSize}.Push(gtx.Ops)
+		system.ActionInputOp(system.ActionRaise).Add(gtx.Ops)
+		areaStack.Pop()
+
+		bg := colorBgDark
+		if ui.SettingsBtn.Hovered() {
+			bg = colorBgHover
+		}
+		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: btnSize}.Op())
+
+		layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					size := gtx.Dp(unit.Dp(16))
+					gtx.Constraints = layout.Exact(image.Pt(size, size))
+					return iconSettings.Layout(gtx, col)
+				}),
+				layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					lbl := material.Label(ui.Theme, unit.Sp(12), "Settings")
+					lbl.MaxLines = 1
+					lbl.Color = col
+					return lbl.Layout(gtx)
+				}),
+			)
+		})
+
+		return layout.Dimensions{Size: btnSize}
+	})
+}
+
 func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
 	height := gtx.Dp(unit.Dp(30))
 	gtx.Constraints.Min.Y = height
@@ -114,7 +171,7 @@ func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
 	btnW := gtx.Dp(unit.Dp(46))
 	const numBtns = 3
 	rowW := btnW * numBtns
-	dragW := max(totalW-rowW, 0)
+	leftMaxW := max(totalW-rowW, 0)
 
 	for {
 		ev, ok := gtx.Event(pointer.Filter{
@@ -145,23 +202,67 @@ func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	if dragW > 0 {
-		dragSize := image.Point{X: dragW, Y: height}
-		area := clip.Rect{Max: dragSize}.Push(gtx.Ops)
-		event.Op(gtx.Ops, &ui.TitleTag)
-		area.Pop()
+	if leftMaxW > 0 {
+		labelLeftPad := gtx.Dp(unit.Dp(12))
+		gap := gtx.Dp(unit.Dp(8))
 
-		titleGtx := gtx
-		titleGtx.Constraints = layout.Exact(dragSize)
-		layout.Inset{Left: unit.Dp(12)}.Layout(titleGtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Min = image.Point{}
-				lbl := material.Label(ui.Theme, unit.Sp(14), "Tracto")
-				lbl.MaxLines = 1
-				lbl.Color = colorFgMuted
-				return lbl.Layout(gtx)
-			})
+		title := ui.Title
+		if title == "" {
+			title = "Tracto"
+		}
+
+		// Render "Title" label, capture its width.
+		// Min.Y = height makes layout.Center vertical-center the glyphs
+		// inside the title bar (otherwise material.Label paints from
+		// the top of its constraints and sits flush against y=0).
+		labelMacro := op.Record(gtx.Ops)
+		labelGtx := gtx
+		labelGtx.Constraints.Min = image.Pt(0, height)
+		labelGtx.Constraints.Max = image.Pt(leftMaxW, height)
+		labelDim := layout.Center.Layout(labelGtx, func(gtx layout.Context) layout.Dimensions {
+			lbl := material.Label(ui.Theme, unit.Sp(12), title)
+			lbl.Font.Typeface = ""
+			lbl.MaxLines = 1
+			lbl.Color = colorFgMuted
+			return lbl.Layout(gtx)
 		})
+		labelCall := labelMacro.Stop()
+
+		settingsX := labelLeftPad + labelDim.Size.X + gap
+		settingsW := gtx.Dp(unit.Dp(100))
+		settingsEndX := min(settingsX+settingsW, leftMaxW)
+
+		// Drag area covering [0..settingsX] (label region) for our own
+		// pointer.Filter handler. The patched gio falls back to its hardcoded
+		// HTCAPTION rule here too, so OS-level dragging still works.
+		if settingsX > 0 {
+			dragSize := image.Point{X: settingsX, Y: height}
+			area := clip.Rect{Max: dragSize}.Push(gtx.Ops)
+			event.Op(gtx.Ops, &ui.TitleTag)
+			area.Pop()
+		}
+
+		// Render label
+		labelOff := op.Offset(image.Pt(labelLeftPad, 0)).Push(gtx.Ops)
+		labelCall.Add(gtx.Ops)
+		labelOff.Pop()
+
+		// Settings button — registers ActionRaise inside its area to opt out
+		// of the hardcoded title-bar HTCAPTION zone in the patched gio.
+		settingsOff := op.Offset(image.Pt(settingsX, 0)).Push(gtx.Ops)
+		ui.layoutTitleSettingsBtn(gtx)
+		settingsOff.Pop()
+
+		// Drag area covering [settingsEndX..leftMaxW]
+		if leftMaxW > settingsEndX {
+			midDragW := leftMaxW - settingsEndX
+			dragSize := image.Point{X: midDragW, Y: height}
+			dragOff := op.Offset(image.Pt(settingsEndX, 0)).Push(gtx.Ops)
+			area := clip.Rect{Max: dragSize}.Push(gtx.Ops)
+			event.Op(gtx.Ops, &ui.TitleTag)
+			area.Pop()
+			dragOff.Pop()
+		}
 	}
 
 	maxKind := 1
@@ -177,7 +278,7 @@ func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
 		{&ui.BtnClose, 3},
 	}
 	for i, b := range btns {
-		off := op.Offset(image.Pt(dragW+i*btnW, 0)).Push(gtx.Ops)
+		off := op.Offset(image.Pt(leftMaxW+i*btnW, 0)).Push(gtx.Ops)
 		ui.layoutTitleBtn(gtx, b.btn, b.kind)
 		off.Pop()
 	}

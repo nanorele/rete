@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"
@@ -86,6 +87,21 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 		ui.Window.Invalidate()
 	}
 	if released {
+		// Snap envs section height to a whole number of rows so the
+		// last visible env is never half-cut. We avoid snapping during
+		// drag (which felt jittery) — only on release.
+		if ui.envRowH > 0 {
+			snapped := ((ui.SidebarEnvHeight + ui.envRowH/2) / ui.envRowH) * ui.envRowH
+			minEnvHeight := gtx.Dp(unit.Dp(80))
+			maxEnvHeight := gtx.Constraints.Max.Y - gtx.Dp(unit.Dp(80))
+			if snapped < minEnvHeight {
+				snapped = minEnvHeight
+			}
+			if snapped > maxEnvHeight && maxEnvHeight > minEnvHeight {
+				snapped = maxEnvHeight
+			}
+			ui.SidebarEnvHeight = snapped
+		}
 		ui.saveState()
 	}
 
@@ -116,35 +132,58 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				}
 			}()
 		}
+		for ui.AddColBtn.Clicked(gtx) {
+			ui.addNewCollection()
+		}
 
-		return material.Clickable(gtx, &ui.ColsHeaderClick, func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						txt := "►"
-						if ui.ColsExpanded {
-							txt = "▼"
-						}
-						lbl := material.Label(ui.Theme, unit.Sp(10), txt)
-						lbl.Color = colorFgMuted
-						return lbl.Layout(gtx)
-					}),
-					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
-					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						lbl := material.Label(ui.Theme, unit.Sp(12), "Collections")
-						lbl.Font.Weight = font.Bold
-						return lbl.Layout(gtx)
-					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						btn := material.Button(ui.Theme, &ui.ImportBtn, "Import")
-						btn.Background = colorAccent
-						btn.Color = colorAccentFg
-						btn.TextSize = unit.Sp(10)
-						btn.Inset = layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(6), Right: unit.Dp(6)}
-						return btn.Layout(gtx)
-					}),
-				)
-			})
+		// The expand/collapse Clickable wraps only the arrow + label
+		// (Flexed=1 area). The Add/Import buttons are rendered as
+		// siblings outside that Clickable so pressing them does not
+		// also toggle the section.
+		return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					return material.Clickable(gtx, &ui.ColsHeaderClick, func(gtx layout.Context) layout.Dimensions {
+						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								ic := iconChevronR
+								if ui.ColsExpanded {
+									ic = iconChevronD
+								}
+								size := gtx.Dp(unit.Dp(18))
+								gtx.Constraints.Min = image.Pt(size, size)
+								gtx.Constraints.Max = gtx.Constraints.Min
+								return ic.Layout(gtx, colorFgMuted)
+							}),
+							layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
+							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+								lbl := material.Label(ui.Theme, unit.Sp(12), "Collections")
+								lbl.Font.Typeface = jetbrainsMonoTypeface
+								return lbl.Layout(gtx)
+							}),
+						)
+					})
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					btn := material.Button(ui.Theme, &ui.AddColBtn, "+")
+					btn.Background = colorBorder
+					btn.Color = ui.Theme.Palette.Fg
+					btn.TextSize = unit.Sp(11)
+					btn.CornerRadius = unit.Dp(0)
+					btn.Inset = layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(5), Right: unit.Dp(5)}
+					return btn.Layout(gtx)
+				}),
+				layout.Rigid(layout.Spacer{Width: unit.Dp(0)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					btn := material.Button(ui.Theme, &ui.ImportBtn, "Import")
+					btn.Background = colorVarFound
+					btn.Color = colorFg
+					btn.TextSize = unit.Sp(11)
+					btn.CornerRadius = unit.Dp(0)
+					btn.Inset = layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(5), Right: unit.Dp(5)}
+					return btn.Layout(gtx)
+				}),
+			)
 		})
 	}
 
@@ -325,6 +364,17 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				if node.IsRenaming {
 					continue
 				}
+				// Double-click within 300 ms switches the node into
+				// rename mode. Compared against gtx.Now since
+				// widget.Clickable only surfaces single-click events.
+				if !node.LastClickAt.IsZero() && gtx.Now.Sub(node.LastClickAt) < 300*time.Millisecond {
+					node.IsRenaming = true
+					node.NameEditor.SetText(node.Name)
+					ui.RenamingNode = node
+					node.LastClickAt = time.Time{}
+					continue
+				}
+				node.LastClickAt = gtx.Now
 				if node.IsFolder {
 					node.Expanded = !node.Expanded
 					updateCols = true
@@ -333,9 +383,9 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				}
 			}
 
-			return layout.Inset{
+			rowDim := layout.Inset{
 				Top: unit.Dp(1), Bottom: unit.Dp(1),
-				Left: unit.Dp(8), Right: unit.Dp(8),
+				Left: unit.Dp(0), Right: unit.Dp(0),
 			}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				isActiveNode := false
 				if len(ui.Tabs) > 0 && ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
@@ -361,12 +411,20 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 									}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										children := make([]layout.FlexChild, 0, 3)
 										if node.IsFolder {
-											txt := node.Name
-											if node.Expanded {
-												txt = "▼ " + txt
-											} else {
-												txt = "► " + txt
-											}
+											// Folder chevron rendered as a material icon
+											// (matches the section headers and stays a
+											// consistent size regardless of font fallback).
+											children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+												ic := iconChevronR
+												if node.Expanded {
+													ic = iconChevronD
+												}
+												size := gtx.Dp(unit.Dp(18))
+												gtx.Constraints.Min = image.Pt(size, size)
+												gtx.Constraints.Max = gtx.Constraints.Min
+												return ic.Layout(gtx, colorFgMuted)
+											}))
+											children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout))
 											children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 												if node.IsRenaming {
 													// Plain material.Editor so the rename widget
@@ -379,7 +437,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 													ed.TextSize = unit.Sp(12)
 													return ed.Layout(gtx)
 												}
-												lbl := material.Label(ui.Theme, unit.Sp(12), txt)
+												lbl := material.Label(ui.Theme, unit.Sp(12), node.Name)
 												lbl.Alignment = text.Start
 												if node.Depth == 0 {
 													lbl.Font.Weight = font.Bold
@@ -490,6 +548,10 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					}),
 				)
 			})
+			if i == 0 && rowDim.Size.Y > 0 {
+				ui.colRowH = rowDim.Size.Y
+			}
+			return rowDim
 		})
 
 		if updateCols {
@@ -520,35 +582,54 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				}
 			}()
 		}
+		for ui.AddEnvBtn.Clicked(gtx) {
+			ui.addNewEnvironment()
+		}
 
-		return material.Clickable(gtx, &ui.EnvsHeaderClick, func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						txt := "►"
-						if ui.EnvsExpanded {
-							txt = "▼"
-						}
-						lbl := material.Label(ui.Theme, unit.Sp(10), txt)
-						lbl.Color = colorFgMuted
-						return lbl.Layout(gtx)
-					}),
-					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
-					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						lbl := material.Label(ui.Theme, unit.Sp(12), "Environments")
-						lbl.Font.Weight = font.Bold
-						return lbl.Layout(gtx)
-					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						btn := material.Button(ui.Theme, &ui.ImportEnvBtn, "Import")
-						btn.Background = colorAccent
-						btn.Color = colorAccentFg
-						btn.TextSize = unit.Sp(10)
-						btn.Inset = layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(6), Right: unit.Dp(6)}
-						return btn.Layout(gtx)
-					}),
-				)
-			})
+		return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					return material.Clickable(gtx, &ui.EnvsHeaderClick, func(gtx layout.Context) layout.Dimensions {
+						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								ic := iconChevronR
+								if ui.EnvsExpanded {
+									ic = iconChevronD
+								}
+								size := gtx.Dp(unit.Dp(18))
+								gtx.Constraints.Min = image.Pt(size, size)
+								gtx.Constraints.Max = gtx.Constraints.Min
+								return ic.Layout(gtx, colorFgMuted)
+							}),
+							layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
+							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+								lbl := material.Label(ui.Theme, unit.Sp(12), "Environments")
+								lbl.Font.Typeface = jetbrainsMonoTypeface
+								return lbl.Layout(gtx)
+							}),
+						)
+					})
+				}),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					btn := material.Button(ui.Theme, &ui.AddEnvBtn, "+")
+					btn.Background = colorBorder
+					btn.Color = ui.Theme.Palette.Fg
+					btn.TextSize = unit.Sp(11)
+					btn.CornerRadius = unit.Dp(0)
+					btn.Inset = layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(5), Right: unit.Dp(5)}
+					return btn.Layout(gtx)
+				}),
+				layout.Rigid(layout.Spacer{Width: unit.Dp(0)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					btn := material.Button(ui.Theme, &ui.ImportEnvBtn, "Import")
+					btn.Background = colorVarFound
+					btn.Color = colorFg
+					btn.TextSize = unit.Sp(11)
+					btn.CornerRadius = unit.Dp(0)
+					btn.Inset = layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(5), Right: unit.Dp(5)}
+					return btn.Layout(gtx)
+				}),
+			)
 		})
 	}
 
@@ -562,20 +643,62 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 			})
 		}
 
-		return material.List(ui.Theme, &ui.EnvList).Layout(gtx, len(ui.Environments), func(gtx layout.Context, idx int) layout.Dimensions {
-			env := ui.Environments[idx]
-			return layout.Inset{Left: unit.Dp(8), Right: unit.Dp(0), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		// Snapshot the slice up front. material.List passes len(envs) to
+		// the underlying layout.List, which may keep iterating callbacks
+		// with stale indices if a callback shrinks the slice mid-frame
+		// (e.g. via DelBtn). We defer the actual removal until after
+		// rendering finishes; the snapshot keeps indices valid.
+		envSnapshot := ui.Environments
+		var envToDelete *EnvironmentUI
+		dim := material.List(ui.Theme, &ui.EnvList).Layout(gtx, len(envSnapshot), func(gtx layout.Context, idx int) layout.Dimensions {
+			if idx >= len(envSnapshot) {
+				return layout.Dimensions{}
+			}
+			env := envSnapshot[idx]
+			rowDim := layout.Inset{Left: unit.Dp(0), Right: unit.Dp(0), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
 				isActive := ui.ActiveEnvID == env.Data.ID
 
-				var clicked bool
+				commitEnvRename := func(e *EnvironmentUI) {
+					if !e.IsRenaming {
+						return
+					}
+					name := e.InlineNameEd.Text()
+					if name != "" {
+						e.Data.Name = name
+						SaveEnvironment(e.Data)
+					}
+					e.IsRenaming = false
+					e.RenamingFocused = false
+				}
+
+				// SelectBtn click: set/unset active env (no rename
+				// shortcut here).
 				for env.SelectBtn.Clicked(gtx) {
-					clicked = true
+					if isActive {
+						ui.ActiveEnvID = ""
+					} else {
+						ui.ActiveEnvID = env.Data.ID
+					}
+					ui.activeEnvDirty = true
+					ui.saveState()
+					ui.Window.Invalidate()
 				}
+				// Click on the row: double-click → inline rename;
+				// single click → activate env.
 				for env.Click.Clicked(gtx) {
-					clicked = true
-				}
-				if clicked {
+					if env.IsRenaming {
+						continue
+					}
+					if !env.LastClickAt.IsZero() && gtx.Now.Sub(env.LastClickAt) < 300*time.Millisecond {
+						env.IsRenaming = true
+						env.InlineNameEd.SingleLine = true
+						env.InlineNameEd.Submit = true
+						env.InlineNameEd.SetText(env.Data.Name)
+						env.LastClickAt = time.Time{}
+						continue
+					}
+					env.LastClickAt = gtx.Now
 					if isActive {
 						ui.ActiveEnvID = ""
 					} else {
@@ -586,10 +709,45 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					ui.Window.Invalidate()
 				}
 
+				// While renaming, watch for Submit (Enter) and Esc.
+				if env.IsRenaming {
+					for {
+						ev, ok := env.InlineNameEd.Update(gtx)
+						if !ok {
+							break
+						}
+						if _, ok := ev.(widget.SubmitEvent); ok {
+							commitEnvRename(env)
+						}
+					}
+					for {
+						ev, ok := gtx.Event(
+							key.Filter{Focus: &env.InlineNameEd, Name: key.NameEscape},
+						)
+						if !ok {
+							break
+						}
+						if e, ok := ev.(key.Event); ok && e.State == key.Press && e.Name == key.NameEscape {
+							env.IsRenaming = false
+							env.RenamingFocused = false
+						}
+					}
+					if gtx.Focused(&env.InlineNameEd) {
+						env.RenamingFocused = true
+					} else if env.RenamingFocused {
+						commitEnvRename(env)
+					} else {
+						gtx.Execute(key.FocusCmd{Tag: &env.InlineNameEd})
+					}
+				}
+
 				for env.EditBtn.Clicked(gtx) {
 					ui.EditingEnv = env
 					env.initEditor()
 					ui.Window.Invalidate()
+				}
+				for env.DelBtn.Clicked(gtx) {
+					envToDelete = env
 				}
 
 				bgColor := colorBgDark
@@ -614,16 +772,23 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					}),
 					layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 						gtx.Constraints.Min.X = gtx.Constraints.Max.X
-						return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 								layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-									lbl := material.Label(ui.Theme, unit.Sp(12), env.Data.Name)
-									lbl.MaxLines = 1
-									lbl.Truncator = "..."
-									if isActive {
-										lbl.Font.Weight = font.Bold
-									}
-									return lbl.Layout(gtx)
+									return layout.Inset{Left: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+										if env.IsRenaming {
+											ed := material.Editor(ui.Theme, &env.InlineNameEd, "")
+											ed.TextSize = unit.Sp(12)
+											return ed.Layout(gtx)
+										}
+										lbl := material.Label(ui.Theme, unit.Sp(12), env.Data.Name)
+										lbl.MaxLines = 1
+										lbl.Truncator = "..."
+										if isActive {
+											lbl.Font.Weight = font.Bold
+										}
+										return lbl.Layout(gtx)
+									})
 								}),
 								layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -659,12 +824,36 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 										})
 									})
 								}),
+								layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									return material.Clickable(gtx, &env.DelBtn, func(gtx layout.Context) layout.Dimensions {
+										size := gtx.Dp(18)
+										gtx.Constraints.Min = image.Pt(size, size)
+										gtx.Constraints.Max = gtx.Constraints.Min
+										iconCol := colorFgMuted
+										if env.DelBtn.Hovered() {
+											iconCol = colorDanger
+										}
+										return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+											gtx.Constraints.Min = image.Pt(gtx.Dp(16), gtx.Dp(16))
+											return iconDel.Layout(gtx, iconCol)
+										})
+									})
+								}),
 							)
 						})
 					}),
 				)
 			})
+			if idx == 0 && rowDim.Size.Y > 0 {
+				ui.envRowH = rowDim.Size.Y
+			}
+			return rowDim
 		})
+		if envToDelete != nil {
+			ui.deleteEnvironment(envToDelete)
+		}
+		return dim
 	}
 
 	envDivider := func(gtx layout.Context) layout.Dimensions {
@@ -675,54 +864,28 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 			lineCol = colorAccent
 		}
 		vis := gtx.Dp(unit.Dp(1))
-		lineY := (hit - vis) / 2
+		// Pin the visible line to the bottom edge of the hit area so it
+		// sits flush against the Environments header. Otherwise the
+		// 3dp gap that the centered line leaves between itself and the
+		// header reads as asymmetric "padding above" the header (the
+		// matching borderLine below the header is only 1dp).
+		lineY := hit - vis
 		paint.FillShape(gtx.Ops, lineCol, clip.Rect{Min: image.Pt(0, lineY), Max: image.Pt(size.X, lineY+vis)}.Op())
 
 		defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 		pointer.CursorRowResize.Add(gtx.Ops)
 		ui.SidebarEnvDrag.Add(gtx.Ops)
+		event.Op(gtx.Ops, &ui.SidebarEnvDrag)
+		for {
+			_, ok := gtx.Event(pointer.Filter{Target: &ui.SidebarEnvDrag, Kinds: pointer.Move | pointer.Enter | pointer.Leave})
+			if !ok {
+				break
+			}
+		}
 		return layout.Dimensions{Size: size}
 	}
 
-	settingsRow := func(gtx layout.Context) layout.Dimensions {
-		for ui.SettingsBtn.Clicked(gtx) {
-			ui.SettingsOpen = !ui.SettingsOpen
-			if ui.SettingsOpen && ui.SettingsState == nil {
-				ui.SettingsState = newSettingsEditorState(ui.Settings)
-			}
-			if ui.Window != nil {
-				ui.Window.Invalidate()
-			}
-		}
-		return material.Clickable(gtx, &ui.SettingsBtn, func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						size := gtx.Dp(unit.Dp(16))
-						gtx.Constraints = layout.Exact(image.Pt(size, size))
-						col := colorFgMuted
-						if ui.SettingsOpen {
-							col = colorAccent
-						}
-						return iconSettings.Layout(gtx, col)
-					}),
-					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						lbl := material.Label(ui.Theme, unit.Sp(12), "Settings")
-						lbl.Font.Weight = font.Bold
-						if ui.SettingsOpen {
-							lbl.Color = colorAccent
-						}
-						return lbl.Layout(gtx)
-					}),
-				)
-			})
-		})
-	}
-
 	children := []layout.FlexChild{
-		layout.Rigid(settingsRow),
-		layout.Rigid(borderLine),
 		layout.Rigid(colsHeader),
 		layout.Rigid(borderLine),
 	}

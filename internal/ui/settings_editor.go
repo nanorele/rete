@@ -6,7 +6,6 @@ import (
 	"strings"
 
 	"github.com/nanorele/gio/font"
-	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op/clip"
 	"github.com/nanorele/gio/op/paint"
@@ -29,12 +28,14 @@ type SettingsEditorState struct {
 
 	ThemeBtns []widget.Clickable
 
-	UISizeDec   widget.Clickable
-	UISizeInc   widget.Clickable
-	BodySizeDec widget.Clickable
-	BodySizeInc widget.Clickable
-	UIScaleDec  widget.Clickable
-	UIScaleInc  widget.Clickable
+	UISizeDec      widget.Clickable
+	UISizeInc      widget.Clickable
+	BodySizeDec    widget.Clickable
+	BodySizeInc    widget.Clickable
+	UIScaleDec     widget.Clickable
+	UIScaleInc     widget.Clickable
+	BodyPaddingDec widget.Clickable
+	BodyPaddingInc widget.Clickable
 
 	HideTabBar  widget.Bool
 	HideSidebar widget.Bool
@@ -239,6 +240,18 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 	for st.UIScaleInc.Clicked(gtx) {
 		if st.Draft.UIScale < 2.0 {
 			st.Draft.UIScale += 0.05
+			changed = true
+		}
+	}
+	for st.BodyPaddingDec.Clicked(gtx) {
+		if st.Draft.ResponseBodyPadding > 0 {
+			st.Draft.ResponseBodyPadding--
+			changed = true
+		}
+	}
+	for st.BodyPaddingInc.Clicked(gtx) {
+		if st.Draft.ResponseBodyPadding < 32 {
+			st.Draft.ResponseBodyPadding++
 			changed = true
 		}
 	}
@@ -521,6 +534,12 @@ func (ui *AppUI) sectionsSizes() []layout.Widget {
 		settingsHint(ui.Theme, fmt.Sprintf("Overall size of layout spacing and controls. Default: %.2fx.", def.UIScale)),
 		spacerH(8),
 		stepperRow(ui.Theme, &st.UIScaleDec, &st.UIScaleInc, fmt.Sprintf("%.2fx", st.Draft.UIScale)),
+		spacerH(20),
+		settingsSectionTitle(ui.Theme, "Response body padding"),
+		spacerH(4),
+		settingsHint(ui.Theme, fmt.Sprintf("Inner padding around the response body text. Same for wrap and no-wrap modes. Default: %d px.", def.ResponseBodyPadding)),
+		spacerH(8),
+		stepperRow(ui.Theme, &st.BodyPaddingDec, &st.BodyPaddingInc, fmt.Sprintf("%d px", st.Draft.ResponseBodyPadding)),
 	}
 }
 
@@ -566,7 +585,9 @@ func (ui *AppUI) sectionsHTTP() []layout.Widget {
 		settingsHint(ui.Theme, fmt.Sprintf("Sent on every request unless overridden by a per-request header. Default: %s.", def.UserAgent)),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Max.X = gtx.Dp(unit.Dp(360))
+			// User-Agent strings can be long; let the field span the
+			// available width and rely on TextField's single-line
+			// horizontal scrolling for overflow.
 			return TextField(gtx, ui.Theme, &st.UserAgentEditor, "User-Agent", true, nil, 0, unit.Sp(13))
 		},
 		spacerH(20),
@@ -804,8 +825,6 @@ func themeTileFixed(th *material.Theme, btn *widget.Clickable, def themeDef, act
 			dot := image.Rect(size.X-gtx.Dp(unit.Dp(20)), size.Y-gtx.Dp(unit.Dp(20)), size.X-gtx.Dp(unit.Dp(10)), size.Y-gtx.Dp(unit.Dp(10)))
 			paint.FillShape(gtx.Ops, p.Accent, clip.UniformRRect(dot, 3).Op(gtx.Ops))
 
-			defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-			pointer.CursorPointer.Add(gtx.Ops)
 			return layout.Inset{Left: unit.Dp(10), Top: unit.Dp(40)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				lbl := material.Label(th, unit.Sp(12), def.Name)
 				lbl.Color = p.Fg

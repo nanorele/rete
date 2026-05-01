@@ -35,14 +35,66 @@ var (
 	colorVarMissing     = color.NRGBA{R: 130, G: 60, B: 60, A: 100}
 	colorDividerLight   = color.NRGBA{R: 255, G: 255, B: 255, A: 60}
 	colorTransparent    = color.NRGBA{}
-	colorMethodGet      = color.NRGBA{R: 12, G: 187, B: 82, A: 255}
-	colorMethodPost     = color.NRGBA{R: 255, G: 180, B: 0, A: 255}
-	colorMethodPut      = color.NRGBA{R: 9, G: 123, B: 237, A: 255}
-	colorMethodDelete   = color.NRGBA{R: 235, G: 32, B: 19, A: 255}
-	colorMethodPatch    = color.NRGBA{R: 186, G: 85, B: 211, A: 255}
-	colorMethodOptions  = color.NRGBA{R: 13, G: 184, B: 214, A: 255}
-	colorMethodFallback = color.NRGBA{R: 150, G: 150, B: 150, A: 255}
+	colorMethodGet      = methodPaletteDark.Get
+	colorMethodPost     = methodPaletteDark.Post
+	colorMethodPut      = methodPaletteDark.Put
+	colorMethodDelete   = methodPaletteDark.Delete
+	colorMethodHead     = methodPaletteDark.Head
+	colorMethodPatch    = methodPaletteDark.Patch
+	colorMethodOptions  = methodPaletteDark.Options
+	colorMethodFallback = methodPaletteDark.Fallback
 )
+
+type methodPalette struct {
+	Get      color.NRGBA
+	Post     color.NRGBA
+	Put      color.NRGBA
+	Delete   color.NRGBA
+	Head     color.NRGBA
+	Patch    color.NRGBA
+	Options  color.NRGBA
+	Fallback color.NRGBA
+}
+
+var methodPaletteDark = methodPalette{
+	Get:      color.NRGBA{R: 12, G: 187, B: 82, A: 255},
+	Post:     color.NRGBA{R: 255, G: 180, B: 0, A: 255},
+	Put:      color.NRGBA{R: 9, G: 123, B: 237, A: 255},
+	Delete:   color.NRGBA{R: 235, G: 32, B: 19, A: 255},
+	Head:     color.NRGBA{R: 217, G: 90, B: 165, A: 255},
+	Patch:    color.NRGBA{R: 186, G: 85, B: 211, A: 255},
+	Options:  color.NRGBA{R: 13, G: 184, B: 214, A: 255},
+	Fallback: color.NRGBA{R: 150, G: 150, B: 150, A: 255},
+}
+
+var methodPaletteLight = methodPalette{
+	Get:      color.NRGBA{R: 38, G: 138, B: 70, A: 255},
+	Post:     color.NRGBA{R: 200, G: 130, B: 0, A: 255},
+	Put:      color.NRGBA{R: 9, G: 105, B: 180, A: 255},
+	Delete:   color.NRGBA{R: 200, G: 30, B: 30, A: 255},
+	Head:     color.NRGBA{R: 180, G: 60, B: 130, A: 255},
+	Patch:    color.NRGBA{R: 140, G: 60, B: 170, A: 255},
+	Options:  color.NRGBA{R: 15, G: 130, B: 160, A: 255},
+	Fallback: color.NRGBA{R: 100, G: 100, B: 100, A: 255},
+}
+
+func applyMethodPalette(p methodPalette) {
+	colorMethodGet = p.Get
+	colorMethodPost = p.Post
+	colorMethodPut = p.Put
+	colorMethodDelete = p.Delete
+	colorMethodHead = p.Head
+	colorMethodPatch = p.Patch
+	colorMethodOptions = p.Options
+	colorMethodFallback = p.Fallback
+}
+
+func methodPaletteFor(bg color.NRGBA) methodPalette {
+	if relLuminance(bg) > 0.45 {
+		return methodPaletteLight
+	}
+	return methodPaletteDark
+}
 
 func getMethodColor(method string) color.NRGBA {
 	switch method {
@@ -54,6 +106,8 @@ func getMethodColor(method string) color.NRGBA {
 		return colorMethodPut
 	case "DELETE":
 		return colorMethodDelete
+	case "HEAD":
+		return colorMethodHead
 	case "PATCH":
 		return colorMethodPatch
 	case "OPTIONS":

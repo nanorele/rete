@@ -11,10 +11,37 @@ import (
 	"github.com/nanorele/gio/widget/material"
 )
 
+// commitEditingEnv flushes the in-progress env editor draft (name +
+// rows) back into the underlying ParsedEnvironment and persists it.
+// Used by the explicit Save button and by the click-outside dismiss
+// path in layoutContent so both routes save the same way.
+func (ui *AppUI) commitEditingEnv() {
+	env := ui.EditingEnv
+	if env == nil || env.Data == nil {
+		return
+	}
+	env.Data.Name = env.NameEditor.Text()
+	env.Data.Vars = nil
+	for _, r := range env.Rows {
+		k := r.KeyEditor.Text()
+		if k == "" {
+			continue
+		}
+		env.Data.Vars = append(env.Data.Vars, EnvVar{
+			Key:     k,
+			Value:   r.ValEditor.Text(),
+			Enabled: r.Enabled.Value,
+		})
+	}
+	SaveEnvironment(env.Data)
+	ui.activeEnvDirty = true
+}
+
 func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 	env := ui.EditingEnv
 
 	for env.BackBtn.Clicked(gtx) {
+		ui.commitEditingEnv()
 		ui.EditingEnv = nil
 		ui.Window.Invalidate()
 		return layout.Dimensions{}
@@ -26,24 +53,8 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 		ui.Window.Invalidate()
 	}
 	for env.SaveBtn.Clicked(gtx) {
-		env.Data.Name = env.NameEditor.Text()
-		env.Data.Vars = nil
-		for _, r := range env.Rows {
-			k := r.KeyEditor.Text()
-			v := r.ValEditor.Text()
-			if k != "" {
-				env.Data.Vars = append(env.Data.Vars, EnvVar{
-					Key:     k,
-					Value:   v,
-					Enabled: r.Enabled.Value,
-				})
-			}
-		}
-		SaveEnvironment(env.Data)
-		ui.activeEnvDirty = true
-		ui.EditingEnv = nil
+		ui.commitEditingEnv()
 		ui.Window.Invalidate()
-		return layout.Dimensions{}
 	}
 	for i := 0; i < len(env.Rows); i++ {
 		if env.Rows[i].DelBtn.Clicked(gtx) {

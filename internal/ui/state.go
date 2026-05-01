@@ -38,6 +38,12 @@ type AppState struct {
 
 var configPathOverride string
 
+func newRandomID() string {
+	b := make([]byte, 16)
+	rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
 func getConfigPath() string {
 	if configPathOverride != "" {
 		return configPathOverride

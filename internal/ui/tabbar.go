@@ -351,7 +351,7 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 							fgColor := colorFgMuted
 							if idx == ui.ActiveIdx {
 								bgColor = colorBg
-								fgColor = colorWhite
+								fgColor = colorFg
 							}
 
 							return layout.Stack{}.Layout(gtx,
@@ -370,7 +370,14 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 											return material.Clickable(gtx, &tab.TabBtn, func(gtx layout.Context) layout.Dimensions {
 												gtx.Constraints.Min = gtx.Constraints.Max
 												return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-													return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(10), Right: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+													// Active tab nudges its label 1px down so the
+													// glyphs sit visually centred under the accent
+													// underline; inactive tabs stay symmetric.
+													topPad, bottomPad := unit.Dp(2), unit.Dp(2)
+													if idx == ui.ActiveIdx {
+														topPad, bottomPad = unit.Dp(3), unit.Dp(1)
+													}
+													return layout.Inset{Top: topPad, Bottom: bottomPad, Left: unit.Dp(10), Right: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 														cleanTitle := tab.getCleanTitle()
 														if tab.IsDirty {
 															cleanTitle = "● " + cleanTitle
@@ -484,7 +491,7 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 			dGtx.Constraints.Max = dGtx.Constraints.Min
 			paint.FillShape(dGtx.Ops, colorBgDragGhost, clip.Rect{Max: dGtx.Constraints.Min}.Op())
 			paint.FillShape(dGtx.Ops, colorAccent, clip.Rect{Max: image.Point{X: dW, Y: dGtx.Dp(unit.Dp(2))}}.Op())
-			layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(10), Right: unit.Dp(6)}.Layout(dGtx, func(gtx layout.Context) layout.Dimensions {
+			layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(1), Left: unit.Dp(10), Right: unit.Dp(6)}.Layout(dGtx, func(gtx layout.Context) layout.Dimensions {
 				t := utils.SanitizeText(dTab.Title)
 				t = strings.ReplaceAll(t, "\n", " ")
 				if strings.TrimSpace(t) == "" {
@@ -494,7 +501,7 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 					t = "● " + t
 				}
 				lbl := material.Label(ui.Theme, unit.Sp(12), t)
-				lbl.Color = colorWhite
+				lbl.Color = colorFg
 				lbl.MaxLines = 2
 				lbl.Truncator = "..."
 				return lbl.Layout(gtx)

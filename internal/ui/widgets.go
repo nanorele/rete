@@ -165,10 +165,16 @@ func getLineMetrics(gtx layout.Context, th *material.Theme, textSize unit.Sp) (i
 	return lineHeight, lineSpacing
 }
 
+// VarHoverState is the cross-editor "you're hovering / clicking on
+// {{var}}" message that flows through GlobalVarHover / GlobalVarClick
+// to the popup machinery in app.go. Editor is an opaque tag — only
+// identity-compared (e.g. in pointer.Leave to clear hover state for
+// the right chip), so it can be either *widget.Editor (TextField,
+// TextFieldOverlay) or *RequestEditor (the request body editor).
 type VarHoverState struct {
 	Name   string
 	Pos    f32.Point
-	Editor *widget.Editor
+	Editor any
 	Range  struct{ Start, End int }
 }
 
@@ -276,18 +282,13 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 						start: start,
 						end:   end,
 					})
-
-					// Detect hover visually as before
-					ptrPos := GlobalPointerPos
-					if ptrPos.X >= float32(x1+pX) && ptrPos.X <= float32(x2+pX) &&
-						ptrPos.Y >= float32(yOff+pY-padY) && ptrPos.Y <= float32(yOff+lineHeight+pY+padY) {
-						GlobalVarHover = &VarHoverState{
-							Name:   varName,
-							Pos:    ptrPos,
-							Editor: ed,
-							Range:  struct{ Start, End int }{Start: start, End: end},
-						}
-					}
+					// Hover detection moved to event-based pointer.Enter/Leave
+					// in the click loop below — the previous position-based
+					// check used GlobalPointerPos in window coords against
+					// rect coords in editor-local space, so a cursor near
+					// window (0,0) ghost-matched any var rect with a small
+					// x1/yOff and produced a stray "Not found" tooltip near
+					// the title bar.
 				}
 
 				idx = end
@@ -343,23 +344,47 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 		op.Offset(image.Point{X: pX, Y: pY}).Add(gtx.Ops)
 		for _, vr := range varRects {
 			tag := varClickTag{ed: ed, start: vr.start}
-			stack := clip.Rect(vr.rect).Push(gtx.Ops)
-			pointer.CursorPointer.Add(gtx.Ops)
+			vrLocal := vr.rect
+			stack := clip.Rect(vrLocal).Push(gtx.Ops)
 			event.Op(gtx.Ops, tag)
 			for {
 				ev, ok := gtx.Event(pointer.Filter{
 					Target: tag,
-					Kinds:  pointer.Press,
+					Kinds:  pointer.Press | pointer.Enter | pointer.Leave,
 				})
 				if !ok {
 					break
 				}
-				if pe, ok := ev.(pointer.Event); ok && pe.Buttons.Contain(pointer.ButtonPrimary) {
-					GlobalVarClick = &VarHoverState{
+				pe, ok := ev.(pointer.Event)
+				if !ok {
+					continue
+				}
+				switch pe.Kind {
+				case pointer.Press:
+					if pe.Buttons.Contain(pointer.ButtonPrimary) {
+						originX := GlobalPointerPos.X - pe.Position.X
+						originY := GlobalPointerPos.Y - pe.Position.Y
+						GlobalVarClick = &VarHoverState{
+							Name:   vr.name,
+							Pos:    f32.Pt(originX, originY+float32(vrLocal.Dy())),
+							Editor: ed,
+							Range:  struct{ Start, End int }{vr.start, vr.end},
+						}
+					}
+				case pointer.Enter:
+					originX := GlobalPointerPos.X - pe.Position.X
+					originY := GlobalPointerPos.Y - pe.Position.Y
+					GlobalVarHover = &VarHoverState{
 						Name:   vr.name,
-						Pos:    GlobalPointerPos,
+						Pos:    f32.Pt(originX, originY+float32(vrLocal.Dy())),
 						Editor: ed,
 						Range:  struct{ Start, End int }{vr.start, vr.end},
+					}
+				case pointer.Leave:
+					if GlobalVarHover != nil &&
+						GlobalVarHover.Editor == ed &&
+						GlobalVarHover.Range.Start == vr.start {
+						GlobalVarHover = nil
 					}
 				}
 			}
@@ -469,18 +494,7 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 						start: start,
 						end:   end,
 					})
-
-					// Detect hover
-					ptrPos := GlobalPointerPos
-					if ptrPos.X >= float32(x1+p) && ptrPos.X <= float32(x2+p) &&
-						ptrPos.Y >= float32(yOff+p-padY) && ptrPos.Y <= float32(yOff+lineHeight+p+padY) {
-						GlobalVarHover = &VarHoverState{
-							Name:   varName,
-							Pos:    ptrPos,
-							Editor: ed,
-							Range:  struct{ Start, End int }{Start: start, End: end},
-						}
-					}
+					// See TextFieldOverlay — hover is now event-driven below.
 				}
 
 				idx = end
@@ -536,23 +550,47 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 		op.Offset(image.Point{X: p, Y: p}).Add(gtx.Ops)
 		for _, vr := range varRects {
 			tag := varClickTag{ed: ed, start: vr.start}
-			stack := clip.Rect(vr.rect).Push(gtx.Ops)
-			pointer.CursorPointer.Add(gtx.Ops)
+			vrLocal := vr.rect
+			stack := clip.Rect(vrLocal).Push(gtx.Ops)
 			event.Op(gtx.Ops, tag)
 			for {
 				ev, ok := gtx.Event(pointer.Filter{
 					Target: tag,
-					Kinds:  pointer.Press,
+					Kinds:  pointer.Press | pointer.Enter | pointer.Leave,
 				})
 				if !ok {
 					break
 				}
-				if pe, ok := ev.(pointer.Event); ok && pe.Buttons.Contain(pointer.ButtonPrimary) {
-					GlobalVarClick = &VarHoverState{
+				pe, ok := ev.(pointer.Event)
+				if !ok {
+					continue
+				}
+				switch pe.Kind {
+				case pointer.Press:
+					if pe.Buttons.Contain(pointer.ButtonPrimary) {
+						originX := GlobalPointerPos.X - pe.Position.X
+						originY := GlobalPointerPos.Y - pe.Position.Y
+						GlobalVarClick = &VarHoverState{
+							Name:   vr.name,
+							Pos:    f32.Pt(originX, originY+float32(vrLocal.Dy())),
+							Editor: ed,
+							Range:  struct{ Start, End int }{vr.start, vr.end},
+						}
+					}
+				case pointer.Enter:
+					originX := GlobalPointerPos.X - pe.Position.X
+					originY := GlobalPointerPos.Y - pe.Position.Y
+					GlobalVarHover = &VarHoverState{
 						Name:   vr.name,
-						Pos:    GlobalPointerPos,
+						Pos:    f32.Pt(originX, originY+float32(vrLocal.Dy())),
 						Editor: ed,
 						Range:  struct{ Start, End int }{vr.start, vr.end},
+					}
+				case pointer.Leave:
+					if GlobalVarHover != nil &&
+						GlobalVarHover.Editor == ed &&
+						GlobalVarHover.Range.Start == vr.start {
+						GlobalVarHover = nil
 					}
 				}
 			}
