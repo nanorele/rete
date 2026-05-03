@@ -635,16 +635,6 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					e.RenamingFocused = false
 				}
 
-				for env.SelectBtn.Clicked(gtx) {
-					if isActive {
-						ui.ActiveEnvID = ""
-					} else {
-						ui.ActiveEnvID = env.Data.ID
-					}
-					ui.activeEnvDirty = true
-					ui.saveState()
-					ui.Window.Invalidate()
-				}
 				for env.Click.Clicked(gtx) {
 					if env.IsRenaming {
 						continue
@@ -700,6 +690,10 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				}
 
 				for env.EditBtn.Clicked(gtx) {
+					if ui.EditingEnv != nil && ui.EditingEnv != env {
+						ui.commitEditingEnv()
+					}
+					ui.pendingEnvClose = nil
 					ui.EditingEnv = env
 					env.initEditor()
 					ui.Window.Invalidate()
@@ -723,7 +717,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 							rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4)
 							paint.FillShape(gtx.Ops, bgColor, rect.Op(gtx.Ops))
 							if isActive {
-								paint.FillShape(gtx.Ops, ui.Theme.Palette.ContrastBg, clip.Rect{Max: image.Point{X: gtx.Dp(unit.Dp(2)), Y: gtx.Constraints.Min.Y}}.Op())
+								paint.FillShape(gtx.Ops, envHighlightColor(env.Data), clip.Rect{Max: image.Point{X: gtx.Dp(unit.Dp(2)), Y: gtx.Constraints.Min.Y}}.Op())
 							}
 							return layout.Dimensions{Size: gtx.Constraints.Min}
 						})
@@ -748,20 +742,27 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 								}),
 								layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									for env.SelectBtn.Clicked(gtx) {
+										if ui.EnvColorPicker.isOpen() && ui.EnvColorEnvID == env.Data.ID {
+											ui.EnvColorPicker.closePicker()
+										} else {
+											ui.EnvColorEnvID = env.Data.ID
+											ui.EnvColorPicker.open(pickerEnv, 0, envHighlightColor(env.Data), f32Point{X: GlobalPointerPos.X, Y: GlobalPointerPos.Y})
+										}
+									}
 									return material.Clickable(gtx, &env.SelectBtn, func(gtx layout.Context) layout.Dimensions {
 										size := gtx.Dp(18)
 										gtx.Constraints.Min = image.Pt(size, size)
 										gtx.Constraints.Max = gtx.Constraints.Min
-										iconCol := colorFgMuted
-										if isActive {
-											iconCol = ui.Theme.Palette.ContrastBg
-										} else if env.SelectBtn.Hovered() {
-											iconCol = ui.Theme.Palette.Fg
+										swatch := envHighlightColor(env.Data)
+										border := gtx.Dp(unit.Dp(1))
+										if border < 1 {
+											border = 1
 										}
-										return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											gtx.Constraints.Min = image.Pt(gtx.Dp(16), gtx.Dp(16))
-											return iconCheck.Layout(gtx, iconCol)
-										})
+										paint.FillShape(gtx.Ops, colorBorderLight, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 3).Op(gtx.Ops))
+										inner := image.Rect(border, border, size-border, size-border)
+										paint.FillShape(gtx.Ops, swatch, clip.UniformRRect(inner, 2).Op(gtx.Ops))
+										return layout.Dimensions{Size: gtx.Constraints.Min}
 									})
 								}),
 								layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
@@ -889,5 +890,40 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 		)
 	}
 
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+	gutter := func(gtx layout.Context) layout.Dimensions {
+		gutterW := gtx.Dp(unit.Dp(36))
+		h := gtx.Constraints.Max.Y
+		if h == 0 {
+			h = gtx.Constraints.Min.Y
+		}
+		gtx.Constraints.Min = image.Pt(gutterW, h)
+		gtx.Constraints.Max = image.Pt(gutterW, h)
+		btnH := gtx.Dp(unit.Dp(52))
+		layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min = image.Pt(gutterW, btnH)
+				gtx.Constraints.Max = image.Pt(gutterW, btnH)
+				return ui.layoutSidebarToggleBtn(gtx)
+			}),
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Constraints.Max.Y)}
+			}),
+		)
+		if !ui.Settings.HideSidebar {
+			line := gtx.Dp(unit.Dp(1))
+			paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(gutterW-line, 0), Max: image.Pt(gutterW, h)}.Op())
+		}
+		return layout.Dimensions{Size: image.Pt(gutterW, h)}
+	}
+
+	if ui.Settings.HideSidebar {
+		return gutter(gtx)
+	}
+
+	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+		layout.Rigid(gutter),
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+		}),
+	)
 }

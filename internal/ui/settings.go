@@ -46,10 +46,21 @@ type AppSettings struct {
 	AutoFormatJSON          bool    `json:"auto_format_json"`
 	StripJSONComments       bool    `json:"strip_json_comments"`
 	BracketPairColorization bool    `json:"bracket_pair_colorization"`
+	StackBreakpointDp       int     `json:"stack_breakpoint_dp,omitempty"`
 
 	SyntaxOverrides map[string]ThemeSyntaxOverride `json:"syntax_overrides,omitempty"`
 
 	ThemeOverrides map[string]ThemeColorOverride `json:"theme_overrides,omitempty"`
+
+	CustomThemes []CustomTheme `json:"custom_themes,omitempty"`
+}
+
+type CustomTheme struct {
+	ID      string              `json:"id"`
+	Name    string              `json:"name"`
+	BasedOn string              `json:"based_on,omitempty"`
+	Palette ThemeColorOverride  `json:"palette"`
+	Syntax  ThemeSyntaxOverride `json:"syntax,omitempty"`
 }
 
 type ThemeColorOverride struct {
@@ -131,6 +142,7 @@ func defaultSettings() AppSettings {
 		AutoFormatJSON:          true,
 		StripJSONComments:       true,
 		BracketPairColorization: true,
+		StackBreakpointDp:       700,
 	}
 }
 
@@ -453,22 +465,89 @@ var themeRegistry = []themeDef{
 	), nordSyntax)},
 }
 
-func paletteFor(id string) palette {
+func paletteFor(id string, customs []CustomTheme) palette {
 	for _, t := range themeRegistry {
 		if t.ID == id {
 			return t.Palette
 		}
 	}
+	for _, c := range customs {
+		if c.ID == id {
+			base := darkPalette
+			for _, t := range themeRegistry {
+				if t.ID == c.BasedOn {
+					base = t.Palette
+					break
+				}
+			}
+			p := applyThemeOverride(base, c.Palette)
+			p.Syntax = applySyntaxOverride(base.Syntax, c.Syntax)
+			return p
+		}
+	}
 	return darkPalette
 }
 
-func isValidThemeID(id string) bool {
+func isValidThemeID(id string, customs []CustomTheme) bool {
 	for _, t := range themeRegistry {
 		if t.ID == id {
 			return true
 		}
 	}
+	for _, c := range customs {
+		if c.ID == id {
+			return true
+		}
+	}
 	return false
+}
+
+func findCustomTheme(customs []CustomTheme, id string) (int, bool) {
+	for i, c := range customs {
+		if c.ID == id {
+			return i, true
+		}
+	}
+	return -1, false
+}
+
+func paletteToOverride(p palette) ThemeColorOverride {
+	return ThemeColorOverride{
+		Bg: hexFromColor(p.Bg), BgDark: hexFromColor(p.BgDark), BgField: hexFromColor(p.BgField),
+		BgMenu: hexFromColor(p.BgMenu), BgPopup: hexFromColor(p.BgPopup), BgHover: hexFromColor(p.BgHover),
+		BgSecondary: hexFromColor(p.BgSecondary), BgLoadMore: hexFromColor(p.BgLoadMore),
+		BgDragHolder: hexFromColor(p.BgDragHolder), BgDragGhost: hexFromColor(p.BgDragGhost),
+		Border: hexFromColor(p.Border), BorderLight: hexFromColor(p.BorderLight),
+		Fg: hexFromColor(p.Fg), FgMuted: hexFromColor(p.FgMuted), FgDim: hexFromColor(p.FgDim),
+		FgHint: hexFromColor(p.FgHint), FgDisabled: hexFromColor(p.FgDisabled),
+		White:       hexFromColor(p.White),
+		Accent:      hexFromColor(p.Accent), AccentHover: hexFromColor(p.AccentHover),
+		AccentDim:   hexFromColor(p.AccentDim), AccentFg: hexFromColor(p.AccentFg),
+		Danger:      hexFromColor(p.Danger), DangerFg: hexFromColor(p.DangerFg),
+		Cancel:      hexFromColor(p.Cancel), CloseHover: hexFromColor(p.CloseHover),
+		ScrollThumb: hexFromColor(p.ScrollThumb),
+		VarFound:    hexFromColor(p.VarFound), VarMissing: hexFromColor(p.VarMissing),
+		DividerLight: hexFromColor(p.DividerLight),
+	}
+}
+
+func syntaxToOverride(s syntaxPalette) ThemeSyntaxOverride {
+	return ThemeSyntaxOverride{
+		Plain:    hexFromColor(s.Plain),
+		String:   hexFromColor(s.String),
+		Number:   hexFromColor(s.Number),
+		Bool:     hexFromColor(s.Bool),
+		Null:     hexFromColor(s.Null),
+		Key:      hexFromColor(s.Key),
+		Punctuation: hexFromColor(s.Punctuation),
+		Operator: hexFromColor(s.Operator),
+		Keyword:  hexFromColor(s.Keyword),
+		Type:     hexFromColor(s.Type),
+		Comment:  hexFromColor(s.Comment),
+		Bracket0: hexFromColor(s.Brackets[0]),
+		Bracket1: hexFromColor(s.Brackets[1]),
+		Bracket2: hexFromColor(s.Brackets[2]),
+	}
 }
 
 func applyPalette(p palette) {
@@ -516,7 +595,7 @@ func applyPalette(p palette) {
 }
 
 func (s AppSettings) sanitized() AppSettings {
-	if !isValidThemeID(s.Theme) {
+	if !isValidThemeID(s.Theme, s.CustomThemes) {
 		s.Theme = "dark"
 	}
 	if s.UITextSize < 10 {
@@ -599,6 +678,16 @@ func (s AppSettings) sanitized() AppSettings {
 		s.MaxConnsPerHost = 10000
 	}
 
+	if s.StackBreakpointDp < 0 {
+		s.StackBreakpointDp = 0
+	}
+	if s.StackBreakpointDp > 0 && s.StackBreakpointDp < 400 {
+		s.StackBreakpointDp = 400
+	}
+	if s.StackBreakpointDp > 2000 {
+		s.StackBreakpointDp = 2000
+	}
+
 	return s
 }
 
@@ -615,10 +704,11 @@ var (
 	currentAutoFormatJSON      = true
 	currentStripJSONComments   = true
 	currentBracketColorization = true
+	currentStackBreakpointDp   = 700
 )
 
 func applyAppSettings(th *material.Theme, s AppSettings) {
-	p := paletteFor(s.Theme)
+	p := paletteFor(s.Theme, s.CustomThemes)
 	if ov, ok := s.ThemeOverrides[s.Theme]; ok {
 		p = applyThemeOverride(p, ov)
 	}
@@ -652,6 +742,7 @@ func applyAppSettings(th *material.Theme, s AppSettings) {
 	currentAutoFormatJSON = s.AutoFormatJSON
 	currentStripJSONComments = s.StripJSONComments
 	currentBracketColorization = s.BracketPairColorization
+	currentStackBreakpointDp = s.StackBreakpointDp
 	httpClient = buildHTTPClient(s)
 	if th != nil {
 		th.Palette.Bg = colorBg

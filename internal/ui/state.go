@@ -58,6 +58,8 @@ type TabState struct {
 	Body             string          `json:"body"`
 	Headers          []HeaderState   `json:"headers"`
 	SplitRatio       float32         `json:"split_ratio"`
+	VStackRatio      float32         `json:"vstack_ratio,omitempty"`
+	LayoutMode       int             `json:"layout_mode,omitempty"`
 	HeaderSplitRatio float32         `json:"header_split_ratio,omitempty"`
 	ReqWrapEnabled   *bool           `json:"req_wrap_enabled,omitempty"`
 	CollectionID     string          `json:"collection_id,omitempty"`
@@ -160,6 +162,9 @@ func loadStateWithRaw() (AppState, []byte) {
 		if !bytes.Contains(data, []byte(`"bracket_pair_colorization"`)) {
 			state.Settings.BracketPairColorization = true
 		}
+		if !bytes.Contains(data, []byte(`"stack_breakpoint_dp"`)) {
+			state.Settings.StackBreakpointDp = 700
+		}
 	}
 	return state, data
 }
@@ -211,7 +216,8 @@ func saveEnvironmentRaw(data []byte) (string, error) {
 
 func SaveEnvironment(env *ParsedEnvironment) error {
 	ext := ExtEnvironment{
-		Name: env.Name,
+		Name:           env.Name,
+		HighlightColor: env.HighlightColor,
 	}
 	for _, v := range env.Vars {
 		ext.Values = append(ext.Values, struct {

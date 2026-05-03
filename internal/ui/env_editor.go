@@ -2,6 +2,7 @@ package ui
 
 import (
 	"image"
+	"strings"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/layout"
@@ -17,6 +18,12 @@ func (ui *AppUI) commitEditingEnv() {
 		return
 	}
 	env.Data.Name = env.NameEditor.Text()
+	hex := strings.TrimSpace(env.ColorEditor.Text())
+	if _, ok := parseHexColor(hex); ok {
+		env.Data.HighlightColor = hex
+	} else if hex == "" {
+		env.Data.HighlightColor = ""
+	}
 	env.Data.Vars = nil
 	for _, r := range env.Rows {
 		k := r.KeyEditor.Text()
@@ -24,9 +31,8 @@ func (ui *AppUI) commitEditingEnv() {
 			continue
 		}
 		env.Data.Vars = append(env.Data.Vars, EnvVar{
-			Key:     k,
-			Value:   r.ValEditor.Text(),
-			Enabled: r.Enabled.Value,
+			Key:   k,
+			Value: r.ValEditor.Text(),
 		})
 	}
 	SaveEnvironment(env.Data)
@@ -44,8 +50,12 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 	}
 	for env.AddBtn.Clicked(gtx) {
 		r := &EnvVarRow{}
-		r.Enabled.Value = true
 		env.Rows = append(env.Rows, r)
+		ui.Window.Invalidate()
+	}
+	for env.ColorReset.Clicked(gtx) {
+		env.ColorEditor.SetText("")
+		env.Data.HighlightColor = ""
 		ui.Window.Invalidate()
 	}
 	for env.SaveBtn.Clicked(gtx) {
@@ -88,6 +98,42 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						sw := gtx.Dp(unit.Dp(28))
+						gtx.Constraints.Min = image.Pt(sw, sw)
+						gtx.Constraints.Max = gtx.Constraints.Min
+						swatch := envHighlightColor(env.Data)
+						rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4)
+						paint.FillShape(gtx.Ops, swatch, rect.Op(gtx.Ops))
+						paintBorder1px(gtx, gtx.Constraints.Min, colorBorder)
+						return layout.Dimensions{Size: gtx.Constraints.Min}
+					}),
+					layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						gtx.Constraints.Max.X = gtx.Dp(unit.Dp(90))
+						gtx.Constraints.Min.X = gtx.Constraints.Max.X
+						return TextField(gtx, ui.Theme, &env.ColorEditor, "#hex", true, nil, 0, unit.Sp(12))
+					}),
+					layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						sz := gtx.Dp(unit.Dp(22))
+						gtx.Constraints.Min = image.Pt(sz, sz)
+						gtx.Constraints.Max = gtx.Constraints.Min
+						return material.Clickable(gtx, &env.ColorReset, func(gtx layout.Context) layout.Dimensions {
+							bg := colorBgField
+							if env.ColorReset.Hovered() {
+								bg = colorBgHover
+							}
+							paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 3).Op(gtx.Ops))
+							return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+								isz := gtx.Dp(unit.Dp(14))
+								gtx.Constraints.Min = image.Pt(isz, isz)
+								gtx.Constraints.Max = gtx.Constraints.Min
+								return iconRefresh.Layout(gtx, colorFgMuted)
+							})
+						})
+					}),
+					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return material.Clickable(gtx, &env.SaveBtn, func(gtx layout.Context) layout.Dimensions {
 							size := gtx.Dp(28)
 							gtx.Constraints.Min = image.Pt(size, size)
@@ -109,18 +155,14 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 			layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						gtx.Constraints.Min.X = gtx.Dp(30)
-						return layout.Dimensions{Size: image.Pt(gtx.Dp(30), 0)}
-					}),
-					layout.Flexed(0.45, func(gtx layout.Context) layout.Dimensions {
+					layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
 						lbl := material.Label(ui.Theme, unit.Sp(12), "Key")
 						lbl.Font.Weight = font.Bold
 						lbl.Color = colorFgMuted
 						return lbl.Layout(gtx)
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
-					layout.Flexed(0.45, func(gtx layout.Context) layout.Dimensions {
+					layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
 						lbl := material.Label(ui.Theme, unit.Sp(12), "Value")
 						lbl.Font.Weight = font.Bold
 						lbl.Color = colorFgMuted
@@ -150,15 +192,11 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 					r := env.Rows[i]
 					return layout.Inset{Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								gtx.Constraints.Min.X = gtx.Dp(30)
-								return material.CheckBox(ui.Theme, &r.Enabled, "").Layout(gtx)
-							}),
-							layout.Flexed(0.45, func(gtx layout.Context) layout.Dimensions {
+							layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
 								return TextField(gtx, ui.Theme, &r.KeyEditor, "Key", true, nil, 0, unit.Sp(12))
 							}),
 							layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
-							layout.Flexed(0.45, func(gtx layout.Context) layout.Dimensions {
+							layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
 								return TextField(gtx, ui.Theme, &r.ValEditor, "Value", true, nil, 0, unit.Sp(12))
 							}),
 							layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),

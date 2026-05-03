@@ -51,7 +51,9 @@ var (
 	iconBug      *widget.Icon
 	iconDropDown *widget.Icon
 	iconChevronR *widget.Icon
+	iconChevronL *widget.Icon
 	iconChevronD *widget.Icon
+	iconRefresh  *widget.Icon
 )
 
 func init() {
@@ -70,7 +72,9 @@ func init() {
 	iconBug, _ = widget.NewIcon(icons.ActionBugReport)
 	iconDropDown, _ = widget.NewIcon(icons.NavigationArrowDropDown)
 	iconChevronR, _ = widget.NewIcon(icons.NavigationChevronRight)
+	iconChevronL, _ = widget.NewIcon(icons.NavigationChevronLeft)
 	iconChevronD, _ = widget.NewIcon(icons.HardwareKeyboardArrowDown)
+	iconRefresh, _ = widget.NewIcon(icons.NavigationRefresh)
 }
 
 type cachedTab struct {
@@ -86,16 +90,19 @@ type tabBarInfo struct {
 }
 
 type AppUI struct {
-	Theme            *material.Theme
-	Window           *app.Window
-	BtnMinimize      widget.Clickable
-	BtnMaximize      widget.Clickable
-	BtnClose         widget.Clickable
-	IsMaximized      bool
-	TitleTag         bool
-	LastTitleClick   time.Time
-	Explorer         *explorer.Explorer
-	Tabs             []*RequestTab
+	Theme           *material.Theme
+	Window          *app.Window
+	BtnMinimize     widget.Clickable
+	BtnMaximize     widget.Clickable
+	BtnClose        widget.Clickable
+	IsMaximized     bool
+	TitleTag        bool
+	LastTitleClick  time.Time
+	Explorer        *explorer.Explorer
+	pendingEnvClose *EnvironmentUI
+	EnvColorPicker  colorPickerState
+	EnvColorEnvID   string
+	Tabs            []*RequestTab
 	ActiveIdx        int
 	TabsList         widget.List
 	AddTabBtn        widget.Clickable
@@ -106,6 +113,7 @@ type AppUI struct {
 	SidebarWidth     int
 	SidebarDrag      gesture.Drag
 	SidebarDragX     float32
+	BtnSidebarToggle widget.Clickable
 	ColList          widget.List
 	ColLoadedChan    chan *CollectionUI
 	ImportEnvBtn     widget.Clickable
@@ -270,7 +278,7 @@ func NewAppUI() *AppUI {
 	win := new(app.Window)
 	win.Option(
 		app.Decorated(false),
-		app.MinSize(unit.Dp(1280), unit.Dp(720)),
+		app.MinSize(unit.Dp(480), unit.Dp(360)),
 		app.Size(unit.Dp(1280), unit.Dp(720)),
 	)
 
@@ -558,6 +566,10 @@ func (ui *AppUI) loadState() {
 		if ts.SplitRatio > 0 {
 			tab.SplitRatio = ts.SplitRatio
 		}
+		if ts.VStackRatio > 0 {
+			tab.VStackRatio = ts.VStackRatio
+		}
+		tab.LayoutMode = ts.LayoutMode
 		if ts.HeaderSplitRatio > 0 {
 			tab.HeaderSplitRatio = ts.HeaderSplitRatio
 		}
@@ -641,6 +653,8 @@ func (ui *AppUI) buildStateSnapshot() AppState {
 			URL:              tab.URLInput.Text(),
 			Body:             tab.ReqEditor.Text(),
 			SplitRatio:       tab.SplitRatio,
+			VStackRatio:      tab.VStackRatio,
+			LayoutMode:       tab.LayoutMode,
 			HeaderSplitRatio: tab.HeaderSplitRatio,
 			ReqWrapEnabled:   &reqWrap,
 			BodyType:         tab.BodyType.PostmanMode(),
@@ -832,9 +846,7 @@ func (ui *AppUI) openRequestInTab(node *CollectionNode) {
 
 	tab.updateSystemHeaders()
 
-	if len(ui.Tabs) > 0 && ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
-		tab.SplitRatio = ui.Tabs[ui.ActiveIdx].SplitRatio
-	}
+	ui.inheritActiveTabLayout(tab)
 
 	ui.Tabs = append(ui.Tabs, tab)
 	ui.ActiveIdx = len(ui.Tabs) - 1
@@ -842,12 +854,26 @@ func (ui *AppUI) openRequestInTab(node *CollectionNode) {
 	ui.Window.Invalidate()
 }
 
+func (ui *AppUI) inheritActiveTabLayout(tab *RequestTab) {
+	if len(ui.Tabs) == 0 || ui.ActiveIdx < 0 || ui.ActiveIdx >= len(ui.Tabs) {
+		return
+	}
+	src := ui.Tabs[ui.ActiveIdx]
+	if src == nil || src == tab {
+		return
+	}
+	tab.SplitRatio = src.SplitRatio
+	tab.VStackRatio = src.VStackRatio
+	tab.LayoutMode = src.LayoutMode
+	tab.HeaderSplitRatio = src.HeaderSplitRatio
+}
+
 func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 
 	for {
 		ev, ok := gtx.Event(pointer.Filter{
 			Target: ui,
-			Kinds:  pointer.Move | pointer.Press,
+			Kinds:  pointer.Move | pointer.Press | pointer.Release,
 		})
 		if !ok {
 			break
@@ -858,9 +884,9 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		}
 		ui.LastPointerPos = pe.Position
 		if pe.Kind == pointer.Press {
-
 			gtx.Execute(key.FocusCmd{Tag: nil})
-
+		}
+		if pe.Kind == pointer.Release {
 			if ui.EditingEnv != nil && !ui.SettingsOpen {
 				sidebarRight := 0
 				if !ui.Settings.HideSidebar {
@@ -868,9 +894,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 				}
 				titleBarH := gtx.Dp(unit.Dp(30))
 				if int(pe.Position.X) < sidebarRight && int(pe.Position.Y) >= titleBarH {
-					ui.commitEditingEnv()
-					ui.EditingEnv = nil
-					ui.Window.Invalidate()
+					ui.pendingEnvClose = ui.EditingEnv
 				}
 			}
 		}
@@ -1038,11 +1062,29 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		ui.layoutColorPickerOverlay(gtx)
 	}
 
+	if ui.EnvColorPicker.isOpen() {
+		cur := [3]float32{ui.EnvColorPicker.h, ui.EnvColorPicker.s, ui.EnvColorPicker.v}
+		if cur != ui.EnvColorPicker.lastHSV {
+			for _, e := range ui.Environments {
+				if e.Data != nil && e.Data.ID == ui.EnvColorEnvID {
+					e.Data.HighlightColor = hexFromColor(ui.EnvColorPicker.currentColor())
+					SaveEnvironment(e.Data)
+					break
+				}
+			}
+			ui.EnvColorPicker.lastHSV = cur
+		}
+		ui.renderColorPickerOverlay(gtx, &ui.EnvColorPicker)
+	}
+
 	return dim
 }
 
 func (ui *AppUI) layoutColorPickerOverlay(gtx layout.Context) {
-	p := &ui.SettingsState.ColorPicker
+	ui.renderColorPickerOverlay(gtx, &ui.SettingsState.ColorPicker)
+}
+
+func (ui *AppUI) renderColorPickerOverlay(gtx layout.Context, p *colorPickerState) {
 	pickerW := gtx.Dp(unit.Dp(240))
 	pickerH := gtx.Dp(unit.Dp(216))
 	gap := gtx.Dp(unit.Dp(6))
@@ -1410,9 +1452,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 	for ui.AddTabBtn.Clicked(gtx) {
 		ui.TabCtxMenuOpen = false
 		newTab := NewRequestTab("New request")
-		if len(ui.Tabs) > 0 && ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
-			newTab.SplitRatio = ui.Tabs[ui.ActiveIdx].SplitRatio
-		}
+		ui.inheritActiveTabLayout(newTab)
 		ui.Tabs = append(ui.Tabs, newTab)
 		ui.ActiveIdx = len(ui.Tabs) - 1
 	}
@@ -1479,7 +1519,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	minSidebarWidth := gtx.Dp(unit.Dp(200))
+	minSidebarWidth := gtx.Dp(unit.Dp(160))
 	maxSidebarWidth := gtx.Constraints.Max.X / 2
 	if ui.SidebarWidth < minSidebarWidth {
 		ui.SidebarWidth = minSidebarWidth
@@ -1506,19 +1546,31 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 		ui.saveState()
 	}
 
+	for ui.BtnSidebarToggle.Clicked(gtx) {
+		ui.Settings.HideSidebar = !ui.Settings.HideSidebar
+		ui.saveState()
+	}
+
 	hideSidebar := ui.Settings.HideSidebar
 	hideTabBar := ui.Settings.HideTabBar
 
-	return layout.Stack{}.Layout(gtx,
+	dim := layout.Stack{}.Layout(gtx,
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			horizChildren := []layout.FlexChild{}
+			gutterW := gtx.Dp(unit.Dp(36))
+			sidebarW := ui.SidebarWidth
+			if hideSidebar {
+				sidebarW = gutterW
+			}
+			horizChildren = append(horizChildren,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Min.X = sidebarW
+					gtx.Constraints.Max.X = sidebarW
+					return ui.layoutSidebar(gtx)
+				}),
+			)
 			if !hideSidebar {
 				horizChildren = append(horizChildren,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						gtx.Constraints.Min.X = ui.SidebarWidth
-						gtx.Constraints.Max.X = ui.SidebarWidth
-						return ui.layoutSidebar(gtx)
-					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						hit := gtx.Dp(unit.Dp(6))
 						vis := 1
@@ -1722,4 +1774,36 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 			return layout.Dimensions{}
 		}),
 	)
+
+	if ui.pendingEnvClose != nil {
+		if ui.EditingEnv == ui.pendingEnvClose {
+			ui.commitEditingEnv()
+			ui.EditingEnv = nil
+			ui.Window.Invalidate()
+		}
+		ui.pendingEnvClose = nil
+	}
+
+	return dim
+}
+
+func (ui *AppUI) layoutSidebarToggleBtn(gtx layout.Context) layout.Dimensions {
+	return ui.BtnSidebarToggle.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		size := gtx.Constraints.Min
+		bg := colorBgDark
+		if ui.BtnSidebarToggle.Hovered() {
+			bg = colorBgHover
+		}
+		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
+		ic := iconChevronL
+		if ui.Settings.HideSidebar {
+			ic = iconChevronR
+		}
+		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			s := gtx.Dp(unit.Dp(36))
+			gtx.Constraints.Min = image.Pt(s, s)
+			gtx.Constraints.Max = gtx.Constraints.Min
+			return ic.Layout(gtx, colorFgMuted)
+		})
+	})
 }

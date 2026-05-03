@@ -2,6 +2,7 @@ package ui
 
 import (
 	"encoding/json"
+	"image/color"
 	"io"
 	"time"
 
@@ -15,6 +16,7 @@ type ExtEnvironment struct {
 		Value   string `json:"value"`
 		Enabled bool   `json:"enabled"`
 	} `json:"values"`
+	HighlightColor string `json:"highlight_color,omitempty"`
 }
 
 type EnvVar struct {
@@ -24,9 +26,10 @@ type EnvVar struct {
 }
 
 type ParsedEnvironment struct {
-	ID   string
-	Name string
-	Vars []EnvVar
+	ID             string
+	Name           string
+	Vars           []EnvVar
+	HighlightColor string
 }
 
 type EnvVarRow struct {
@@ -43,12 +46,14 @@ type EnvironmentUI struct {
 	EditBtn   widget.Clickable
 	DelBtn    widget.Clickable
 
-	List       widget.List
-	Rows       []*EnvVarRow
-	AddBtn     widget.Clickable
-	SaveBtn    widget.Clickable
-	BackBtn    widget.Clickable
-	NameEditor widget.Editor
+	List        widget.List
+	Rows        []*EnvVarRow
+	AddBtn      widget.Clickable
+	SaveBtn     widget.Clickable
+	BackBtn     widget.Clickable
+	NameEditor  widget.Editor
+	ColorEditor widget.Editor
+	ColorReset  widget.Clickable
 
 	IsRenaming      bool
 	RenamingFocused bool
@@ -58,6 +63,9 @@ type EnvironmentUI struct {
 
 func (ui *EnvironmentUI) initEditor() {
 	ui.NameEditor.SetText(ui.Data.Name)
+	ui.ColorEditor.SingleLine = true
+	ui.ColorEditor.Submit = true
+	ui.ColorEditor.SetText(ui.Data.HighlightColor)
 	ui.Rows = nil
 	for _, v := range ui.Data.Vars {
 		r := &EnvVarRow{}
@@ -67,6 +75,15 @@ func (ui *EnvironmentUI) initEditor() {
 		ui.Rows = append(ui.Rows, r)
 	}
 	ui.List.Axis = 1
+}
+
+func envHighlightColor(env *ParsedEnvironment) color.NRGBA {
+	if env != nil && env.HighlightColor != "" {
+		if c, ok := parseHexColor(env.HighlightColor); ok {
+			return c
+		}
+	}
+	return colorAccent
 }
 
 func ParseEnvironment(r io.Reader, id string) (*ParsedEnvironment, error) {
@@ -99,8 +116,9 @@ func ParseEnvironment(r io.Reader, id string) (*ParsedEnvironment, error) {
 	}
 
 	return &ParsedEnvironment{
-		ID:   id,
-		Name: envName,
-		Vars: vars,
+		ID:             id,
+		Name:           envName,
+		Vars:           vars,
+		HighlightColor: ext.HighlightColor,
 	}, nil
 }

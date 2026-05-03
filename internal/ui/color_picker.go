@@ -114,6 +114,7 @@ const (
 	pickerNone pickerKind = iota
 	pickerSyntax
 	pickerTheme
+	pickerEnv
 )
 
 type colorPickerState struct {
