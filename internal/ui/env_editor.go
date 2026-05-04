@@ -31,8 +31,9 @@ func (ui *AppUI) commitEditingEnv() {
 			continue
 		}
 		env.Data.Vars = append(env.Data.Vars, EnvVar{
-			Key:   k,
-			Value: r.ValEditor.Text(),
+			Key:     k,
+			Value:   r.ValEditor.Text(),
+			Enabled: true,
 		})
 	}
 	SaveEnvironment(env.Data)
@@ -235,6 +236,7 @@ func (ui *AppUI) saveVarPopup() {
 				for i, v := range env.Data.Vars {
 					if v.Key == ui.VarPopupName {
 						env.Data.Vars[i].Value = ui.VarPopupEditor.Text()
+						env.Data.Vars[i].Enabled = true
 						updated = true
 						break
 					}

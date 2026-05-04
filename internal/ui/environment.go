@@ -44,7 +44,12 @@ type EnvironmentUI struct {
 	Click     widget.Clickable
 	SelectBtn widget.Clickable
 	EditBtn   widget.Clickable
+	RenameBtn widget.Clickable
+	DupBtn    widget.Clickable
 	DelBtn    widget.Clickable
+	MenuBtn    widget.Clickable
+	MenuOpen   bool
+	MenuClickY float32
 
 	List        widget.List
 	Rows        []*EnvVarRow

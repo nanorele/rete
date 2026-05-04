@@ -102,6 +102,7 @@ type AppUI struct {
 	pendingEnvClose *EnvironmentUI
 	EnvColorPicker  colorPickerState
 	EnvColorEnvID   string
+	windowSize      image.Point
 	Tabs            []*RequestTab
 	ActiveIdx        int
 	TabsList         widget.List
@@ -379,7 +380,7 @@ func (ui *AppUI) refreshActiveEnv() {
 			ui.activeEnvVars = make(map[string]string)
 			for _, v := range e.Data.Vars {
 
-				if v.Enabled && v.Value != "" {
+				if v.Value != "" {
 					ui.activeEnvVars[v.Key] = v.Value
 				}
 			}
@@ -447,6 +448,25 @@ func (ui *AppUI) addNewEnvironment() {
 	ui.EnvsExpanded = true
 	ui.EditingEnv = envUI
 	envUI.initEditor()
+	ui.saveState()
+	ui.Window.Invalidate()
+}
+
+func (ui *AppUI) duplicateEnvironment(src *EnvironmentUI) {
+	if src == nil || src.Data == nil {
+		return
+	}
+	id := newRandomID()
+	dup := &ParsedEnvironment{
+		ID:             id,
+		Name:           src.Data.Name + " (copy)",
+		HighlightColor: src.Data.HighlightColor,
+	}
+	dup.Vars = append(dup.Vars, src.Data.Vars...)
+	envUI := &EnvironmentUI{Data: dup}
+	SaveEnvironment(dup)
+	ui.Environments = append(ui.Environments, envUI)
+	ui.EnvsExpanded = true
 	ui.saveState()
 	ui.Window.Invalidate()
 }
@@ -869,6 +889,7 @@ func (ui *AppUI) inheritActiveTabLayout(tab *RequestTab) {
 }
 
 func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
+	ui.windowSize = gtx.Constraints.Max
 
 	for {
 		ev, ok := gtx.Event(pointer.Filter{
@@ -1062,6 +1083,11 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		ui.layoutColorPickerOverlay(gtx)
 	}
 
+	if ui.EnvColorPicker.isOpen() {
+		for ui.EnvColorPicker.close.Clicked(gtx) {
+			ui.EnvColorPicker.closePicker()
+		}
+	}
 	if ui.EnvColorPicker.isOpen() {
 		cur := [3]float32{ui.EnvColorPicker.h, ui.EnvColorPicker.s, ui.EnvColorPicker.v}
 		if cur != ui.EnvColorPicker.lastHSV {
@@ -1315,7 +1341,7 @@ func (ui *AppUI) layoutVarPopupEnvSelect(gtx layout.Context) layout.Dimensions {
 							envID = e.Data.ID
 							envName = e.Data.Name
 							for _, v := range e.Data.Vars {
-								if v.Enabled && v.Key == ui.VarPopupName && v.Value != "" {
+								if v.Key == ui.VarPopupName && v.Value != "" {
 									preview = v.Value
 									break
 								}

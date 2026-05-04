@@ -3,6 +3,7 @@ package ui
 import (
 	"fmt"
 	"image"
+	"strconv"
 	"strings"
 
 	"github.com/nanorele/gio/font"
@@ -28,28 +29,37 @@ type SettingsEditorState struct {
 
 	ThemeBtns []widget.Clickable
 
-	UISizeDec      widget.Clickable
-	UISizeInc      widget.Clickable
-	BodySizeDec    widget.Clickable
-	BodySizeInc    widget.Clickable
-	UIScaleDec     widget.Clickable
-	UIScaleInc     widget.Clickable
-	BodyPaddingDec widget.Clickable
-	BodyPaddingInc widget.Clickable
-	SplitRatioDec  widget.Clickable
-	SplitRatioInc  widget.Clickable
-	StackBpDec     widget.Clickable
-	StackBpInc     widget.Clickable
+	UISizeDec         widget.Clickable
+	UISizeInc         widget.Clickable
+	UISizeEditor      widget.Editor
+	BodySizeDec       widget.Clickable
+	BodySizeInc       widget.Clickable
+	BodySizeEditor    widget.Editor
+	UIScaleDec        widget.Clickable
+	UIScaleInc        widget.Clickable
+	UIScaleEditor     widget.Editor
+	BodyPaddingDec    widget.Clickable
+	BodyPaddingInc    widget.Clickable
+	BodyPaddingEditor widget.Editor
+	SplitRatioDec     widget.Clickable
+	SplitRatioInc     widget.Clickable
+	SplitRatioEditor  widget.Editor
+	StackBpDec        widget.Clickable
+	StackBpInc        widget.Clickable
+	StackBpEditor     widget.Editor
 
 	HideTabBar  widget.Bool
 	HideSidebar widget.Bool
 
-	TimeoutDec       widget.Clickable
-	TimeoutInc       widget.Clickable
-	MaxRedirectsDec  widget.Clickable
-	MaxRedirectsInc  widget.Clickable
-	MaxConnsDec      widget.Clickable
-	MaxConnsInc      widget.Clickable
+	TimeoutDec          widget.Clickable
+	TimeoutInc          widget.Clickable
+	TimeoutEditor       widget.Editor
+	MaxRedirectsDec     widget.Clickable
+	MaxRedirectsInc     widget.Clickable
+	MaxRedirectsEditor  widget.Editor
+	MaxConnsDec         widget.Clickable
+	MaxConnsInc         widget.Clickable
+	MaxConnsEditor      widget.Editor
 	FollowRedirects  widget.Bool
 	VerifySSL        widget.Bool
 	KeepAlive        widget.Bool
@@ -61,8 +71,10 @@ type SettingsEditorState struct {
 
 	JSONIndentDec           widget.Clickable
 	JSONIndentInc           widget.Clickable
+	JSONIndentEditor        widget.Editor
 	PreviewMaxDec           widget.Clickable
 	PreviewMaxInc           widget.Clickable
+	PreviewMaxEditor        widget.Editor
 	WrapLines               widget.Bool
 	AutoFormatJSON          widget.Bool
 	StripJSONComments       widget.Bool
@@ -596,6 +608,54 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 			st.Draft.PreviewMaxMB++
 			changed = true
 		}
+	}
+
+	if v, ok := intStepperUpdate(gtx, &st.UISizeEditor, st.Draft.UITextSize, 10, 28); ok {
+		st.Draft.UITextSize = v
+		changed = true
+	}
+	if v, ok := intStepperUpdate(gtx, &st.BodySizeEditor, st.Draft.BodyTextSize, 10, 28); ok {
+		st.Draft.BodyTextSize = v
+		changed = true
+	}
+	if v, ok := floatStepperUpdate(gtx, &st.UIScaleEditor, st.Draft.UIScale, 0.75, 2.0, "%.2f", 1.0); ok {
+		st.Draft.UIScale = v
+		changed = true
+	}
+	if v, ok := intStepperUpdate(gtx, &st.BodyPaddingEditor, st.Draft.ResponseBodyPadding, 0, 32); ok {
+		st.Draft.ResponseBodyPadding = v
+		changed = true
+	}
+	if v, ok := floatStepperUpdate(gtx, &st.SplitRatioEditor, st.Draft.DefaultSplitRatio, 0.2, 0.8, "%.0f", 100); ok {
+		st.Draft.DefaultSplitRatio = v
+		changed = true
+	}
+	if v, ok := intStepperUpdate(gtx, &st.StackBpEditor, st.Draft.StackBreakpointDp, 0, 2000); ok {
+		if v > 0 && v < 400 {
+			v = 400
+		}
+		st.Draft.StackBreakpointDp = v
+		changed = true
+	}
+	if v, ok := intStepperUpdate(gtx, &st.TimeoutEditor, st.Draft.RequestTimeoutSec, 0, 3600); ok {
+		st.Draft.RequestTimeoutSec = v
+		changed = true
+	}
+	if v, ok := intStepperUpdate(gtx, &st.MaxRedirectsEditor, st.Draft.MaxRedirects, 0, 50); ok {
+		st.Draft.MaxRedirects = v
+		changed = true
+	}
+	if v, ok := intStepperUpdate(gtx, &st.MaxConnsEditor, st.Draft.MaxConnsPerHost, 0, 10000); ok {
+		st.Draft.MaxConnsPerHost = v
+		changed = true
+	}
+	if v, ok := intStepperUpdate(gtx, &st.JSONIndentEditor, st.Draft.JSONIndentSpaces, 0, 8); ok {
+		st.Draft.JSONIndentSpaces = v
+		changed = true
+	}
+	if v, ok := intStepperUpdate(gtx, &st.PreviewMaxEditor, st.Draft.PreviewMaxMB, 1, 500); ok {
+		st.Draft.PreviewMaxMB = v
+		changed = true
 	}
 
 	for _, ed := range []*widget.Editor{&st.UserAgentEditor, &st.ProxyEditor, &st.DefaultHdrEdit} {
@@ -1245,37 +1305,37 @@ func (ui *AppUI) sectionsSizes() []layout.Widget {
 		spacerH(4),
 		settingsHint(ui.Theme, fmt.Sprintf("Scales all UI text. Default: %d pt.", def.UITextSize)),
 		spacerH(8),
-		stepperRow(ui.Theme, &st.UISizeDec, &st.UISizeInc, fmt.Sprintf("%d pt", st.Draft.UITextSize)),
+		stepperEditableRow(ui.Theme, &st.UISizeDec, &st.UISizeInc, &st.UISizeEditor, "pt"),
 		spacerH(20),
 		settingsSectionTitle(ui.Theme, "Body text size"),
 		spacerH(4),
 		settingsHint(ui.Theme, fmt.Sprintf("Size of the request and response body editors. Default: %d pt.", def.BodyTextSize)),
 		spacerH(8),
-		stepperRow(ui.Theme, &st.BodySizeDec, &st.BodySizeInc, fmt.Sprintf("%d pt", st.Draft.BodyTextSize)),
+		stepperEditableRow(ui.Theme, &st.BodySizeDec, &st.BodySizeInc, &st.BodySizeEditor, "pt"),
 		spacerH(20),
 		settingsSectionTitle(ui.Theme, "UI scale"),
 		spacerH(4),
 		settingsHint(ui.Theme, fmt.Sprintf("Overall size of layout spacing and controls. Default: %.2fx.", def.UIScale)),
 		spacerH(8),
-		stepperRow(ui.Theme, &st.UIScaleDec, &st.UIScaleInc, fmt.Sprintf("%.2fx", st.Draft.UIScale)),
+		stepperEditableRow(ui.Theme, &st.UIScaleDec, &st.UIScaleInc, &st.UIScaleEditor, "x"),
 		spacerH(20),
 		settingsSectionTitle(ui.Theme, "Response body padding"),
 		spacerH(4),
 		settingsHint(ui.Theme, fmt.Sprintf("Inner padding around the response body text. Same for wrap and no-wrap modes. Default: %d px.", def.ResponseBodyPadding)),
 		spacerH(8),
-		stepperRow(ui.Theme, &st.BodyPaddingDec, &st.BodyPaddingInc, fmt.Sprintf("%d px", st.Draft.ResponseBodyPadding)),
+		stepperEditableRow(ui.Theme, &st.BodyPaddingDec, &st.BodyPaddingInc, &st.BodyPaddingEditor, "px"),
 		spacerH(20),
 		settingsSectionTitle(ui.Theme, "Default request/response split"),
 		spacerH(4),
 		settingsHint(ui.Theme, fmt.Sprintf("Initial width ratio of the request pane in new tabs. Default: %.0f%%.", def.DefaultSplitRatio*100)),
 		spacerH(8),
-		stepperRow(ui.Theme, &st.SplitRatioDec, &st.SplitRatioInc, fmt.Sprintf("%.0f%%", st.Draft.DefaultSplitRatio*100)),
+		stepperEditableRow(ui.Theme, &st.SplitRatioDec, &st.SplitRatioInc, &st.SplitRatioEditor, "%"),
 		spacerH(20),
 		settingsSectionTitle(ui.Theme, "Adaptive stack breakpoint"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Stack request and response panes vertically when the tab content area is narrower than this width. Set to off to always keep them side-by-side. Default: %d dp.", def.StackBreakpointDp)),
+		settingsHint(ui.Theme, fmt.Sprintf("Stack request and response panes vertically when the tab content area is narrower than this width. Set to 0 to always keep them side-by-side. Default: %d dp.", def.StackBreakpointDp)),
 		spacerH(8),
-		stepperRow(ui.Theme, &st.StackBpDec, &st.StackBpInc, stackBreakpointLabel(st.Draft.StackBreakpointDp)),
+		stepperEditableRow(ui.Theme, &st.StackBpDec, &st.StackBpInc, &st.StackBpEditor, "dp"),
 	}
 }
 
@@ -1289,14 +1349,6 @@ func stackBreakpointLabel(v int) string {
 func (ui *AppUI) sectionsHTTP() []layout.Widget {
 	st := ui.SettingsState
 	def := defaultSettings()
-	timeoutLabel := fmt.Sprintf("%d s", st.Draft.RequestTimeoutSec)
-	if st.Draft.RequestTimeoutSec == 0 {
-		timeoutLabel = "no timeout"
-	}
-	connsLabel := fmt.Sprintf("%d", st.Draft.MaxConnsPerHost)
-	if st.Draft.MaxConnsPerHost == 0 {
-		connsLabel = "unlimited"
-	}
 	redirectHint := "Follow HTTP 3xx redirects automatically. " + defaultOnOff(def.FollowRedirects)
 	verifyHint := "Verify TLS certificates for HTTPS requests. Disable only for local dev against self-signed certs. " + defaultOnOff(def.VerifySSL)
 	keepAliveHint := "Reuse TCP connections across requests to the same host. " + defaultOnOff(def.KeepAlive)
@@ -1306,7 +1358,7 @@ func (ui *AppUI) sectionsHTTP() []layout.Widget {
 		spacerH(4),
 		settingsHint(ui.Theme, fmt.Sprintf("Cancel a request if no response arrives in this many seconds. 0 = no timeout. Default: %d s.", def.RequestTimeoutSec)),
 		spacerH(8),
-		stepperRow(ui.Theme, &st.TimeoutDec, &st.TimeoutInc, timeoutLabel),
+		stepperEditableRow(ui.Theme, &st.TimeoutDec, &st.TimeoutInc, &st.TimeoutEditor, "s"),
 		spacerH(20),
 
 		settingsSectionTitle(ui.Theme, "Default request method"),
@@ -1336,7 +1388,7 @@ func (ui *AppUI) sectionsHTTP() []layout.Widget {
 		spacerH(12),
 		settingsHint(ui.Theme, fmt.Sprintf("Maximum redirect chain length. 0 = unlimited. Default: %d.", def.MaxRedirects)),
 		spacerH(8),
-		stepperRow(ui.Theme, &st.MaxRedirectsDec, &st.MaxRedirectsInc, fmt.Sprintf("%d", st.Draft.MaxRedirects)),
+		stepperEditableRow(ui.Theme, &st.MaxRedirectsDec, &st.MaxRedirectsInc, &st.MaxRedirectsEditor, ""),
 		spacerH(20),
 
 		settingsSectionTitle(ui.Theme, "TLS"),
@@ -1361,7 +1413,7 @@ func (ui *AppUI) sectionsHTTP() []layout.Widget {
 		spacerH(12),
 		settingsHint(ui.Theme, fmt.Sprintf("Maximum concurrent connections per host. 0 = unlimited. Default: %d.", def.MaxConnsPerHost)),
 		spacerH(8),
-		stepperRow(ui.Theme, &st.MaxConnsDec, &st.MaxConnsInc, connsLabel),
+		stepperEditableRow(ui.Theme, &st.MaxConnsDec, &st.MaxConnsInc, &st.MaxConnsEditor, ""),
 		spacerH(20),
 
 		settingsSectionTitle(ui.Theme, "HTTP proxy"),
@@ -1393,23 +1445,19 @@ func (ui *AppUI) sectionsAdvanced() []layout.Widget {
 	autoFmtHint := "Pretty-print JSON responses in the preview viewer. Disable to display raw bytes as received. " + defaultOnOff(def.AutoFormatJSON)
 	stripHint := "Remove // line comments from JSON request bodies before sending if the result is valid JSON. " + defaultOnOff(def.StripJSONComments)
 	bracketHint := "Color matched brackets in nested JSON by depth, like VS Code. " + defaultOnOff(def.BracketPairColorization)
-	indentLabel := fmt.Sprintf("%d spaces", st.Draft.JSONIndentSpaces)
-	if st.Draft.JSONIndentSpaces == 0 {
-		indentLabel = "minified"
-	}
 	return []layout.Widget{
 		settingsSectionTitle(ui.Theme, "JSON indent"),
 		spacerH(4),
 		settingsHint(ui.Theme, fmt.Sprintf("Spaces per level in the JSON pretty-printer. 0 = minified. Default: %d.", def.JSONIndentSpaces)),
 		spacerH(8),
-		stepperRow(ui.Theme, &st.JSONIndentDec, &st.JSONIndentInc, indentLabel),
+		stepperEditableRow(ui.Theme, &st.JSONIndentDec, &st.JSONIndentInc, &st.JSONIndentEditor, ""),
 		spacerH(20),
 
 		settingsSectionTitle(ui.Theme, "Response preview cap"),
 		spacerH(4),
 		settingsHint(ui.Theme, fmt.Sprintf("Maximum response size loaded into the preview editor before 'Load more' is required. Default: %d MB.", def.PreviewMaxMB)),
 		spacerH(8),
-		stepperRow(ui.Theme, &st.PreviewMaxDec, &st.PreviewMaxInc, fmt.Sprintf("%d MB", st.Draft.PreviewMaxMB)),
+		stepperEditableRow(ui.Theme, &st.PreviewMaxDec, &st.PreviewMaxInc, &st.PreviewMaxEditor, "MB"),
 		spacerH(20),
 
 		settingsSectionTitle(ui.Theme, "Editors"),
@@ -1492,6 +1540,111 @@ func stepperRow(th *material.Theme, dec, inc *widget.Clickable, value string) la
 			layout.Rigid(stepperBtn(th, inc, "+")),
 		)
 	}
+}
+
+func stepperEditableRow(th *material.Theme, dec, inc *widget.Clickable, ed *widget.Editor, unit_ string) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(stepperBtn(th, dec, "-")),
+			layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min.X = gtx.Dp(unit.Dp(80))
+				gtx.Constraints.Max.X = gtx.Constraints.Min.X
+				return TextField(gtx, th, ed, "", true, nil, 0, unit.Sp(13))
+			}),
+			layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if unit_ == "" {
+					return layout.Dimensions{}
+				}
+				lbl := material.Label(th, unit.Sp(12), unit_)
+				lbl.Color = colorFgMuted
+				return lbl.Layout(gtx)
+			}),
+			layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
+			layout.Rigid(stepperBtn(th, inc, "+")),
+		)
+	}
+}
+
+func intStepperUpdate(gtx layout.Context, ed *widget.Editor, current, lo, hi int) (int, bool) {
+	if !ed.SingleLine {
+		ed.SingleLine = true
+		ed.Submit = true
+	}
+	if !gtx.Focused(ed) {
+		txt := strconv.Itoa(current)
+		if ed.Text() != txt {
+			ed.SetText(txt)
+		}
+	}
+	for {
+		ev, ok := ed.Update(gtx)
+		if !ok {
+			break
+		}
+		if _, ok := ev.(widget.SubmitEvent); ok {
+			s := strings.TrimSpace(ed.Text())
+			s = strings.TrimSuffix(s, "%")
+			if v, err := strconv.Atoi(s); err == nil {
+				if v < lo {
+					v = lo
+				}
+				if v > hi {
+					v = hi
+				}
+				ed.SetText(strconv.Itoa(v))
+				if v != current {
+					return v, true
+				}
+			} else {
+				ed.SetText(strconv.Itoa(current))
+			}
+		}
+	}
+	return current, false
+}
+
+func floatStepperUpdate(gtx layout.Context, ed *widget.Editor, current, lo, hi float32, format string, multiplier float32) (float32, bool) {
+	if !ed.SingleLine {
+		ed.SingleLine = true
+		ed.Submit = true
+	}
+	displayed := current * multiplier
+	if !gtx.Focused(ed) {
+		txt := fmt.Sprintf(format, displayed)
+		if ed.Text() != txt {
+			ed.SetText(txt)
+		}
+	}
+	for {
+		ev, ok := ed.Update(gtx)
+		if !ok {
+			break
+		}
+		if _, ok := ev.(widget.SubmitEvent); ok {
+			s := strings.TrimSpace(ed.Text())
+			s = strings.TrimSuffix(s, "%")
+			s = strings.TrimSuffix(s, "x")
+			s = strings.TrimSpace(s)
+			if v, err := strconv.ParseFloat(s, 32); err == nil {
+				fv := float32(v) / multiplier
+				if fv < lo {
+					fv = lo
+				}
+				if fv > hi {
+					fv = hi
+				}
+				ed.SetText(fmt.Sprintf(format, fv*multiplier))
+				if fv != current {
+					return fv, true
+				}
+			} else {
+				ed.SetText(fmt.Sprintf(format, displayed))
+			}
+		}
+	}
+	return current, false
 }
 
 func stepperBtn(th *material.Theme, btn *widget.Clickable, label string) layout.Widget {

@@ -579,9 +579,8 @@ func SquareBtn(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, th *m
 }
 
 func InlineRenameField(gtx layout.Context, th *material.Theme, ed *widget.Editor) layout.Dimensions {
-	pad := gtx.Dp(unit.Dp(4))
 	macro := op.Record(gtx.Ops)
-	dim := layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	dim := layout.Inset{Left: unit.Dp(4), Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		e := material.Editor(th, ed, "")
 		e.TextSize = unit.Sp(12)
 		return e.Layout(gtx)
@@ -600,7 +599,6 @@ func InlineRenameField(gtx layout.Context, th *material.Theme, ed *widget.Editor
 	paintBorder1px(gtx, finalSize, borderC)
 	call.Add(gtx.Ops)
 	dim.Size = finalSize
-	dim.Baseline = dim.Baseline + pad
 	return dim
 }
 
@@ -649,6 +647,14 @@ func squareBtnSized(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, 
 }
 
 func menuOption(gtx layout.Context, th *material.Theme, clk *widget.Clickable, title string, icon *widget.Icon) layout.Dimensions {
+	return menuOptionStyled(gtx, th, clk, title, icon, th.Palette.Fg, th.Palette.Fg, false)
+}
+
+func menuOptionDanger(gtx layout.Context, th *material.Theme, clk *widget.Clickable, title string, icon *widget.Icon) layout.Dimensions {
+	return menuOptionStyled(gtx, th, clk, title, icon, colorDanger, colorDanger, true)
+}
+
+func menuOptionStyled(gtx layout.Context, th *material.Theme, clk *widget.Clickable, title string, icon *widget.Icon, iconCol color.NRGBA, textCol color.NRGBA, bold bool) layout.Dimensions {
 	return material.Clickable(gtx, clk, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Dp(150)
 		if clk.Hovered() {
@@ -658,11 +664,15 @@ func menuOption(gtx layout.Context, th *material.Theme, clk *widget.Clickable, t
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min = image.Pt(gtx.Dp(16), gtx.Dp(16))
-					return icon.Layout(gtx, th.Palette.Fg)
+					return icon.Layout(gtx, iconCol)
 				}),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(th, unit.Sp(12), title)
+					lbl.Color = textCol
+					if bold {
+						lbl.Font.Weight = font.Bold
+					}
 					return lbl.Layout(gtx)
 				}),
 			)

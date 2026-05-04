@@ -148,7 +148,6 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 							layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 								lbl := material.Label(ui.Theme, unit.Sp(12), "Collections")
-								lbl.Font.Typeface = jetbrainsMonoTypeface
 								return lbl.Layout(gtx)
 							}),
 						)
@@ -572,7 +571,6 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 							layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 								lbl := material.Label(ui.Theme, unit.Sp(12), "Environments")
-								lbl.Font.Typeface = jetbrainsMonoTypeface
 								return lbl.Layout(gtx)
 							}),
 						)
@@ -613,7 +611,9 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 
 		envSnapshot := ui.Environments
 		var envToDelete *EnvironmentUI
-		dim := material.List(ui.Theme, &ui.EnvList).Layout(gtx, len(envSnapshot), func(gtx layout.Context, idx int) layout.Dimensions {
+		envList := material.List(ui.Theme, &ui.EnvList)
+		envList.AnchorStrategy = material.Overlay
+		dim := envList.Layout(gtx, len(envSnapshot), func(gtx layout.Context, idx int) layout.Dimensions {
 			if idx >= len(envSnapshot) {
 				return layout.Dimensions{}
 			}
@@ -696,10 +696,12 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					ui.pendingEnvClose = nil
 					ui.EditingEnv = env
 					env.initEditor()
+					env.MenuOpen = false
 					ui.Window.Invalidate()
 				}
 				for env.DelBtn.Clicked(gtx) {
 					envToDelete = env
+					env.MenuOpen = false
 				}
 
 				bgColor := colorBgDark
@@ -708,6 +710,31 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				}
 				if env.Click.Hovered() {
 					bgColor = colorBgHover
+				}
+
+				for env.MenuBtn.Clicked(gtx) {
+					if !env.MenuOpen {
+						for _, e := range ui.Environments {
+							e.MenuOpen = false
+						}
+					}
+					env.MenuOpen = !env.MenuOpen
+					if env.MenuOpen {
+						env.MenuClickY = GlobalPointerPos.Y
+					}
+				}
+				if env.MenuOpen {
+					for env.RenameBtn.Clicked(gtx) {
+						env.IsRenaming = true
+						env.InlineNameEd.SingleLine = true
+						env.InlineNameEd.Submit = true
+						env.InlineNameEd.SetText(env.Data.Name)
+						env.MenuOpen = false
+					}
+					for env.DupBtn.Clicked(gtx) {
+						ui.duplicateEnvironment(env)
+						env.MenuOpen = false
+					}
 				}
 
 				return layout.Stack{}.Layout(gtx,
@@ -767,38 +794,82 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 								}),
 								layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									return material.Clickable(gtx, &env.EditBtn, func(gtx layout.Context) layout.Dimensions {
+									return material.Clickable(gtx, &env.MenuBtn, func(gtx layout.Context) layout.Dimensions {
 										size := gtx.Dp(18)
 										gtx.Constraints.Min = image.Pt(size, size)
 										gtx.Constraints.Max = gtx.Constraints.Min
 										iconCol := colorFgMuted
-										if env.EditBtn.Hovered() {
+										if env.MenuBtn.Hovered() {
 											iconCol = ui.Theme.Palette.Fg
 										}
 										return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											gtx.Constraints.Min = image.Pt(gtx.Dp(16), gtx.Dp(16))
-											return iconSettings.Layout(gtx, iconCol)
-										})
-									})
-								}),
-								layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									return material.Clickable(gtx, &env.DelBtn, func(gtx layout.Context) layout.Dimensions {
-										size := gtx.Dp(18)
-										gtx.Constraints.Min = image.Pt(size, size)
-										gtx.Constraints.Max = gtx.Constraints.Min
-										iconCol := colorFgMuted
-										if env.DelBtn.Hovered() {
-											iconCol = colorDanger
-										}
-										return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											gtx.Constraints.Min = image.Pt(gtx.Dp(16), gtx.Dp(16))
-											return iconDel.Layout(gtx, iconCol)
+											lbl := material.Label(ui.Theme, unit.Sp(14), "⋮")
+											lbl.Color = iconCol
+											return lbl.Layout(gtx)
 										})
 									})
 								}),
 							)
 						})
+					}),
+					layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+						if !env.MenuOpen {
+							return layout.Dimensions{}
+						}
+						macro := op.Record(gtx.Ops)
+						menuWidth := gtx.Dp(unit.Dp(166))
+						menuHeight := gtx.Dp(unit.Dp(150))
+						menuX := gtx.Constraints.Max.X - menuWidth
+						if menuX < 0 {
+							menuX = 0
+						}
+						menuY := gtx.Dp(unit.Dp(24))
+						windowH := ui.windowSize.Y
+						if windowH > 0 && int(env.MenuClickY)+menuHeight > windowH {
+							menuY = -menuHeight - gtx.Dp(unit.Dp(4))
+						}
+						op.Offset(image.Pt(menuX, menuY)).Add(gtx.Ops)
+						widget.Border{
+							Color:        colorBorderLight,
+							CornerRadius: unit.Dp(4),
+							Width:        unit.Dp(1),
+						}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return layout.Stack{}.Layout(gtx,
+								layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+									paint.FillShape(gtx.Ops, colorBgPopup, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
+									defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
+									event.Op(gtx.Ops, &env.MenuOpen)
+									for {
+										_, ok := gtx.Event(pointer.Filter{Target: &env.MenuOpen, Kinds: pointer.Press})
+										if !ok {
+											break
+										}
+									}
+									return layout.Dimensions{Size: gtx.Constraints.Min}
+								}),
+								layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+									return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+										return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+												return menuOption(gtx, ui.Theme, &env.EditBtn, "Edit", iconSettings)
+											}),
+											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+												return menuOption(gtx, ui.Theme, &env.RenameBtn, "Rename", iconRename)
+											}),
+											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+												return menuOption(gtx, ui.Theme, &env.DupBtn, "Duplicate", iconDup)
+											}),
+											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+												return menuOptionDanger(gtx, ui.Theme, &env.DelBtn, "Delete", iconDel)
+											}),
+										)
+									})
+								}),
+							)
+						})
+						call := macro.Stop()
+						op.Defer(gtx.Ops, call)
+						return layout.Dimensions{}
 					}),
 				)
 			})
