@@ -112,6 +112,8 @@ type AppUI struct {
 	DraggedNode      *CollectionNode
 	DragNodeOriginY  float32
 	DragNodeCurrentY float32
+	DragNodeOriginX  float32
+	DragNodeCurrentX float32
 	DragNodeActive   bool
 	Tabs            []*RequestTab
 	ActiveIdx        int
@@ -541,54 +543,60 @@ func (ui *AppUI) duplicateEnvironment(src *EnvironmentUI) {
 	ui.Window.Invalidate()
 }
 
-func (ui *AppUI) nodeSiblings(node *CollectionNode) []*CollectionNode {
-	if node == nil {
-		return nil
-	}
-	if node.Parent == nil {
-		roots := make([]*CollectionNode, 0, len(ui.Collections))
-		for _, c := range ui.Collections {
-			if c != nil && c.Data != nil && c.Data.Root != nil {
-				roots = append(roots, c.Data.Root)
-			}
-		}
-		return roots
-	}
-	return node.Parent.Children
+type nodeDropTarget struct {
+	parent    *CollectionNode
+	insertIdx int
+	intoNode  *CollectionNode
+	lineIdx   int
+	lineDepth int
 }
 
-func (ui *AppUI) dragNodeDrop() (target int, dropDisplayIdx int, srcStart int, srcEnd int, ok bool) {
-	if ui.DraggedNode == nil || !ui.DragNodeActive || ui.colRowH <= 0 {
-		return -1, 0, 0, 0, false
+func siblingIndex(n *CollectionNode) int {
+	if n == nil || n.Parent == nil {
+		return -1
 	}
-	srcStart = -1
+	for i, c := range n.Parent.Children {
+		if c == n {
+			return i
+		}
+	}
+	return -1
+}
+
+func isAncestorOrSelf(ancestor, n *CollectionNode) bool {
+	for cur := n; cur != nil; cur = cur.Parent {
+		if cur == ancestor {
+			return true
+		}
+	}
+	return false
+}
+
+func recalcDepth(node *CollectionNode, depth int) {
+	if node == nil {
+		return
+	}
+	node.Depth = depth
+	for _, child := range node.Children {
+		recalcDepth(child, depth+1)
+	}
+}
+
+func (ui *AppUI) dragNodeDrop(metric unit.Metric) (drop nodeDropTarget, ok bool) {
+	if ui.DraggedNode == nil || !ui.DragNodeActive || ui.colRowH <= 0 {
+		return nodeDropTarget{}, false
+	}
+	src := ui.DraggedNode
+
+	srcStart := -1
 	for i, n := range ui.VisibleCols {
-		if n == ui.DraggedNode {
+		if n == src {
 			srcStart = i
 			break
 		}
 	}
 	if srcStart < 0 {
-		return -1, 0, 0, 0, false
-	}
-	srcEnd = srcStart + 1
-	for srcEnd < len(ui.VisibleCols) && ui.VisibleCols[srcEnd].Depth > ui.DraggedNode.Depth {
-		srcEnd++
-	}
-
-	siblings := ui.nodeSiblings(ui.DraggedNode)
-	if len(siblings) == 0 {
-		return -1, 0, 0, 0, false
-	}
-	srcSibIdx := -1
-	for i, s := range siblings {
-		if s == ui.DraggedNode {
-			srcSibIdx = i
-			break
-		}
-	}
-	if srcSibIdx < 0 {
-		return -1, 0, 0, 0, false
+		return nodeDropTarget{}, false
 	}
 
 	rowYAt := func(idx int) int {
@@ -604,115 +612,281 @@ func (ui *AppUI) dragNodeDrop() (target int, dropDisplayIdx int, srcStart int, s
 		return idx * ui.colRowH
 	}
 
-	gaps := make([]int, len(siblings)+1)
-	for i, sib := range siblings {
-		gaps[i] = -1
-		for j, n := range ui.VisibleCols {
-			if n == sib {
-				gaps[i] = j
-				break
+	cursorY := rowYAt(srcStart) + int(ui.DragNodeCurrentY)
+	cursorX := int(ui.DragNodeCurrentX)
+
+	if src.Parent == nil {
+		return ui.dragRootDrop(cursorY, rowYAt)
+	}
+	return ui.dragChildDrop(src, srcStart, cursorY, cursorX, metric, rowYAt)
+}
+
+func (ui *AppUI) dragRootDrop(cursorY int, rowYAt func(int) int) (nodeDropTarget, bool) {
+	visible := ui.VisibleCols
+	src := ui.DraggedNode
+
+	type rootInfo struct {
+		rowIdx int
+	}
+	var roots []rootInfo
+	srcRootSibIdx := -1
+	for i := 0; i < len(visible); i++ {
+		if visible[i].Depth != 0 {
+			continue
+		}
+		if visible[i] == src {
+			srcRootSibIdx = len(roots)
+		}
+		roots = append(roots, rootInfo{rowIdx: i})
+	}
+	if srcRootSibIdx < 0 || len(roots) == 0 {
+		return nodeDropTarget{}, false
+	}
+
+	bestGap := srcRootSibIdx
+	bestDist := 1 << 30
+	for gap := 0; gap <= len(roots); gap++ {
+		var y int
+		if gap < len(roots) {
+			y = rowYAt(roots[gap].rowIdx)
+		} else {
+			y = ui.colAfterLastY
+		}
+		d := cursorY - y
+		if d < 0 {
+			d = -d
+		}
+		if d < bestDist {
+			bestDist = d
+			bestGap = gap
+		}
+	}
+
+	insertIdx := bestGap
+	if bestGap > srcRootSibIdx {
+		insertIdx = bestGap - 1
+	}
+
+	var lineIdx int
+	if bestGap < len(roots) {
+		lineIdx = roots[bestGap].rowIdx
+	} else {
+		lineIdx = len(visible)
+	}
+
+	return nodeDropTarget{
+		parent:    nil,
+		insertIdx: insertIdx,
+		lineIdx:   lineIdx,
+		lineDepth: 0,
+	}, true
+}
+
+func (ui *AppUI) dragChildDrop(src *CollectionNode, srcStart, cursorY, cursorX int, metric unit.Metric, rowYAt func(int) int) (nodeDropTarget, bool) {
+	visible := ui.VisibleCols
+
+	srcEnd := srcStart + 1
+	for srcEnd < len(visible) && visible[srcEnd].Depth > src.Depth {
+		srcEnd++
+	}
+
+	depthPx := func(d int) int {
+		return metric.Dp(unit.Dp(float32(d * 12)))
+	}
+
+	type slot struct {
+		parent    *CollectionNode
+		insertIdx int
+		intoNode  *CollectionNode
+		y         int
+		x         int
+		lineIdx   int
+		lineDepth int
+	}
+	var slots []slot
+
+	for i, node := range visible {
+		if i >= srcStart && i < srcEnd {
+			continue
+		}
+		if node.Collection != src.Collection {
+			continue
+		}
+		yTop := rowYAt(i)
+		yBot := rowYAt(i + 1)
+		if yBot <= yTop {
+			yBot = yTop + ui.colRowH
+		}
+
+		if node.Parent != nil {
+			sibIdx := siblingIndex(node)
+			if sibIdx >= 0 {
+				slots = append(slots, slot{
+					parent:    node.Parent,
+					insertIdx: sibIdx,
+					y:         yTop,
+					x:         depthPx(node.Depth),
+					lineIdx:   i,
+					lineDepth: node.Depth,
+				})
+			}
+		}
+
+		if node.IsFolder && !isAncestorOrSelf(src, node) {
+			slots = append(slots, slot{
+				parent:    node,
+				insertIdx: 0,
+				intoNode:  node,
+				y:         (yTop + yBot) / 2,
+				x:         depthPx(node.Depth + 1),
+				lineIdx:   -1,
+				lineDepth: node.Depth + 1,
+			})
+		}
+
+		nextDepth := 0
+		if i+1 < len(visible) {
+			nextDepth = visible[i+1].Depth
+		}
+		if node.Parent != nil && node.Depth > nextDepth {
+			for ancestor := node; ancestor != nil && ancestor.Parent != nil && ancestor.Depth > nextDepth; ancestor = ancestor.Parent {
+				sibIdx := siblingIndex(ancestor)
+				if sibIdx < 0 {
+					continue
+				}
+				slots = append(slots, slot{
+					parent:    ancestor.Parent,
+					insertIdx: sibIdx + 1,
+					y:         yBot,
+					x:         depthPx(ancestor.Depth),
+					lineIdx:   i + 1,
+					lineDepth: ancestor.Depth,
+				})
 			}
 		}
 	}
-	if last := siblings[len(siblings)-1]; last != nil && gaps[len(siblings)-1] >= 0 {
-		end := gaps[len(siblings)-1] + 1
-		for end < len(ui.VisibleCols) && ui.VisibleCols[end].Depth > last.Depth {
-			end++
-		}
-		gaps[len(siblings)] = end
-	} else {
-		gaps[len(siblings)] = len(ui.VisibleCols)
+
+	if len(slots) == 0 {
+		return nodeDropTarget{}, false
 	}
 
-	cursorColY := rowYAt(srcStart) + int(ui.DragNodeCurrentY)
-
-	bestGap := srcSibIdx
-	bestDist := 1 << 30
-	for gi, gIdx := range gaps {
-		if gIdx < 0 {
-			continue
-		}
-		gY := rowYAt(gIdx)
-		dist := cursorColY - gY
-		if dist < 0 {
-			dist = -dist
-		}
+	bestIdx := -1
+	bestDist := int64(1) << 60
+	for i, s := range slots {
+		dy := int64(cursorY - s.y)
+		dx := int64(cursorX - s.x)
+		dist := dy*dy*16 + dx*dx
 		if dist < bestDist {
 			bestDist = dist
-			bestGap = gi
+			bestIdx = i
 		}
 	}
-
-	if bestGap <= srcSibIdx {
-		target = bestGap
-	} else {
-		target = bestGap - 1
+	if bestIdx < 0 {
+		return nodeDropTarget{}, false
 	}
-
-	dropDisplayIdx = gaps[bestGap]
-	if dropDisplayIdx < 0 {
-		dropDisplayIdx = 0
-	}
-	return target, dropDisplayIdx, srcStart, srcEnd, true
+	chosen := slots[bestIdx]
+	return nodeDropTarget{
+		parent:    chosen.parent,
+		insertIdx: chosen.insertIdx,
+		intoNode:  chosen.intoNode,
+		lineIdx:   chosen.lineIdx,
+		lineDepth: chosen.lineDepth,
+	}, true
 }
 
 func (ui *AppUI) buildDisplayVisibleCols() []*CollectionNode {
 	return ui.VisibleCols
 }
 
-func (ui *AppUI) commitNodeDrop(src *CollectionNode) {
+func (ui *AppUI) commitNodeDrop(src *CollectionNode, metric unit.Metric) {
 	if src == nil {
 		return
 	}
-	target, _, _, _, ok := ui.dragNodeDrop()
-	if !ok || target < 0 {
+	drop, ok := ui.dragNodeDrop(metric)
+	if !ok {
 		return
 	}
-	siblings := ui.nodeSiblings(src)
-	srcIdx := -1
-	for i, s := range siblings {
-		if s == src {
-			srcIdx = i
-			break
-		}
-	}
-	if srcIdx < 0 || srcIdx == target {
-		return
-	}
+
 	if src.Parent == nil {
+		if drop.parent != nil {
+			return
+		}
+		oldIdx := -1
 		var movedColUI *CollectionUI
-		movedIdx := -1
 		for i, c := range ui.Collections {
 			if c != nil && c.Data != nil && c.Data.Root == src {
 				movedColUI = c
-				movedIdx = i
+				oldIdx = i
 				break
 			}
 		}
-		if movedColUI == nil {
+		if movedColUI == nil || oldIdx < 0 {
 			return
 		}
-		ui.Collections = append(ui.Collections[:movedIdx], ui.Collections[movedIdx+1:]...)
-		insertIdx := target
+		insertIdx := drop.insertIdx
+		if insertIdx == oldIdx {
+			return
+		}
+		if insertIdx < 0 {
+			insertIdx = 0
+		}
+		if insertIdx > len(ui.Collections) {
+			insertIdx = len(ui.Collections)
+		}
+		ui.Collections = append(ui.Collections[:oldIdx], ui.Collections[oldIdx+1:]...)
 		if insertIdx > len(ui.Collections) {
 			insertIdx = len(ui.Collections)
 		}
 		ui.Collections = append(ui.Collections[:insertIdx], append([]*CollectionUI{movedColUI}, ui.Collections[insertIdx:]...)...)
 	} else {
-		children := make([]*CollectionNode, 0, len(src.Parent.Children))
-		moved := src
-		for i, c := range src.Parent.Children {
-			if i == srcIdx {
-				continue
+		newParent := drop.parent
+		if newParent == nil {
+			return
+		}
+		if isAncestorOrSelf(src, newParent) {
+			return
+		}
+		if newParent.Collection != src.Collection {
+			return
+		}
+
+		oldParent := src.Parent
+		oldIdx := siblingIndex(src)
+		if oldIdx < 0 {
+			return
+		}
+
+		insertIdx := drop.insertIdx
+		if oldParent == newParent {
+			if insertIdx == oldIdx || insertIdx == oldIdx+1 {
+				return
 			}
-			children = append(children, c)
+			oldParent.Children = append(oldParent.Children[:oldIdx], oldParent.Children[oldIdx+1:]...)
+			if insertIdx > oldIdx {
+				insertIdx--
+			}
+			if insertIdx < 0 {
+				insertIdx = 0
+			}
+			if insertIdx > len(oldParent.Children) {
+				insertIdx = len(oldParent.Children)
+			}
+			oldParent.Children = append(oldParent.Children[:insertIdx], append([]*CollectionNode{src}, oldParent.Children[insertIdx:]...)...)
+		} else {
+			oldParent.Children = append(oldParent.Children[:oldIdx], oldParent.Children[oldIdx+1:]...)
+			src.Parent = newParent
+			if insertIdx < 0 {
+				insertIdx = 0
+			}
+			if insertIdx > len(newParent.Children) {
+				insertIdx = len(newParent.Children)
+			}
+			newParent.Children = append(newParent.Children[:insertIdx], append([]*CollectionNode{src}, newParent.Children[insertIdx:]...)...)
+			recalcDepth(src, newParent.Depth+1)
+			if drop.intoNode != nil && !newParent.Expanded {
+				newParent.Expanded = true
+			}
 		}
-		insertIdx := target
-		if insertIdx > len(children) {
-			insertIdx = len(children)
-		}
-		children = append(children[:insertIdx], append([]*CollectionNode{moved}, children[insertIdx:]...)...)
-		src.Parent.Children = children
 		ui.markCollectionDirty(src.Collection)
 	}
 	ui.updateVisibleCols()

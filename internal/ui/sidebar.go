@@ -240,6 +240,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 						continue
 					}
 					ui.DragNodeCurrentY = e.Position.Y
+					ui.DragNodeCurrentX = e.Position.X
 					dy := ui.DragNodeCurrentY - ui.DragNodeOriginY
 					if dy < 0 {
 						dy = -dy
@@ -247,12 +248,14 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					if !ui.DragNodeActive && dy > preDragSlop {
 						ui.DragNodeActive = true
 						ui.DragNodeOriginY = ui.DragNodeCurrentY
+						ui.DragNodeOriginX = ui.DragNodeCurrentX
 					}
 				case pointer.Release:
 					if ui.DraggedNode == dragged {
 						if ui.DragNodeActive {
 							ui.DragNodeCurrentY = e.Position.Y
-							ui.commitNodeDrop(dragged)
+							ui.DragNodeCurrentX = e.Position.X
+							ui.commitNodeDrop(dragged, gtx.Metric)
 							updateCols = true
 						} else {
 							nodeClickFn(dragged)
@@ -311,10 +314,13 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					ui.DraggedNode = node
 					ui.DragNodeOriginY = e.Position.Y
 					ui.DragNodeCurrentY = e.Position.Y
+					ui.DragNodeOriginX = e.Position.X
+					ui.DragNodeCurrentX = e.Position.X
 					ui.DragNodeActive = false
 				case pointer.Drag:
 					if ui.DraggedNode == node {
 						ui.DragNodeCurrentY = e.Position.Y
+						ui.DragNodeCurrentX = e.Position.X
 						dy := ui.DragNodeCurrentY - ui.DragNodeOriginY
 						if dy < 0 {
 							dy = -dy
@@ -322,12 +328,13 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 						if !ui.DragNodeActive && dy > dragSlop {
 							ui.DragNodeActive = true
 							ui.DragNodeOriginY = ui.DragNodeCurrentY
+							ui.DragNodeOriginX = ui.DragNodeCurrentX
 						}
 					}
 				case pointer.Release:
 					if ui.DraggedNode == node {
 						if ui.DragNodeActive {
-							ui.commitNodeDrop(node)
+							ui.commitNodeDrop(node, gtx.Metric)
 							updateCols = true
 						} else {
 							nodeClick()
@@ -516,7 +523,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 								gtx.Constraints.Min.X = gtx.Constraints.Max.X
 								return layout.Inset{
-									Top: unit.Dp(4), Bottom: unit.Dp(4),
+									Top: unit.Dp(2), Bottom: unit.Dp(2),
 									Left:  unit.Dp(float32(node.Depth * 12)),
 									Right: unit.Dp(4),
 								}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -705,24 +712,56 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 			ghostOff.Pop()
 			op.Defer(gtx.Ops, ghostMacro.Stop())
 
-			if _, dropDisplayIdx, _, _, ok := ui.dragNodeDrop(); ok {
-				dropY := rowYAt(dropDisplayIdx)
-				lineH := gtx.Dp(unit.Dp(2))
-				if lineH < 1 {
-					lineH = 1
+			if drop, ok := ui.dragNodeDrop(gtx.Metric); ok {
+				if drop.intoNode != nil {
+					targetIdx := -1
+					for i, n := range colsSnapshot {
+						if n == drop.intoNode {
+							targetIdx = i
+							break
+						}
+					}
+					if targetIdx >= 0 {
+						hY := rowYAt(targetIdx)
+						hH := ui.colRowH
+						if targetIdx+1 < len(colsSnapshot) {
+							if nextY, ok := ui.colRowYs[targetIdx+1]; ok {
+								if h := nextY - hY; h > 0 {
+									hH = h
+								}
+							}
+						} else if h := ui.colAfterLastY - hY; h > 0 {
+							hH = h
+						}
+						hMacro := op.Record(gtx.Ops)
+						hOff := op.Offset(image.Pt(0, hY)).Push(gtx.Ops)
+						paint.FillShape(gtx.Ops, colorAccentDim, clip.Rect{Max: image.Pt(rowW, hH)}.Op())
+						hOff.Pop()
+						op.Defer(gtx.Ops, hMacro.Stop())
+					}
+				} else {
+					dropY := rowYAt(drop.lineIdx)
+					lineH := gtx.Dp(unit.Dp(2))
+					if lineH < 1 {
+						lineH = 1
+					}
+					lineTop := dropY - lineH/2
+					if lineTop < 0 {
+						lineTop = 0
+					}
+					if maxLine := dim.Size.Y - lineH; maxLine > 0 && lineTop > maxLine {
+						lineTop = maxLine
+					}
+					lineLeft := gtx.Dp(unit.Dp(float32(drop.lineDepth * 12)))
+					if lineLeft >= rowW {
+						lineLeft = 0
+					}
+					lineMacro := op.Record(gtx.Ops)
+					lineOff := op.Offset(image.Pt(lineLeft, lineTop)).Push(gtx.Ops)
+					paint.FillShape(gtx.Ops, colorAccent, clip.Rect{Max: image.Pt(rowW-lineLeft, lineH)}.Op())
+					lineOff.Pop()
+					op.Defer(gtx.Ops, lineMacro.Stop())
 				}
-				lineTop := dropY - lineH/2
-				if lineTop < 0 {
-					lineTop = 0
-				}
-				if maxLine := dim.Size.Y - lineH; maxLine > 0 && lineTop > maxLine {
-					lineTop = maxLine
-				}
-				lineMacro := op.Record(gtx.Ops)
-				lineOff := op.Offset(image.Pt(0, lineTop)).Push(gtx.Ops)
-				paint.FillShape(gtx.Ops, colorAccent, clip.Rect{Max: image.Pt(rowW, lineH)}.Op())
-				lineOff.Pop()
-				op.Defer(gtx.Ops, lineMacro.Stop())
 			}
 		}
 
@@ -1071,7 +1110,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 							}
 							return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, rowH-gtx.Dp(unit.Dp(4)))}
 						}
-						return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 								layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 									return layout.Inset{Left: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1390,7 +1429,7 @@ func renderNodeGhost(gtx layout.Context, th *material.Theme, node *CollectionNod
 		gtx.Constraints.Min = size
 		gtx.Constraints.Max = size
 		return layout.Inset{
-			Top: unit.Dp(4), Bottom: unit.Dp(4),
+			Top: unit.Dp(2), Bottom: unit.Dp(2),
 			Left:  unit.Dp(float32(node.Depth * 12)),
 			Right: unit.Dp(4),
 		}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1445,7 +1484,7 @@ func renderEnvGhost(gtx layout.Context, th *material.Theme, env *EnvironmentUI) 
 	paintBorder1px(gtx, size, colorAccent)
 	gtx.Constraints.Min = size
 	gtx.Constraints.Max = size
-	return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Left: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

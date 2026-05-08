@@ -29,5 +29,5 @@ go run ./...
 Windows
 
 ```
-set GOAMD64=v3 && go build -gcflags="-B" -trimpath -ldflags="-s -w -H=windowsgui" -o bin\tracto.exe cmd\main.go && upx --best --lzma bin\tracto.exe
+set GOAMD64=v3 && go build -gcflags="-B" -trimpath -ldflags="-s -w -H=windowsgui" -o bin\rete.exe cmd\main.go && upx --best --lzma bin\rete.exe
 ```

@@ -171,6 +171,107 @@ var GlobalVarClick *VarHoverState
 var GlobalVarHover *VarHoverState
 var GlobalPointerPos f32.Point
 
+type hScrollState struct {
+	scroller    gesture.Scroll
+	thumbDrag   gesture.Drag
+	dragLastX   float32
+	scrollX     int
+	prevCaret   int
+	prevTextLen int
+	initialized bool
+}
+
+var editorHScrolls = make(map[*widget.Editor]*hScrollState)
+
+func getHScroll(ed *widget.Editor) *hScrollState {
+	s, ok := editorHScrolls[ed]
+	if !ok {
+		s = &hScrollState{}
+		editorHScrolls[ed] = s
+	}
+	return s
+}
+
+func updateHScroll(gtx layout.Context, ed *widget.Editor, viewW, contentW int) (scrollX, maxScroll int, addGesture func()) {
+	s := getHScroll(ed)
+	maxScroll = contentW - viewW
+	if maxScroll < 0 {
+		maxScroll = 0
+	}
+
+	if maxScroll > 0 {
+		dx := s.scroller.Update(gtx.Metric, gtx.Source, gtx.Now, gesture.Horizontal,
+			pointer.ScrollRange{Min: -s.scrollX, Max: maxScroll - s.scrollX},
+			pointer.ScrollRange{},
+		)
+		s.scrollX += dx
+	}
+
+	if maxScroll > 0 && viewW > 0 && contentW > 0 {
+		thumbW := viewW * viewW / contentW
+		if minW := gtx.Dp(unit.Dp(14)); thumbW < minW {
+			thumbW = minW
+		}
+		if thumbW > viewW {
+			thumbW = viewW
+		}
+		travel := viewW - thumbW
+		for {
+			ev, ok := s.thumbDrag.Update(gtx.Metric, gtx.Source, gesture.Horizontal)
+			if !ok {
+				break
+			}
+			switch ev.Kind {
+			case pointer.Press:
+				s.dragLastX = ev.Position.X
+			case pointer.Drag:
+				delta := ev.Position.X - s.dragLastX
+				s.dragLastX = ev.Position.X
+				if travel > 0 {
+					s.scrollX += int(delta * float32(maxScroll) / float32(travel))
+				}
+			}
+		}
+	}
+
+	caretX := int(ed.CaretCoords().X)
+	_, caret := ed.CaretPos()
+	textLen := ed.Len()
+	if !s.initialized || caret != s.prevCaret || textLen != s.prevTextLen {
+		s.initialized = true
+		s.prevCaret = caret
+		s.prevTextLen = textLen
+		if viewW > 0 {
+			caretPad := gtx.Dp(unit.Dp(2))
+			if caretX < s.scrollX {
+				s.scrollX = caretX - caretPad
+			}
+			if caretX > s.scrollX+viewW-caretPad {
+				s.scrollX = caretX - viewW + caretPad
+			}
+		}
+	}
+
+	if s.scrollX < 0 {
+		s.scrollX = 0
+	}
+	if s.scrollX > maxScroll {
+		s.scrollX = maxScroll
+	}
+
+	scrollX = s.scrollX
+	addGesture = func() {
+		if maxScroll > 0 {
+			s.scroller.Add(gtx.Ops)
+		}
+	}
+	return scrollX, maxScroll, addGesture
+}
+
+func ResetEditorHScroll(ed *widget.Editor) {
+	delete(editorHScrolls, ed)
+}
+
 func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint string, drawBorder bool, env map[string]string, frozenWidth int, textSize unit.Sp) layout.Dimensions {
 	ed.SingleLine = true
 	ed.Submit = true
@@ -186,17 +287,17 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 	if frozenWidth > 0 {
 		textWidth = frozenWidth
 	}
+	viewW := max(textWidth-(pX*2), 0)
 
 	edGtx := gtx
-	edGtx.Constraints.Min.X = max(textWidth-(pX*2), 0)
-	edGtx.Constraints.Max.X = edGtx.Constraints.Min.X
+	edGtx.Constraints.Min.X = 0
+	edGtx.Constraints.Max.X = 1 << 24
 	edGtx.Constraints.Min.Y = max(gtx.Constraints.Min.Y-(pY*2), 0)
 
 	macro := op.Record(gtx.Ops)
 	op.Offset(image.Point{X: pX, Y: pY}).Add(gtx.Ops)
 
 	lineHeight, lineSpacing := getLineMetrics(gtx, th, textSize)
-	scrollX := ed.GetScrollX()
 
 	type varRectInfo struct {
 		name       string
@@ -220,7 +321,7 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 			totalHeight := len(lineStarts)*lineSpacing + lineHeight
 			cl := clip.Rect{
 				Min: image.Pt(0, -padY),
-				Max: image.Pt(edGtx.Constraints.Max.X, totalHeight+padY),
+				Max: image.Pt(1<<24, totalHeight+padY),
 			}.Push(gtx.Ops)
 
 			cornerR := gtx.Dp(unit.Dp(3))
@@ -253,21 +354,16 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 					bgColor = colorVarFound
 				}
 
-				x1 := pWidth - scrollX
-				x2 := x1 + vWidth
-				if x2 > 0 && x1 < edGtx.Constraints.Max.X {
-					yOff := lineIdx * lineSpacing
-					rect := image.Rect(x1, yOff-padY, x2, yOff+lineHeight+padY)
-					paint.FillShape(gtx.Ops, bgColor, clip.UniformRRect(rect, cornerR).Op(gtx.Ops))
+				yOff := lineIdx * lineSpacing
+				rect := image.Rect(pWidth, yOff-padY, pWidth+vWidth, yOff+lineHeight+padY)
+				paint.FillShape(gtx.Ops, bgColor, clip.UniformRRect(rect, cornerR).Op(gtx.Ops))
 
-					varRects = append(varRects, varRectInfo{
-						name:  varName,
-						rect:  rect,
-						start: start,
-						end:   end,
-					})
-
-				}
+				varRects = append(varRects, varRectInfo{
+					name:  varName,
+					rect:  rect,
+					start: start,
+					end:   end,
+				})
 
 				idx = end
 			}
@@ -281,6 +377,9 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 	handleEditorShortcuts(gtx, ed)
 	dims := e.Layout(edGtx)
 	call := macro.Stop()
+
+	contentW := dims.Size.X
+	scrollX, _, addGesture := updateHScroll(gtx, ed, viewW, contentW)
 
 	finalWidth := availWidth
 	naturalH := dims.Size.Y + (pY * 2)
@@ -308,11 +407,17 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 		paintBorder1px(gtx, finalSize, borderColor)
 	}
 
+	gestureClip := clip.Rect{Max: finalSize}.Push(gtx.Ops)
+	addGesture()
+	gestureClip.Pop()
+
 	textClip := clip.Rect{Max: finalSize}.Push(gtx.Ops)
-	textOffset := op.Offset(image.Pt(0, extraY)).Push(gtx.Ops)
+	scrollOffset := op.Offset(image.Pt(-scrollX, extraY)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
-	textOffset.Pop()
+	scrollOffset.Pop()
 	textClip.Pop()
+
+	drawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, pX, 1)
 
 	if len(varRects) > 0 {
 		macroClick := op.Record(gtx.Ops)
@@ -369,7 +474,7 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 		callClick := macroClick.Stop()
 
 		textClipClick := clip.Rect{Max: finalSize}.Push(gtx.Ops)
-		clickOffset := op.Offset(image.Pt(0, extraY)).Push(gtx.Ops)
+		clickOffset := op.Offset(image.Pt(-scrollX, extraY)).Push(gtx.Ops)
 		callClick.Add(gtx.Ops)
 		clickOffset.Pop()
 		textClipClick.Pop()
@@ -392,17 +497,17 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 	if frozenWidth > 0 {
 		textWidth = frozenWidth
 	}
+	viewW := max(textWidth-(p*2), 0)
 
 	edGtx := gtx
-	edGtx.Constraints.Min.X = max(textWidth-(p*2), 0)
-	edGtx.Constraints.Max.X = edGtx.Constraints.Min.X
+	edGtx.Constraints.Min.X = 0
+	edGtx.Constraints.Max.X = 1 << 24
 	edGtx.Constraints.Min.Y = max(gtx.Constraints.Min.Y-(p*2), 0)
 
 	macro := op.Record(gtx.Ops)
 	op.Offset(image.Point{X: p, Y: p}).Add(gtx.Ops)
 
 	lineHeight, lineSpacing := getLineMetrics(gtx, th, textSize)
-	scrollX := ed.GetScrollX()
 
 	type varRectInfo struct {
 		name       string
@@ -426,7 +531,7 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 			totalHeight := len(lineStarts)*lineSpacing + lineHeight
 			cl := clip.Rect{
 				Min: image.Pt(0, -padY),
-				Max: image.Pt(edGtx.Constraints.Max.X, totalHeight+padY),
+				Max: image.Pt(1<<24, totalHeight+padY),
 			}.Push(gtx.Ops)
 
 			cornerR := gtx.Dp(unit.Dp(3))
@@ -459,21 +564,16 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 					bgColor = colorVarFound
 				}
 
-				x1 := pWidth - scrollX
-				x2 := x1 + vWidth
-				if x2 > 0 && x1 < edGtx.Constraints.Max.X {
-					yOff := lineIdx * lineSpacing
-					rect := image.Rect(x1, yOff-padY, x2, yOff+lineHeight+padY)
-					paint.FillShape(gtx.Ops, bgColor, clip.UniformRRect(rect, cornerR).Op(gtx.Ops))
+				yOff := lineIdx * lineSpacing
+				rect := image.Rect(pWidth, yOff-padY, pWidth+vWidth, yOff+lineHeight+padY)
+				paint.FillShape(gtx.Ops, bgColor, clip.UniformRRect(rect, cornerR).Op(gtx.Ops))
 
-					varRects = append(varRects, varRectInfo{
-						name:  varName,
-						rect:  rect,
-						start: start,
-						end:   end,
-					})
-
-				}
+				varRects = append(varRects, varRectInfo{
+					name:  varName,
+					rect:  rect,
+					start: start,
+					end:   end,
+				})
 
 				idx = end
 			}
@@ -487,6 +587,9 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 	handleEditorShortcuts(gtx, ed)
 	dims := e.Layout(edGtx)
 	call := macro.Stop()
+
+	contentW := dims.Size.X
+	scrollX, _, addGesture := updateHScroll(gtx, ed, viewW, contentW)
 
 	finalWidth := availWidth
 	finalHeight := dims.Size.Y + (p * 2)
@@ -509,9 +612,17 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 		paintBorder1px(gtx, finalSize, borderColor)
 	}
 
+	gestureClip := clip.Rect{Max: finalSize}.Push(gtx.Ops)
+	addGesture()
+	gestureClip.Pop()
+
 	textClip := clip.Rect{Max: finalSize}.Push(gtx.Ops)
+	scrollOffset := op.Offset(image.Pt(-scrollX, 0)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
+	scrollOffset.Pop()
 	textClip.Pop()
+
+	drawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, p, 1)
 
 	if len(varRects) > 0 {
 		macroClick := op.Record(gtx.Ops)
@@ -568,7 +679,9 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 		callClick := macroClick.Stop()
 
 		textClipClick := clip.Rect{Max: finalSize}.Push(gtx.Ops)
+		clickOffset := op.Offset(image.Pt(-scrollX, 0)).Push(gtx.Ops)
 		callClick.Add(gtx.Ops)
+		clickOffset.Pop()
 		textClipClick.Pop()
 	}
 
@@ -631,17 +744,36 @@ func (s *scrollLabel) Layout(gtx layout.Context, th *material.Theme, lbl materia
 }
 
 func InlineRenameField(gtx layout.Context, th *material.Theme, ed *widget.Editor) layout.Dimensions {
-	macro := op.Record(gtx.Ops)
-	dim := layout.Inset{Left: unit.Dp(4), Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		e := material.Editor(th, ed, "")
-		e.TextSize = unit.Sp(12)
-		return e.Layout(gtx)
-	})
-	call := macro.Stop()
-	finalSize := dim.Size
-	if finalSize.X < gtx.Constraints.Min.X {
-		finalSize.X = gtx.Constraints.Min.X
+	ed.SingleLine = true
+	pad := gtx.Dp(unit.Dp(4))
+
+	availWidth := gtx.Constraints.Max.X
+	if availWidth < gtx.Constraints.Min.X {
+		availWidth = gtx.Constraints.Min.X
 	}
+	if availWidth <= 0 {
+		return layout.Dimensions{}
+	}
+	viewW := availWidth - 2*pad
+	if viewW < 0 {
+		viewW = 0
+	}
+
+	edGtx := gtx
+	edGtx.Constraints.Min.X = 0
+	edGtx.Constraints.Max.X = 1 << 24
+
+	macro := op.Record(gtx.Ops)
+	op.Offset(image.Point{X: pad, Y: 0}).Add(gtx.Ops)
+	e := material.Editor(th, ed, "")
+	e.TextSize = unit.Sp(12)
+	dims := e.Layout(edGtx)
+	call := macro.Stop()
+
+	contentW := dims.Size.X
+	scrollX, _, addGesture := updateHScroll(gtx, ed, viewW, contentW)
+
+	finalSize := image.Pt(availWidth, dims.Size.Y)
 	rect := image.Rectangle{Max: finalSize}
 	paint.FillShape(gtx.Ops, colorBgField, clip.UniformRRect(rect, 2).Op(gtx.Ops))
 	borderC := colorBorder
@@ -649,9 +781,20 @@ func InlineRenameField(gtx layout.Context, th *material.Theme, ed *widget.Editor
 		borderC = colorAccent
 	}
 	paintBorder1px(gtx, finalSize, borderC)
+
+	gestureClip := clip.Rect{Max: finalSize}.Push(gtx.Ops)
+	addGesture()
+	gestureClip.Pop()
+
+	textClip := clip.Rect{Max: finalSize}.Push(gtx.Ops)
+	scrollOffset := op.Offset(image.Pt(-scrollX, 0)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
-	dim.Size = finalSize
-	return dim
+	scrollOffset.Pop()
+	textClip.Pop()
+
+	drawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, pad, 1)
+
+	return layout.Dimensions{Size: finalSize, Baseline: dims.Baseline}
 }
 
 func SquareBtnSlim(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, th *material.Theme) layout.Dimensions {
@@ -665,6 +808,71 @@ func bordered1px(gtx layout.Context, _ unit.Dp, color color.NRGBA, w layout.Widg
 	call.Add(gtx.Ops)
 	paintBorder1px(gtx, dims.Size, color)
 	return dims
+}
+
+func drawHScrollbar(gtx layout.Context, ed *widget.Editor, contentW, scrollX int, boxSize image.Point, viewW, padX, marginBottom int) {
+	span := contentW - viewW
+	if span <= 0 || viewW <= 0 {
+		return
+	}
+	h := gtx.Dp(unit.Dp(4))
+	if h < 3 {
+		h = 3
+	}
+	if boxSize.Y <= h+marginBottom {
+		return
+	}
+	trackW := viewW
+	if trackW > boxSize.X-2*padX {
+		trackW = boxSize.X - 2*padX
+	}
+	if trackW <= 0 {
+		return
+	}
+	trackY := boxSize.Y - h - marginBottom
+
+	thumbW := trackW * viewW / contentW
+	if minW := gtx.Dp(unit.Dp(14)); thumbW < minW {
+		thumbW = minW
+	}
+	if thumbW > trackW {
+		thumbW = trackW
+	}
+
+	posOffset := (trackW - thumbW) * scrollX / span
+	if posOffset < 0 {
+		posOffset = 0
+	}
+	if max := trackW - thumbW; posOffset > max {
+		posOffset = max
+	}
+
+	hitH := gtx.Dp(unit.Dp(12))
+	if hitH < h {
+		hitH = h
+	}
+	hitY := trackY + h/2 - hitH/2
+	if hitY < 0 {
+		hitY = 0
+	}
+	if hitY+hitH > boxSize.Y {
+		hitY = boxSize.Y - hitH
+	}
+	state := getHScroll(ed)
+	hitClip := clip.Rect{
+		Min: image.Pt(padX, hitY),
+		Max: image.Pt(padX+trackW, hitY+hitH),
+	}.Push(gtx.Ops)
+	pointer.CursorPointer.Add(gtx.Ops)
+	state.thumbDrag.Add(gtx.Ops)
+	hitClip.Pop()
+
+	thumb := image.Rect(
+		padX+posOffset, trackY,
+		padX+posOffset+thumbW, trackY+h,
+	)
+	r := h / 2
+	paint.FillShape(gtx.Ops, colorEditorScroll, clip.UniformRRect(thumb, r).Op(gtx.Ops))
 }
 
 func paintBorder1px(gtx layout.Context, sz image.Point, color color.NRGBA) {

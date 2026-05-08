@@ -31,6 +31,7 @@ var (
 	colorCancel         = color.NRGBA{R: 180, G: 40, B: 40, A: 255}
 	colorCloseHover     = color.NRGBA{R: 232, G: 17, B: 35, A: 255}
 	colorScrollThumb    = color.NRGBA{R: 75, G: 75, B: 75, A: 255}
+	colorEditorScroll   = color.NRGBA{R: 170, G: 170, B: 170, A: 255}
 	colorVarFound       = color.NRGBA{R: 40, G: 110, B: 160, A: 100}
 	colorVarMissing     = color.NRGBA{R: 130, G: 60, B: 60, A: 100}
 	colorDividerLight   = color.NRGBA{R: 255, G: 255, B: 255, A: 60}
