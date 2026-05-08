@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/nanorele/gio/font"
+	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op/clip"
 	"github.com/nanorele/gio/op/paint"
@@ -96,6 +97,11 @@ type SettingsEditorState struct {
 	SyntaxColorsExpanded  bool
 	ThemeColorsHeaderBtn  widget.Clickable
 	SyntaxColorsHeaderBtn widget.Clickable
+	SyntaxSplitRatio      float32
+	SyntaxSplitDrag       gesture.Drag
+	SyntaxSplitDragY      float32
+	ThemeColorsList       widget.List
+	SyntaxColorsList      widget.List
 
 	ColorPicker colorPickerState
 
@@ -1091,7 +1097,7 @@ func (ui *AppUI) sectionsAppearance() []layout.Widget {
 		},
 		spacerH(20),
 		spoilerHeader(ui.Theme, &st.ThemeColorsHeaderBtn, &st.ThemeColorResetAllBtn,
-			"Customize theme colors — "+activeThemeName, st.ThemeColorsExpanded),
+			"Customize colors — "+activeThemeName, st.ThemeColorsExpanded),
 	}
 	if st.ThemeColorsExpanded {
 		widgets = append(widgets,
@@ -1102,20 +1108,22 @@ func (ui *AppUI) sectionsAppearance() []layout.Widget {
 		for i := range paletteColorTable {
 			idx := i
 			widgets = append(widgets, themeColorRow(ui.Theme, st, idx))
-			if idx < len(paletteColorTable)-1 {
-				widgets = append(widgets, spacerH(4))
-			}
+			widgets = append(widgets, spacerH(4))
 		}
-	}
-	widgets = append(widgets,
-		spacerH(20),
-		spoilerHeader(ui.Theme, &st.SyntaxColorsHeaderBtn, &st.SyntaxResetAllBtn,
-			"Customize syntax colors — "+activeThemeName, st.SyntaxColorsExpanded),
-	)
-	if st.SyntaxColorsExpanded {
 		widgets = append(widgets,
 			spacerH(4),
-			settingsHint(ui.Theme, "Type a hex color (e.g. #FF8800) or click the swatch for a picker. Empty = theme default."),
+			func(gtx layout.Context) layout.Dimensions {
+				size := image.Point{X: gtx.Constraints.Max.X, Y: gtx.Dp(unit.Dp(1))}
+				paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Max: size}.Op())
+				return layout.Dimensions{Size: size}
+			},
+			spacerH(8),
+			func(gtx layout.Context) layout.Dimensions {
+				lbl := material.Label(ui.Theme, unit.Sp(11), "Syntax")
+				lbl.Color = colorFgMuted
+				lbl.Font.Weight = font.Bold
+				return lbl.Layout(gtx)
+			},
 			spacerH(8),
 		)
 		for i := range tokenColorTable {

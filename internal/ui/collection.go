@@ -7,6 +7,7 @@ import (
 	"time"
 	"tracto/internal/utils"
 
+	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/widget"
 )
 
@@ -77,7 +78,6 @@ type CollectionNode struct {
 	Children   []*CollectionNode
 	Expanded   bool
 	Depth      int
-	Click      widget.Clickable
 	Parent     *CollectionNode
 	Collection *ParsedCollection
 
@@ -99,6 +99,9 @@ type CollectionNode struct {
 	NameEditor      widget.Editor
 
 	LastClickAt time.Time
+
+	Drag  gesture.Drag
+	Hover gesture.Hover
 }
 
 type ParsedCollection struct {

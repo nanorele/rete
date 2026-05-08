@@ -90,6 +90,11 @@ type ResponseViewer struct {
 	tokens     []syntax.Token
 	tokensLang syntax.Lang
 	tokensTxt  int
+
+	layoutShaper *text.Shaper
+	layoutFont   font.Font
+	layoutSize   unit.Sp
+	layoutInnerW int
 }
 
 func NewResponseViewer() *ResponseViewer {
@@ -223,6 +228,17 @@ func (v *ResponseViewer) SetScrollY(y int) {
 	v.scrollY = y
 	v.clampScroll()
 }
+
+func (v *ResponseViewer) GetScrollX() int { return v.scrollX }
+
+func (v *ResponseViewer) SetScrollX(x int) {
+	v.scrollX = x
+	if v.scrollX < 0 {
+		v.scrollX = 0
+	}
+}
+
+func (v *ResponseViewer) GetMaxLineWidth() int { return v.maxLineWidth }
 
 func (v *ResponseViewer) GetScrollBounds() image.Rectangle {
 	if v.lastLineHeight == 0 {
@@ -371,6 +387,11 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 	innerW := size.X - 2*pad
 	innerH := size.Y - 2*pad
 
+	v.layoutShaper = s.Shaper
+	v.layoutFont = s.Font
+	v.layoutSize = s.TextSize
+	v.layoutInnerW = innerW
+
 	lineHeight := gtx.Sp(s.TextSize) * 7 / 5
 	if lineHeight <= 0 {
 		lineHeight = 14
@@ -483,7 +504,7 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		if ev.Kind != gesture.KindPress || ev.Source != pointer.Mouse {
 			continue
 		}
-		off := v.coordToByteOffset(ev.Position.X-pad, ev.Position.Y-pad, charAdv, exactLineH, innerW, s.Wrap)
+		off := v.coordToByteOffset(gtx, ev.Position.X-pad, ev.Position.Y-pad, charAdv, exactLineH, innerW, s.Wrap)
 		gtx.Execute(key.FocusCmd{Tag: v})
 		switch {
 		case ev.NumClicks >= 3:
@@ -511,7 +532,7 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		switch ev.Kind {
 		case pointer.Drag:
 			if v.dragActive {
-				off := v.coordToByteOffset(int(ev.Position.X)-pad, int(ev.Position.Y)-pad, charAdv, exactLineH, innerW, s.Wrap)
+				off := v.coordToByteOffset(gtx, int(ev.Position.X)-pad, int(ev.Position.Y)-pad, charAdv, exactLineH, innerW, s.Wrap)
 				v.selEnd = off
 				hasSel = v.selStart != v.selEnd
 			}
@@ -577,9 +598,8 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 			v.ensureCaretVisible()
 		case key.NameUpArrow:
 			if s.Wrap {
-				cpl := charsPerLineFor(innerW, charAdv)
-				col := v.visualColumnAt(v.selEnd, cpl)
-				v.moveCaret(v.wrapLineMove(v.selEnd, col, cpl, -1), extend)
+				prefX := v.visualXAt(v.selEnd, gtx, innerW)
+				v.moveCaret(v.wrapLineMoveX(v.selEnd, prefX, -1, gtx, innerW), extend)
 			} else {
 				col := v.columnAt(v.selEnd)
 				v.moveCaret(v.lineUp(v.selEnd, col), extend)
@@ -587,9 +607,8 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 			v.ensureCaretVisible()
 		case key.NameDownArrow:
 			if s.Wrap {
-				cpl := charsPerLineFor(innerW, charAdv)
-				col := v.visualColumnAt(v.selEnd, cpl)
-				v.moveCaret(v.wrapLineMove(v.selEnd, col, cpl, +1), extend)
+				prefX := v.visualXAt(v.selEnd, gtx, innerW)
+				v.moveCaret(v.wrapLineMoveX(v.selEnd, prefX, +1, gtx, innerW), extend)
 			} else {
 				col := v.columnAt(v.selEnd)
 				v.moveCaret(v.lineDown(v.selEnd, col), extend)
@@ -621,10 +640,9 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 			}
 			pos := v.selEnd
 			if s.Wrap {
-				cpl := charsPerLineFor(innerW, charAdv)
-				col := v.visualColumnAt(pos, cpl)
+				prefX := v.visualXAt(pos, gtx, innerW)
 				for i := 0; i < lines; i++ {
-					newPos := v.wrapLineMove(pos, col, cpl, -1)
+					newPos := v.wrapLineMoveX(pos, prefX, -1, gtx, innerW)
 					if newPos == pos {
 						break
 					}
@@ -652,10 +670,9 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 			}
 			pos := v.selEnd
 			if s.Wrap {
-				cpl := charsPerLineFor(innerW, charAdv)
-				col := v.visualColumnAt(pos, cpl)
+				prefX := v.visualXAt(pos, gtx, innerW)
 				for i := 0; i < lines; i++ {
-					newPos := v.wrapLineMove(pos, col, cpl, +1)
+					newPos := v.wrapLineMoveX(pos, prefX, +1, gtx, innerW)
 					if newPos == pos {
 						break
 					}
@@ -689,8 +706,13 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 			chunkH = v.estimateChunkHeight(line, exactLineH, charAdv, innerW, s.Wrap)
 		}
 
+		var glyphs []wrapGlyph
+		if s.Wrap && end > start {
+			glyphs = shapeChunkForWrap(s.Shaper, s.Font, s.TextSize, gtx, v.text[start:end], innerW)
+		}
+
 		if hasHL && v.highlightEnd > start && v.highlightStart < end {
-			v.paintHighlight(gtx, start, end, chunkH, yOff, charAdv, s.Wrap, innerW, s.HighlightColor, v.highlightStart, v.highlightEnd)
+			v.paintHighlight(gtx, start, end, chunkH, yOff, charAdv, s.Wrap, innerW, s.HighlightColor, v.highlightStart, v.highlightEnd, glyphs)
 		}
 		if hasSel {
 			selS, selE := v.selStart, v.selEnd
@@ -698,7 +720,7 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 				selS, selE = selE, selS
 			}
 			if selE > start && selS < end {
-				v.paintHighlight(gtx, start, end, chunkH, yOff, charAdv, s.Wrap, innerW, s.SelectionColor, selS, selE)
+				v.paintHighlight(gtx, start, end, chunkH, yOff, charAdv, s.Wrap, innerW, s.SelectionColor, selS, selE, glyphs)
 			}
 		}
 
@@ -737,6 +759,7 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 }
 
 func (v *ResponseViewer) coordToByteOffset(
+	gtx layout.Context,
 	posX, posY int,
 	advance fixed.Int26_6,
 	exactLineH, viewportW int,
@@ -767,9 +790,9 @@ func (v *ResponseViewer) coordToByteOffset(
 	}
 	chunkStart, chunkEnd := v.lineBounds(chunkIdx)
 	chunkText := v.text[chunkStart:chunkEnd]
-	chunkRunes := utf8.RuneCount(chunkText)
 
 	if !wrap {
+		chunkRunes := utf8.RuneCount(chunkText)
 		col := int(fixed.I(posX+v.scrollX) / advance)
 		if col < 0 {
 			col = 0
@@ -785,19 +808,12 @@ func (v *ResponseViewer) coordToByteOffset(
 		yWithin = 0
 	}
 	wrapLine := yWithin / exactLineH
-	charsPerLine := charsPerLineFor(viewportW, advance)
-	col := int(fixed.I(posX) / advance)
-	if col < 0 {
-		col = 0
+	clickX := posX
+	if clickX < 0 {
+		clickX = 0
 	}
-	if col > charsPerLine {
-		col = charsPerLine
-	}
-	runeIdx := wrapLine*charsPerLine + col
-	if runeIdx > chunkRunes {
-		runeIdx = chunkRunes
-	}
-	return chunkStart + runeIdxToByte(chunkText, runeIdx)
+	glyphs := shapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, chunkText, viewportW)
+	return chunkStart + byteOffInWrap(glyphs, clickX, wrapLine)
 }
 
 func (v *ResponseViewer) estimateChunkHeight(line, lineHeight int, advance fixed.Int26_6, viewportW int, wrap bool) int {
@@ -1088,10 +1104,7 @@ func (v *ResponseViewer) lineDown(off, col int) int {
 	return v.offsetAtColumn(nextLineStart, col)
 }
 
-func (v *ResponseViewer) visualColumnAt(off, cpl int) int {
-	if cpl < 1 {
-		return 0
-	}
+func (v *ResponseViewer) visualXAt(off int, gtx layout.Context, viewportW int) int {
 	line := v.lineForByteOffset(off)
 	chunkStart, chunkEnd := v.lineBounds(line)
 	chunkText := v.text[chunkStart:chunkEnd]
@@ -1099,66 +1112,42 @@ func (v *ResponseViewer) visualColumnAt(off, cpl int) int {
 	if inChunkByte < 0 {
 		inChunkByte = 0
 	}
-	inChunkRune := byteToRuneIdx(chunkText, inChunkByte)
-	return inChunkRune % cpl
+	glyphs := shapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, chunkText, viewportW)
+	x, _ := caretXYInWrap(glyphs, inChunkByte)
+	return x
 }
 
-func (v *ResponseViewer) wrapLineMove(off, prefVisualCol, cpl, dir int) int {
-	if cpl < 1 {
-		if dir < 0 {
-			return v.lineUp(off, prefVisualCol)
-		}
-		return v.lineDown(off, prefVisualCol)
-	}
-	clampInChunk := func(start, end, target int) int {
-		text := v.text[start:end]
-		runes := utf8.RuneCount(text)
-		if target > runes {
-			target = runes
-		}
-		if target < 0 {
-			target = 0
-		}
-		return start + runeIdxToByte(text, target)
-	}
-
+func (v *ResponseViewer) wrapLineMoveX(off, prefX, dir int, gtx layout.Context, viewportW int) int {
 	line := v.lineForByteOffset(off)
 	chunkStart, chunkEnd := v.lineBounds(line)
 	chunkText := v.text[chunkStart:chunkEnd]
-	chunkRunes := utf8.RuneCount(chunkText)
-	inChunkRune := byteToRuneIdx(chunkText, off-chunkStart)
-	subLine := 0
-	if cpl > 0 {
-		subLine = inChunkRune / cpl
-	}
+	glyphs := shapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, chunkText, viewportW)
+	_, subLine := caretXYInWrap(glyphs, off-chunkStart)
+	maxSub := wrapMaxLine(glyphs)
 
 	if dir < 0 {
 		if subLine > 0 {
-			return clampInChunk(chunkStart, chunkEnd, (subLine-1)*cpl+prefVisualCol)
+			return chunkStart + byteOffInWrap(glyphs, prefX, subLine-1)
 		}
 		if line == 0 {
 			return 0
 		}
 		prevStart, prevEnd := v.lineBounds(line - 1)
-		prevRunes := utf8.RuneCount(v.text[prevStart:prevEnd])
-		lastSub := 0
-		if prevRunes > 0 {
-			lastSub = (prevRunes - 1) / cpl
-		}
-		return clampInChunk(prevStart, prevEnd, lastSub*cpl+prefVisualCol)
+		prevText := v.text[prevStart:prevEnd]
+		prevGlyphs := shapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, prevText, viewportW)
+		lastSub := wrapMaxLine(prevGlyphs)
+		return prevStart + byteOffInWrap(prevGlyphs, prefX, lastSub)
 	}
-	lastSubInChunk := 0
-	if chunkRunes > 0 {
-		lastSubInChunk = (chunkRunes - 1) / cpl
-	}
-	if subLine < lastSubInChunk {
-		return clampInChunk(chunkStart, chunkEnd, (subLine+1)*cpl+prefVisualCol)
+	if subLine < maxSub {
+		return chunkStart + byteOffInWrap(glyphs, prefX, subLine+1)
 	}
 	if line+1 >= len(v.lineStarts) {
 		return len(v.text)
 	}
 	nextStart, nextEnd := v.lineBounds(line + 1)
-	return clampInChunk(nextStart, nextEnd, prefVisualCol)
+	nextText := v.text[nextStart:nextEnd]
+	nextGlyphs := shapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, nextText, viewportW)
+	return nextStart + byteOffInWrap(nextGlyphs, prefX, 0)
 }
 
 func (v *ResponseViewer) ensureCaretVisible() {
@@ -1184,6 +1173,7 @@ func (v *ResponseViewer) paintHighlight(
 	viewportW int,
 	col color.NRGBA,
 	rangeStart, rangeEnd int,
+	glyphs []wrapGlyph,
 ) {
 	if advance <= 0 {
 		return
@@ -1200,18 +1190,18 @@ func (v *ResponseViewer) paintHighlight(
 	if hEndByte <= hStartByte {
 		return
 	}
-	chunkText := v.text[chunkStart:chunkEnd]
-	hStart := byteToRuneIdx(chunkText, hStartByte)
-	hEnd := byteToRuneIdx(chunkText, hEndByte)
-	if hEnd <= hStart {
-		return
-	}
-	colToPx := func(c int) int {
-		return (advance * fixed.Int26_6(c)).Round()
-	}
 	continuesPastChunk := rangeEnd > chunkEnd
 
 	if !wrap {
+		chunkText := v.text[chunkStart:chunkEnd]
+		hStart := byteToRuneIdx(chunkText, hStartByte)
+		hEnd := byteToRuneIdx(chunkText, hEndByte)
+		if hEnd <= hStart {
+			return
+		}
+		colToPx := func(c int) int {
+			return (advance * fixed.Int26_6(c)).Round()
+		}
 		x1 := colToPx(hStart) - v.scrollX
 		x2 := colToPx(hEnd) - v.scrollX
 		r := image.Rect(x1, yOff, x2, yOff+chunkH)
@@ -1219,18 +1209,18 @@ func (v *ResponseViewer) paintHighlight(
 		return
 	}
 
-	charsPerLine := charsPerLineFor(viewportW, advance)
-	startWL := hStart / charsPerLine
-	endWL := (hEnd - 1) / charsPerLine
-	startCol := hStart % charsPerLine
-	endCol := ((hEnd - 1) % charsPerLine) + 1
+	startX, startWL := caretXYInWrap(glyphs, hStartByte)
+	endX, endWL := caretXYInWrap(glyphs, hEndByte)
+	if endWL < startWL || (endWL == startWL && endX <= startX) {
+		return
+	}
 
 	subLineH := v.lastLineHeight
 	if subLineH < 1 {
 		return
 	}
 	chunkBottom := yOff + chunkH
-	fullWidth := colToPx(charsPerLine)
+	fullWidth := viewportW
 
 	for wl := startWL; wl <= endWL; wl++ {
 		y1 := yOff + wl*subLineH
@@ -1250,10 +1240,10 @@ func (v *ResponseViewer) paintHighlight(
 		x1 := 0
 		x2 := fullWidth
 		if wl == startWL {
-			x1 = colToPx(startCol)
+			x1 = startX
 		}
 		if wl == endWL {
-			x2 = colToPx(endCol)
+			x2 = endX
 		}
 		r := image.Rect(x1, y1, x2, y2)
 		paint.FillShape(gtx.Ops, col, clip.Rect(r).Op())

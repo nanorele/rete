@@ -203,8 +203,143 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 		}
 
 		var updateCols bool
-		dim := material.List(ui.Theme, &ui.ColList).Layout(gtx, len(ui.VisibleCols), func(gtx layout.Context, i int) layout.Dimensions {
-			node := ui.VisibleCols[i]
+
+		nodeClickFn := func(n *CollectionNode) {
+			if ui.RenamingNode != nil && ui.RenamingNode != n {
+				commitRename(ui.RenamingNode)
+			}
+			if n.IsRenaming {
+				return
+			}
+			if !n.LastClickAt.IsZero() && gtx.Now.Sub(n.LastClickAt) < 300*time.Millisecond {
+				n.IsRenaming = true
+				n.NameEditor.SetText(n.Name)
+				ui.RenamingNode = n
+				n.LastClickAt = time.Time{}
+				return
+			}
+			n.LastClickAt = gtx.Now
+			if n.IsFolder {
+				n.Expanded = !n.Expanded
+				updateCols = true
+			} else if n.Request != nil {
+				ui.openRequestInTab(n)
+			}
+		}
+
+		preDragSlop := float32(gtx.Dp(unit.Dp(4)))
+		if dragged := ui.DraggedNode; dragged != nil {
+			for {
+				e, ok := dragged.Drag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
+				if !ok {
+					break
+				}
+				switch e.Kind {
+				case pointer.Drag:
+					if ui.DraggedNode != dragged {
+						continue
+					}
+					ui.DragNodeCurrentY = e.Position.Y
+					dy := ui.DragNodeCurrentY - ui.DragNodeOriginY
+					if dy < 0 {
+						dy = -dy
+					}
+					if !ui.DragNodeActive && dy > preDragSlop {
+						ui.DragNodeActive = true
+						ui.DragNodeOriginY = ui.DragNodeCurrentY
+					}
+				case pointer.Release:
+					if ui.DraggedNode == dragged {
+						if ui.DragNodeActive {
+							ui.DragNodeCurrentY = e.Position.Y
+							ui.commitNodeDrop(dragged)
+							updateCols = true
+						} else {
+							nodeClickFn(dragged)
+						}
+						ui.DraggedNode = nil
+						ui.DragNodeActive = false
+					}
+				case pointer.Cancel:
+					if ui.DraggedNode == dragged {
+						ui.DraggedNode = nil
+						ui.DragNodeActive = false
+					}
+				}
+			}
+		}
+
+		var draggingNode bool
+		var draggedNodeVisibleIdx int = -1
+		if ui.DraggedNode != nil && ui.DragNodeActive {
+			for i, n := range ui.VisibleCols {
+				if n == ui.DraggedNode {
+					draggedNodeVisibleIdx = i
+					break
+				}
+			}
+			if draggedNodeVisibleIdx >= 0 {
+				draggingNode = true
+			}
+		}
+
+		colsSnapshot := ui.VisibleCols
+		if draggingNode {
+			colsSnapshot = ui.buildDisplayVisibleCols()
+		}
+
+		listFirst := ui.ColList.Position.First
+		trackY := -ui.ColList.Position.Offset
+		ui.colRowYs = make(map[int]int, len(colsSnapshot))
+		ui.colAfterLastY = trackY
+
+		dim := material.List(ui.Theme, &ui.ColList).Layout(gtx, len(colsSnapshot), func(gtx layout.Context, i int) layout.Dimensions {
+			node := colsSnapshot[i]
+
+			nodeClick := func() {
+				nodeClickFn(node)
+			}
+
+			dragSlop := float32(gtx.Dp(unit.Dp(4)))
+			for {
+				e, ok := node.Drag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
+				if !ok {
+					break
+				}
+				switch e.Kind {
+				case pointer.Press:
+					ui.DraggedNode = node
+					ui.DragNodeOriginY = e.Position.Y
+					ui.DragNodeCurrentY = e.Position.Y
+					ui.DragNodeActive = false
+				case pointer.Drag:
+					if ui.DraggedNode == node {
+						ui.DragNodeCurrentY = e.Position.Y
+						dy := ui.DragNodeCurrentY - ui.DragNodeOriginY
+						if dy < 0 {
+							dy = -dy
+						}
+						if !ui.DragNodeActive && dy > dragSlop {
+							ui.DragNodeActive = true
+							ui.DragNodeOriginY = ui.DragNodeCurrentY
+						}
+					}
+				case pointer.Release:
+					if ui.DraggedNode == node {
+						if ui.DragNodeActive {
+							ui.commitNodeDrop(node)
+							updateCols = true
+						} else {
+							nodeClick()
+						}
+					}
+					ui.DraggedNode = nil
+					ui.DragNodeActive = false
+				case pointer.Cancel:
+					ui.DraggedNode = nil
+					ui.DragNodeActive = false
+				}
+			}
 
 			if node.IsRenaming {
 				for {
@@ -346,28 +481,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				}
 			}
 
-			for node.Click.Clicked(gtx) {
-				if ui.RenamingNode != nil && ui.RenamingNode != node {
-					commitRename(ui.RenamingNode)
-				}
-				if node.IsRenaming {
-					continue
-				}
-				if !node.LastClickAt.IsZero() && gtx.Now.Sub(node.LastClickAt) < 300*time.Millisecond {
-					node.IsRenaming = true
-					node.NameEditor.SetText(node.Name)
-					ui.RenamingNode = node
-					node.LastClickAt = time.Time{}
-					continue
-				}
-				node.LastClickAt = gtx.Now
-				if node.IsFolder {
-					node.Expanded = !node.Expanded
-					updateCols = true
-				} else if node.Request != nil {
-					ui.openRequestInTab(node)
-				}
-			}
+			isPlaceholder := draggingNode && node == ui.DraggedNode
 
 			rowDim := layout.Inset{
 				Top: unit.Dp(1), Bottom: unit.Dp(1),
@@ -378,65 +492,75 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					isActiveNode = ui.Tabs[ui.ActiveIdx].LinkedNode == node
 				}
 
+				nodeHovered := node.Hover.Update(gtx.Source)
 				return layout.Stack{}.Layout(gtx,
 					layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-						if isActiveNode {
-							paint.FillShape(gtx.Ops, colorAccentDim, clip.Rect{Max: gtx.Constraints.Min}.Op())
+						size := gtx.Constraints.Min
+						if !isPlaceholder {
+							rect := clip.UniformRRect(image.Rectangle{Max: size}, 4)
+							switch {
+							case isActiveNode:
+								paint.FillShape(gtx.Ops, colorAccentDim, clip.Rect{Max: size}.Op())
+							case nodeHovered:
+								paint.FillShape(gtx.Ops, colorBgHover, rect.Op(gtx.Ops))
+							}
+							defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+							node.Drag.Add(gtx.Ops)
+							node.Hover.Add(gtx.Ops)
 						}
-						return layout.Dimensions{Size: gtx.Constraints.Min}
+						return layout.Dimensions{Size: size}
 					}),
 					layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+						contentMacro := op.Record(gtx.Ops)
+						contentDim := layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-								return material.Clickable(gtx, &node.Click, func(gtx layout.Context) layout.Dimensions {
-									gtx.Constraints.Min.X = gtx.Constraints.Max.X
-									return layout.Inset{
-										Top: unit.Dp(4), Bottom: unit.Dp(4),
-										Left:  unit.Dp(float32(node.Depth * 12)),
-										Right: unit.Dp(4),
-									}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										children := make([]layout.FlexChild, 0, 3)
-										if node.IsFolder {
-											children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												ic := iconChevronR
-												if node.Expanded {
-													ic = iconChevronD
-												}
-												size := gtx.Dp(unit.Dp(18))
-												gtx.Constraints.Min = image.Pt(size, size)
-												gtx.Constraints.Max = gtx.Constraints.Min
-												return ic.Layout(gtx, colorFgMuted)
-											}))
-											children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout))
-											children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-												if node.IsRenaming {
-													return InlineRenameField(gtx, ui.Theme, &node.NameEditor)
-												}
-												lbl := material.Label(ui.Theme, unit.Sp(12), node.Name)
-												lbl.Alignment = text.Start
-												if node.Depth == 0 {
-													lbl.Font.Weight = font.Bold
-												}
-												return layout.W.Layout(gtx, lbl.Layout)
-											}))
-										} else if node.Request != nil {
-											children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												lbl := material.Label(ui.Theme, unit.Sp(10), node.Request.Method)
-												lbl.Color = getMethodColor(node.Request.Method)
-												return lbl.Layout(gtx)
-											}))
-											children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout))
-											children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-												if node.IsRenaming {
-													return InlineRenameField(gtx, ui.Theme, &node.NameEditor)
-												}
-												lbl := material.Label(ui.Theme, unit.Sp(12), node.Name)
-												lbl.Alignment = text.Start
-												return layout.W.Layout(gtx, lbl.Layout)
-											}))
-										}
-										return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, children...)
-									})
+								gtx.Constraints.Min.X = gtx.Constraints.Max.X
+								return layout.Inset{
+									Top: unit.Dp(4), Bottom: unit.Dp(4),
+									Left:  unit.Dp(float32(node.Depth * 12)),
+									Right: unit.Dp(4),
+								}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									children := make([]layout.FlexChild, 0, 3)
+									if node.IsFolder {
+										children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+											ic := iconChevronR
+											if node.Expanded {
+												ic = iconChevronD
+											}
+											size := gtx.Dp(unit.Dp(18))
+											gtx.Constraints.Min = image.Pt(size, size)
+											gtx.Constraints.Max = gtx.Constraints.Min
+											return ic.Layout(gtx, colorFgMuted)
+										}))
+										children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout))
+										children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+											if node.IsRenaming {
+												return InlineRenameField(gtx, ui.Theme, &node.NameEditor)
+											}
+											lbl := material.Label(ui.Theme, unit.Sp(12), node.Name)
+											lbl.Alignment = text.Start
+											if node.Depth == 0 {
+												lbl.Font.Weight = font.Bold
+											}
+											return layout.W.Layout(gtx, lbl.Layout)
+										}))
+									} else if node.Request != nil {
+										children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+											lbl := material.Label(ui.Theme, unit.Sp(10), node.Request.Method)
+											lbl.Color = getMethodColor(node.Request.Method)
+											return lbl.Layout(gtx)
+										}))
+										children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout))
+										children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+											if node.IsRenaming {
+												return InlineRenameField(gtx, ui.Theme, &node.NameEditor)
+											}
+											lbl := material.Label(ui.Theme, unit.Sp(12), node.Name)
+											lbl.Alignment = text.Start
+											return layout.W.Layout(gtx, lbl.Layout)
+										}))
+									}
+									return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, children...)
 								})
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -450,6 +574,11 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 								return dims
 							}),
 						)
+						contentCall := contentMacro.Stop()
+						if !isPlaceholder {
+							contentCall.Add(gtx.Ops)
+						}
+						return contentDim
 					}),
 					layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 						if !node.MenuOpen {
@@ -518,8 +647,84 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 			if i == 0 && rowDim.Size.Y > 0 {
 				ui.colRowH = rowDim.Size.Y
 			}
+			if i >= listFirst {
+				ui.colRowYs[i] = trackY
+				trackY += rowDim.Size.Y
+				ui.colAfterLastY = trackY
+			}
 			return rowDim
 		})
+
+		rowYAt := func(idx int) int {
+			if y, ok := ui.colRowYs[idx]; ok {
+				return y
+			}
+			if idx >= len(colsSnapshot) {
+				return ui.colAfterLastY
+			}
+			return idx * ui.colRowH
+		}
+
+		if draggingNode && ui.colRowH > 0 && draggedNodeVisibleIdx >= 0 && ui.DraggedNode != nil {
+			rowW := dim.Size.X
+			if rowW <= 0 {
+				rowW = gtx.Constraints.Max.X
+			}
+			srcOverlayY := rowYAt(draggedNodeVisibleIdx)
+			draggedRowH := ui.colRowH
+			if draggedNodeVisibleIdx+1 < len(colsSnapshot) {
+				if nextY, ok := ui.colRowYs[draggedNodeVisibleIdx+1]; ok {
+					if h := nextY - srcOverlayY; h > 0 {
+						draggedRowH = h
+					}
+				}
+			} else if h := ui.colAfterLastY - srcOverlayY; h > 0 && draggedNodeVisibleIdx >= listFirst {
+				draggedRowH = h
+			}
+			hitMacro := op.Record(gtx.Ops)
+			hitOff := op.Offset(image.Pt(0, srcOverlayY)).Push(gtx.Ops)
+			hitClip := clip.Rect{Max: image.Pt(rowW, draggedRowH)}.Push(gtx.Ops)
+			ui.DraggedNode.Drag.Add(gtx.Ops)
+			hitClip.Pop()
+			hitOff.Pop()
+			op.Defer(gtx.Ops, hitMacro.Stop())
+
+			ghostY := srcOverlayY + int(ui.DragNodeCurrentY-ui.DragNodeOriginY)
+			if ghostY < 0 {
+				ghostY = 0
+			}
+			if maxGhost := dim.Size.Y - draggedRowH; maxGhost > 0 && ghostY > maxGhost {
+				ghostY = maxGhost
+			}
+			ghostMacro := op.Record(gtx.Ops)
+			ghostOff := op.Offset(image.Pt(0, ghostY)).Push(gtx.Ops)
+			ghostGtx := gtx
+			ghostGtx.Constraints.Min = image.Pt(rowW, 0)
+			ghostGtx.Constraints.Max = image.Pt(rowW, draggedRowH)
+			renderNodeGhost(ghostGtx, ui.Theme, ui.DraggedNode)
+			ghostOff.Pop()
+			op.Defer(gtx.Ops, ghostMacro.Stop())
+
+			if _, dropDisplayIdx, _, _, ok := ui.dragNodeDrop(); ok {
+				dropY := rowYAt(dropDisplayIdx)
+				lineH := gtx.Dp(unit.Dp(2))
+				if lineH < 1 {
+					lineH = 1
+				}
+				lineTop := dropY - lineH/2
+				if lineTop < 0 {
+					lineTop = 0
+				}
+				if maxLine := dim.Size.Y - lineH; maxLine > 0 && lineTop > maxLine {
+					lineTop = maxLine
+				}
+				lineMacro := op.Record(gtx.Ops)
+				lineOff := op.Offset(image.Pt(0, lineTop)).Push(gtx.Ops)
+				paint.FillShape(gtx.Ops, colorAccent, clip.Rect{Max: image.Pt(rowW, lineH)}.Op())
+				lineOff.Pop()
+				op.Defer(gtx.Ops, lineMacro.Stop())
+			}
+		}
 
 		if updateCols {
 			ui.updateVisibleCols()
@@ -609,7 +814,86 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 			})
 		}
 
+		envClickFn := func(env *EnvironmentUI) {
+			if env.IsRenaming {
+				return
+			}
+			if !env.LastClickAt.IsZero() && gtx.Now.Sub(env.LastClickAt) < 300*time.Millisecond {
+				env.IsRenaming = true
+				env.InlineNameEd.SingleLine = true
+				env.InlineNameEd.Submit = true
+				env.InlineNameEd.SetText(env.Data.Name)
+				env.LastClickAt = time.Time{}
+				return
+			}
+			env.LastClickAt = gtx.Now
+			if ui.ActiveEnvID == env.Data.ID {
+				ui.ActiveEnvID = ""
+			} else {
+				ui.ActiveEnvID = env.Data.ID
+			}
+			ui.activeEnvDirty = true
+			ui.saveState()
+			ui.Window.Invalidate()
+		}
+
+		preEnvSlop := float32(gtx.Dp(unit.Dp(4)))
+		if dragged := ui.DraggedEnv; dragged != nil {
+			for {
+				e, ok := dragged.Drag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
+				if !ok {
+					break
+				}
+				switch e.Kind {
+				case pointer.Drag:
+					if ui.DraggedEnv != dragged {
+						continue
+					}
+					ui.DragEnvCurrentY = e.Position.Y
+					dy := ui.DragEnvCurrentY - ui.DragEnvOriginY
+					if dy < 0 {
+						dy = -dy
+					}
+					if !ui.DragEnvActive && dy > preEnvSlop {
+						ui.DragEnvActive = true
+						ui.DragEnvOriginY = ui.DragEnvCurrentY
+					}
+				case pointer.Release:
+					if ui.DraggedEnv == dragged {
+						if ui.DragEnvActive {
+							ui.DragEnvCurrentY = e.Position.Y
+							ui.commitEnvDrop(dragged)
+						} else {
+							envClickFn(dragged)
+						}
+						ui.DraggedEnv = nil
+						ui.DragEnvActive = false
+					}
+				case pointer.Cancel:
+					if ui.DraggedEnv == dragged {
+						ui.DraggedEnv = nil
+						ui.DragEnvActive = false
+					}
+				}
+			}
+		}
+
 		envSnapshot := ui.Environments
+
+		var draggingEnv bool
+		var draggedSrcIdx int = -1
+		if ui.DraggedEnv != nil && ui.DragEnvActive {
+			for i, e := range ui.Environments {
+				if e == ui.DraggedEnv {
+					draggedSrcIdx = i
+					break
+				}
+			}
+			if draggedSrcIdx >= 0 {
+				draggingEnv = true
+			}
+		}
+
 		var envToDelete *EnvironmentUI
 		envList := material.List(ui.Theme, &ui.EnvList)
 		envList.AnchorStrategy = material.Overlay
@@ -618,9 +902,56 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{}
 			}
 			env := envSnapshot[idx]
+			isActive := ui.ActiveEnvID == env.Data.ID
+
+			envClick := func() {
+				envClickFn(env)
+			}
+
+			dragSlop := float32(gtx.Dp(unit.Dp(4)))
+			for {
+				e, ok := env.Drag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
+				if !ok {
+					break
+				}
+				switch e.Kind {
+				case pointer.Press:
+					ui.DraggedEnv = env
+					ui.DragEnvOriginY = e.Position.Y
+					ui.DragEnvCurrentY = e.Position.Y
+					ui.DragEnvActive = false
+				case pointer.Drag:
+					if ui.DraggedEnv == env {
+						ui.DragEnvCurrentY = e.Position.Y
+						dy := ui.DragEnvCurrentY - ui.DragEnvOriginY
+						if dy < 0 {
+							dy = -dy
+						}
+						if !ui.DragEnvActive && dy > dragSlop {
+							ui.DragEnvActive = true
+							ui.DragEnvOriginY = ui.DragEnvCurrentY
+						}
+					}
+				case pointer.Release:
+					if ui.DraggedEnv == env {
+						if ui.DragEnvActive {
+							ui.commitEnvDrop(env)
+						} else {
+							envClick()
+						}
+					}
+					ui.DraggedEnv = nil
+					ui.DragEnvActive = false
+				case pointer.Cancel:
+					ui.DraggedEnv = nil
+					ui.DragEnvActive = false
+				}
+			}
+
+			isEnvPlaceholder := draggingEnv && env == ui.DraggedEnv
+
 			rowDim := layout.Inset{Left: unit.Dp(0), Right: unit.Dp(0), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				isActive := ui.ActiveEnvID == env.Data.ID
 
 				commitEnvRename := func(e *EnvironmentUI) {
 					if !e.IsRenaming {
@@ -633,29 +964,6 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					}
 					e.IsRenaming = false
 					e.RenamingFocused = false
-				}
-
-				for env.Click.Clicked(gtx) {
-					if env.IsRenaming {
-						continue
-					}
-					if !env.LastClickAt.IsZero() && gtx.Now.Sub(env.LastClickAt) < 300*time.Millisecond {
-						env.IsRenaming = true
-						env.InlineNameEd.SingleLine = true
-						env.InlineNameEd.Submit = true
-						env.InlineNameEd.SetText(env.Data.Name)
-						env.LastClickAt = time.Time{}
-						continue
-					}
-					env.LastClickAt = gtx.Now
-					if isActive {
-						ui.ActiveEnvID = ""
-					} else {
-						ui.ActiveEnvID = env.Data.ID
-					}
-					ui.activeEnvDirty = true
-					ui.saveState()
-					ui.Window.Invalidate()
 				}
 
 				if env.IsRenaming {
@@ -704,11 +1012,12 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					env.MenuOpen = false
 				}
 
+				envHovered := env.Hover.Update(gtx.Source)
 				bgColor := colorBgDark
 				if isActive {
 					bgColor = colorBg
 				}
-				if env.Click.Hovered() {
+				if envHovered {
 					bgColor = colorBgHover
 				}
 
@@ -739,18 +1048,29 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 
 				return layout.Stack{}.Layout(gtx,
 					layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-						return material.Clickable(gtx, &env.Click, func(gtx layout.Context) layout.Dimensions {
-							gtx.Constraints.Min.X = gtx.Constraints.Max.X
-							rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4)
+						gtx.Constraints.Min.X = gtx.Constraints.Max.X
+						size := gtx.Constraints.Min
+						rect := clip.UniformRRect(image.Rectangle{Max: size}, 4)
+						if !isEnvPlaceholder {
 							paint.FillShape(gtx.Ops, bgColor, rect.Op(gtx.Ops))
 							if isActive {
-								paint.FillShape(gtx.Ops, envHighlightColor(env.Data), clip.Rect{Max: image.Point{X: gtx.Dp(unit.Dp(2)), Y: gtx.Constraints.Min.Y}}.Op())
+								paint.FillShape(gtx.Ops, envHighlightColor(env.Data), clip.Rect{Max: image.Point{X: gtx.Dp(unit.Dp(2)), Y: size.Y}}.Op())
 							}
-							return layout.Dimensions{Size: gtx.Constraints.Min}
-						})
+							defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+							env.Drag.Add(gtx.Ops)
+							env.Hover.Add(gtx.Ops)
+						}
+						return layout.Dimensions{Size: size}
 					}),
 					layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 						gtx.Constraints.Min.X = gtx.Constraints.Max.X
+						if isEnvPlaceholder {
+							rowH := ui.envRowH
+							if rowH <= 0 {
+								rowH = gtx.Dp(unit.Dp(30))
+							}
+							return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, rowH-gtx.Dp(unit.Dp(4)))}
+						}
 						return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 								layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -760,11 +1080,10 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 										}
 										lbl := material.Label(ui.Theme, unit.Sp(12), env.Data.Name)
 										lbl.MaxLines = 1
-										lbl.Truncator = "..."
 										if isActive {
 											lbl.Font.Weight = font.Bold
 										}
-										return lbl.Layout(gtx)
+										return env.NameScroll.Layout(gtx, ui.Theme, lbl)
 									})
 								}),
 								layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
@@ -878,6 +1197,61 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 			}
 			return rowDim
 		})
+		if draggingEnv && ui.envRowH > 0 && draggedSrcIdx >= 0 && ui.DraggedEnv != nil {
+			rowW := dim.Size.X
+			if rowW <= 0 {
+				rowW = gtx.Constraints.Max.X
+			}
+			srcOverlayY := draggedSrcIdx * ui.envRowH
+			hitMacro := op.Record(gtx.Ops)
+			hitOff := op.Offset(image.Pt(0, srcOverlayY)).Push(gtx.Ops)
+			hitClip := clip.Rect{Max: image.Pt(rowW, ui.envRowH)}.Push(gtx.Ops)
+			ui.DraggedEnv.Drag.Add(gtx.Ops)
+			hitClip.Pop()
+			hitOff.Pop()
+			op.Defer(gtx.Ops, hitMacro.Stop())
+
+			ghostY := srcOverlayY + int(ui.DragEnvCurrentY-ui.DragEnvOriginY)
+			if ghostY < 0 {
+				ghostY = 0
+			}
+			if maxGhost := dim.Size.Y - ui.envRowH; maxGhost > 0 && ghostY > maxGhost {
+				ghostY = maxGhost
+			}
+			ghostMacro := op.Record(gtx.Ops)
+			ghostOff := op.Offset(image.Pt(0, ghostY)).Push(gtx.Ops)
+			ghostGtx := gtx
+			ghostGtx.Constraints.Min = image.Pt(rowW, 0)
+			ghostGtx.Constraints.Max = image.Pt(rowW, ui.envRowH)
+			renderEnvGhost(ghostGtx, ui.Theme, ui.DraggedEnv)
+			ghostOff.Pop()
+			op.Defer(gtx.Ops, ghostMacro.Stop())
+
+			if target := ui.dragEnvDropTargetIdx(); target >= 0 {
+				var dropY int
+				if target <= draggedSrcIdx {
+					dropY = target * ui.envRowH
+				} else {
+					dropY = (target + 1) * ui.envRowH
+				}
+				lineH := gtx.Dp(unit.Dp(2))
+				if lineH < 1 {
+					lineH = 1
+				}
+				lineTop := dropY - lineH/2
+				if lineTop < 0 {
+					lineTop = 0
+				}
+				if maxLine := dim.Size.Y - lineH; maxLine > 0 && lineTop > maxLine {
+					lineTop = maxLine
+				}
+				lineMacro := op.Record(gtx.Ops)
+				lineOff := op.Offset(image.Pt(0, lineTop)).Push(gtx.Ops)
+				paint.FillShape(gtx.Ops, colorAccent, clip.Rect{Max: image.Pt(rowW, lineH)}.Op())
+				lineOff.Pop()
+				op.Defer(gtx.Ops, lineMacro.Stop())
+			}
+		}
 		if envToDelete != nil {
 			ui.deleteEnvironment(envToDelete)
 		}
@@ -998,3 +1372,104 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 		}),
 	)
 }
+
+func renderNodeGhost(gtx layout.Context, th *material.Theme, node *CollectionNode) layout.Dimensions {
+	gtx.Constraints.Min.X = gtx.Constraints.Max.X
+	rowH := gtx.Constraints.Max.Y
+	if rowH <= 0 {
+		rowH = gtx.Dp(unit.Dp(24))
+	}
+	return layout.Inset{Top: unit.Dp(1), Bottom: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		size := image.Pt(gtx.Constraints.Max.X, rowH-gtx.Dp(unit.Dp(2)))
+		if size.Y <= 0 {
+			size.Y = gtx.Dp(unit.Dp(20))
+		}
+		rect := clip.UniformRRect(image.Rectangle{Max: size}, 4)
+		paint.FillShape(gtx.Ops, colorBgDragGhost, rect.Op(gtx.Ops))
+		paintBorder1px(gtx, size, colorAccent)
+		gtx.Constraints.Min = size
+		gtx.Constraints.Max = size
+		return layout.Inset{
+			Top: unit.Dp(4), Bottom: unit.Dp(4),
+			Left:  unit.Dp(float32(node.Depth * 12)),
+			Right: unit.Dp(4),
+		}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			children := make([]layout.FlexChild, 0, 3)
+			if node.IsFolder {
+				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					ic := iconChevronR
+					if node.Expanded {
+						ic = iconChevronD
+					}
+					sz := gtx.Dp(unit.Dp(18))
+					gtx.Constraints.Min = image.Pt(sz, sz)
+					gtx.Constraints.Max = gtx.Constraints.Min
+					return ic.Layout(gtx, colorFgMuted)
+				}))
+				children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout))
+				children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					lbl := material.Label(th, unit.Sp(12), node.Name)
+					lbl.Alignment = text.Start
+					if node.Depth == 0 {
+						lbl.Font.Weight = font.Bold
+					}
+					return layout.W.Layout(gtx, lbl.Layout)
+				}))
+			} else if node.Request != nil {
+				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					lbl := material.Label(th, unit.Sp(10), node.Request.Method)
+					lbl.Color = getMethodColor(node.Request.Method)
+					return lbl.Layout(gtx)
+				}))
+				children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout))
+				children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					lbl := material.Label(th, unit.Sp(12), node.Name)
+					lbl.Alignment = text.Start
+					return layout.W.Layout(gtx, lbl.Layout)
+				}))
+			}
+			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, children...)
+		})
+	})
+}
+
+func renderEnvGhost(gtx layout.Context, th *material.Theme, env *EnvironmentUI) layout.Dimensions {
+	gtx.Constraints.Min.X = gtx.Constraints.Max.X
+	rowH := gtx.Constraints.Max.Y
+	if rowH <= 0 {
+		rowH = gtx.Dp(unit.Dp(30))
+	}
+	size := image.Pt(gtx.Constraints.Max.X, rowH)
+	rect := clip.UniformRRect(image.Rectangle{Max: size}, 4)
+	paint.FillShape(gtx.Ops, colorBgDragGhost, rect.Op(gtx.Ops))
+	paintBorder1px(gtx, size, colorAccent)
+	gtx.Constraints.Min = size
+	gtx.Constraints.Max = size
+	return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Left: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					lbl := material.Label(th, unit.Sp(12), env.Data.Name)
+					lbl.MaxLines = 1
+					return layout.W.Layout(gtx, lbl.Layout)
+				})
+			}),
+			layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				sw := gtx.Dp(18)
+				gtx.Constraints.Min = image.Pt(sw, sw)
+				gtx.Constraints.Max = gtx.Constraints.Min
+				border := gtx.Dp(unit.Dp(1))
+				if border < 1 {
+					border = 1
+				}
+				paint.FillShape(gtx.Ops, colorBorderLight, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 3).Op(gtx.Ops))
+				inner := image.Rect(border, border, sw-border, sw-border)
+				paint.FillShape(gtx.Ops, envHighlightColor(env.Data), clip.UniformRRect(inner, 2).Op(gtx.Ops))
+				return layout.Dimensions{Size: gtx.Constraints.Min}
+			}),
+			layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
+		)
+	})
+}
+

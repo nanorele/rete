@@ -6,6 +6,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/widget"
 )
 
@@ -41,7 +42,6 @@ type EnvVarRow struct {
 
 type EnvironmentUI struct {
 	Data      *ParsedEnvironment
-	Click     widget.Clickable
 	SelectBtn widget.Clickable
 	EditBtn   widget.Clickable
 	RenameBtn widget.Clickable
@@ -64,6 +64,10 @@ type EnvironmentUI struct {
 	RenamingFocused bool
 	InlineNameEd    widget.Editor
 	LastClickAt     time.Time
+	NameScroll      scrollLabel
+	Drag            gesture.Drag
+	Hover           gesture.Hover
+	DragOriginY     float32
 }
 
 func (ui *EnvironmentUI) initEditor() {

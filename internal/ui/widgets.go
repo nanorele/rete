@@ -8,6 +8,7 @@ import (
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/font"
+	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/io/event"
 	"github.com/nanorele/gio/io/key"
 	"github.com/nanorele/gio/io/pointer"
@@ -576,6 +577,57 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 
 func SquareBtn(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, th *material.Theme) layout.Dimensions {
 	return squareBtnSized(gtx, clk, ic, th, 28, 16)
+}
+
+type scrollLabel struct {
+	scroller gesture.Scroll
+	scrollX  int
+}
+
+func (s *scrollLabel) Layout(gtx layout.Context, th *material.Theme, lbl material.LabelStyle) layout.Dimensions {
+	natW := measureTextWidthCached(gtx, th, lbl.TextSize, lbl.Font, lbl.Text)
+	viewW := gtx.Constraints.Max.X
+	if natW <= viewW {
+		s.scrollX = 0
+		return lbl.Layout(gtx)
+	}
+	maxX := natW - viewW
+	if maxX < 0 {
+		maxX = 0
+	}
+	if s.scrollX > maxX {
+		s.scrollX = maxX
+	}
+	if s.scrollX < 0 {
+		s.scrollX = 0
+	}
+	sx := s.scroller.Update(gtx.Metric, gtx.Source, gtx.Now, gesture.Horizontal,
+		pointer.ScrollRange{Min: -s.scrollX, Max: maxX - s.scrollX},
+		pointer.ScrollRange{},
+	)
+	s.scrollX += sx
+	if s.scrollX > maxX {
+		s.scrollX = maxX
+	}
+	if s.scrollX < 0 {
+		s.scrollX = 0
+	}
+
+	macro := op.Record(gtx.Ops)
+	natGtx := gtx
+	natGtx.Constraints.Min.X = natW
+	natGtx.Constraints.Max.X = natW
+	dim := lbl.Layout(natGtx)
+	call := macro.Stop()
+
+	cl := clip.Rect{Max: image.Pt(viewW, dim.Size.Y)}.Push(gtx.Ops)
+	s.scroller.Add(gtx.Ops)
+	off := op.Offset(image.Pt(-s.scrollX, 0)).Push(gtx.Ops)
+	call.Add(gtx.Ops)
+	off.Pop()
+	cl.Pop()
+
+	return layout.Dimensions{Size: image.Pt(viewW, dim.Size.Y)}
 }
 
 func InlineRenameField(gtx layout.Context, th *material.Theme, ed *widget.Editor) layout.Dimensions {

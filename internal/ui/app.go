@@ -8,6 +8,7 @@ import (
 	"image"
 	"image/color"
 	"io"
+	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -103,6 +104,15 @@ type AppUI struct {
 	EnvColorPicker  colorPickerState
 	EnvColorEnvID   string
 	windowSize      image.Point
+	DraggedEnv      *EnvironmentUI
+	DragEnvOriginY  float32
+	DragEnvCurrentY float32
+	DragEnvActive   bool
+
+	DraggedNode      *CollectionNode
+	DragNodeOriginY  float32
+	DragNodeCurrentY float32
+	DragNodeActive   bool
 	Tabs            []*RequestTab
 	ActiveIdx        int
 	TabsList         widget.List
@@ -127,6 +137,8 @@ type AppUI struct {
 
 	envRowH         int
 	colRowH         int
+	colRowYs        map[int]int
+	colAfterLastY   int
 	SidebarEnvDrag  gesture.Drag
 	SidebarEnvDragY float32
 	EditingEnv      *EnvironmentUI
@@ -452,6 +464,64 @@ func (ui *AppUI) addNewEnvironment() {
 	ui.Window.Invalidate()
 }
 
+func (ui *AppUI) dragEnvDropTargetIdx() int {
+	if ui.DraggedEnv == nil || !ui.DragEnvActive || ui.envRowH <= 0 {
+		return -1
+	}
+	srcIdx := -1
+	for i, e := range ui.Environments {
+		if e == ui.DraggedEnv {
+			srcIdx = i
+			break
+		}
+	}
+	if srcIdx < 0 {
+		return -1
+	}
+	rowsDelta := int(math.Round(float64(ui.DragEnvCurrentY-ui.DragEnvOriginY) / float64(ui.envRowH)))
+	target := srcIdx + rowsDelta
+	if target < 0 {
+		target = 0
+	}
+	if target >= len(ui.Environments) {
+		target = len(ui.Environments) - 1
+	}
+	return target
+}
+
+func (ui *AppUI) commitEnvDrop(src *EnvironmentUI) {
+	target := ui.dragEnvDropTargetIdx()
+	if target < 0 {
+		return
+	}
+	srcIdx := -1
+	for i, e := range ui.Environments {
+		if e == src {
+			srcIdx = i
+			break
+		}
+	}
+	if srcIdx < 0 || srcIdx == target {
+		return
+	}
+	envs := make([]*EnvironmentUI, 0, len(ui.Environments))
+	moved := ui.Environments[srcIdx]
+	for i, e := range ui.Environments {
+		if i == srcIdx {
+			continue
+		}
+		envs = append(envs, e)
+	}
+	insertIdx := target
+	if insertIdx > len(envs) {
+		insertIdx = len(envs)
+	}
+	envs = append(envs[:insertIdx], append([]*EnvironmentUI{moved}, envs[insertIdx:]...)...)
+	ui.Environments = envs
+	ui.saveState()
+	ui.Window.Invalidate()
+}
+
 func (ui *AppUI) duplicateEnvironment(src *EnvironmentUI) {
 	if src == nil || src.Data == nil {
 		return
@@ -467,6 +537,185 @@ func (ui *AppUI) duplicateEnvironment(src *EnvironmentUI) {
 	SaveEnvironment(dup)
 	ui.Environments = append(ui.Environments, envUI)
 	ui.EnvsExpanded = true
+	ui.saveState()
+	ui.Window.Invalidate()
+}
+
+func (ui *AppUI) nodeSiblings(node *CollectionNode) []*CollectionNode {
+	if node == nil {
+		return nil
+	}
+	if node.Parent == nil {
+		roots := make([]*CollectionNode, 0, len(ui.Collections))
+		for _, c := range ui.Collections {
+			if c != nil && c.Data != nil && c.Data.Root != nil {
+				roots = append(roots, c.Data.Root)
+			}
+		}
+		return roots
+	}
+	return node.Parent.Children
+}
+
+func (ui *AppUI) dragNodeDrop() (target int, dropDisplayIdx int, srcStart int, srcEnd int, ok bool) {
+	if ui.DraggedNode == nil || !ui.DragNodeActive || ui.colRowH <= 0 {
+		return -1, 0, 0, 0, false
+	}
+	srcStart = -1
+	for i, n := range ui.VisibleCols {
+		if n == ui.DraggedNode {
+			srcStart = i
+			break
+		}
+	}
+	if srcStart < 0 {
+		return -1, 0, 0, 0, false
+	}
+	srcEnd = srcStart + 1
+	for srcEnd < len(ui.VisibleCols) && ui.VisibleCols[srcEnd].Depth > ui.DraggedNode.Depth {
+		srcEnd++
+	}
+
+	siblings := ui.nodeSiblings(ui.DraggedNode)
+	if len(siblings) == 0 {
+		return -1, 0, 0, 0, false
+	}
+	srcSibIdx := -1
+	for i, s := range siblings {
+		if s == ui.DraggedNode {
+			srcSibIdx = i
+			break
+		}
+	}
+	if srcSibIdx < 0 {
+		return -1, 0, 0, 0, false
+	}
+
+	rowYAt := func(idx int) int {
+		if idx >= len(ui.VisibleCols) {
+			if ui.colAfterLastY > 0 {
+				return ui.colAfterLastY
+			}
+			return idx * ui.colRowH
+		}
+		if y, exists := ui.colRowYs[idx]; exists {
+			return y
+		}
+		return idx * ui.colRowH
+	}
+
+	gaps := make([]int, len(siblings)+1)
+	for i, sib := range siblings {
+		gaps[i] = -1
+		for j, n := range ui.VisibleCols {
+			if n == sib {
+				gaps[i] = j
+				break
+			}
+		}
+	}
+	if last := siblings[len(siblings)-1]; last != nil && gaps[len(siblings)-1] >= 0 {
+		end := gaps[len(siblings)-1] + 1
+		for end < len(ui.VisibleCols) && ui.VisibleCols[end].Depth > last.Depth {
+			end++
+		}
+		gaps[len(siblings)] = end
+	} else {
+		gaps[len(siblings)] = len(ui.VisibleCols)
+	}
+
+	cursorColY := rowYAt(srcStart) + int(ui.DragNodeCurrentY)
+
+	bestGap := srcSibIdx
+	bestDist := 1 << 30
+	for gi, gIdx := range gaps {
+		if gIdx < 0 {
+			continue
+		}
+		gY := rowYAt(gIdx)
+		dist := cursorColY - gY
+		if dist < 0 {
+			dist = -dist
+		}
+		if dist < bestDist {
+			bestDist = dist
+			bestGap = gi
+		}
+	}
+
+	if bestGap <= srcSibIdx {
+		target = bestGap
+	} else {
+		target = bestGap - 1
+	}
+
+	dropDisplayIdx = gaps[bestGap]
+	if dropDisplayIdx < 0 {
+		dropDisplayIdx = 0
+	}
+	return target, dropDisplayIdx, srcStart, srcEnd, true
+}
+
+func (ui *AppUI) buildDisplayVisibleCols() []*CollectionNode {
+	return ui.VisibleCols
+}
+
+func (ui *AppUI) commitNodeDrop(src *CollectionNode) {
+	if src == nil {
+		return
+	}
+	target, _, _, _, ok := ui.dragNodeDrop()
+	if !ok || target < 0 {
+		return
+	}
+	siblings := ui.nodeSiblings(src)
+	srcIdx := -1
+	for i, s := range siblings {
+		if s == src {
+			srcIdx = i
+			break
+		}
+	}
+	if srcIdx < 0 || srcIdx == target {
+		return
+	}
+	if src.Parent == nil {
+		var movedColUI *CollectionUI
+		movedIdx := -1
+		for i, c := range ui.Collections {
+			if c != nil && c.Data != nil && c.Data.Root == src {
+				movedColUI = c
+				movedIdx = i
+				break
+			}
+		}
+		if movedColUI == nil {
+			return
+		}
+		ui.Collections = append(ui.Collections[:movedIdx], ui.Collections[movedIdx+1:]...)
+		insertIdx := target
+		if insertIdx > len(ui.Collections) {
+			insertIdx = len(ui.Collections)
+		}
+		ui.Collections = append(ui.Collections[:insertIdx], append([]*CollectionUI{movedColUI}, ui.Collections[insertIdx:]...)...)
+	} else {
+		children := make([]*CollectionNode, 0, len(src.Parent.Children))
+		moved := src
+		for i, c := range src.Parent.Children {
+			if i == srcIdx {
+				continue
+			}
+			children = append(children, c)
+		}
+		insertIdx := target
+		if insertIdx > len(children) {
+			insertIdx = len(children)
+		}
+		children = append(children[:insertIdx], append([]*CollectionNode{moved}, children[insertIdx:]...)...)
+		src.Parent.Children = children
+		ui.markCollectionDirty(src.Collection)
+	}
+	ui.updateVisibleCols()
 	ui.saveState()
 	ui.Window.Invalidate()
 }
@@ -647,8 +896,22 @@ func (ui *AppUI) loadState() {
 	ui.relinkTabs()
 
 	loadedEnvs := loadSavedEnvironments()
+	envByID := make(map[string]*ParsedEnvironment, len(loadedEnvs))
 	for _, e := range loadedEnvs {
-		ui.Environments = append(ui.Environments, &EnvironmentUI{Data: e})
+		envByID[e.ID] = e
+	}
+	added := make(map[string]bool, len(loadedEnvs))
+	for _, id := range state.EnvIDsOrder {
+		if e, ok := envByID[id]; ok && !added[id] {
+			ui.Environments = append(ui.Environments, &EnvironmentUI{Data: e})
+			added[id] = true
+		}
+	}
+	for _, e := range loadedEnvs {
+		if !added[e.ID] {
+			ui.Environments = append(ui.Environments, &EnvironmentUI{Data: e})
+			added[e.ID] = true
+		}
 	}
 	ui.ActiveEnvID = state.ActiveEnvID
 	ui.activeEnvDirty = true
@@ -664,6 +927,11 @@ func (ui *AppUI) buildStateSnapshot() AppState {
 		SidebarWidthPx:     ui.SidebarWidth,
 		SidebarEnvHeightPx: ui.SidebarEnvHeight,
 		Settings:           &settings,
+	}
+	for _, e := range ui.Environments {
+		if e.Data != nil {
+			state.EnvIDsOrder = append(state.EnvIDsOrder, e.Data.ID)
+		}
 	}
 	for _, tab := range ui.Tabs {
 		reqWrap := tab.ReqWrapEnabled
@@ -894,7 +1162,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 	for {
 		ev, ok := gtx.Event(pointer.Filter{
 			Target: ui,
-			Kinds:  pointer.Move | pointer.Press | pointer.Release,
+			Kinds:  pointer.Move | pointer.Press | pointer.Release | pointer.Drag,
 		})
 		if !ok {
 			break
@@ -1195,6 +1463,7 @@ func (ui *AppUI) layoutVarPopup(gtx layout.Context) {
 	layout.Stack{}.Layout(gtx,
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			paint.FillShape(gtx.Ops, color.NRGBA{A: 80}, clip.Rect{Max: gtx.Constraints.Max}.Op())
+			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 			for {
 				ev, ok := gtx.Event(pointer.Filter{
 					Target: &ui.VarPopupOpen,

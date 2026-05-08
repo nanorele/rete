@@ -114,6 +114,10 @@ type RequestTab struct {
 	ScrollDragY      float32
 	ReqScrollDrag    gesture.Drag
 	ReqScrollDragY   float32
+	HScrollDrag      gesture.Drag
+	HScrollDragX     float32
+	ReqHScrollDrag   gesture.Drag
+	ReqHScrollDragX  float32
 
 	LoadFromFileBtn    widget.Clickable
 	DismissOversizeBtn widget.Clickable
@@ -1498,6 +1502,12 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 													return t.layoutReqScrollbar(gtx, win)
 												}),
 												layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+													if t.ReqWrapEnabled {
+														return layout.Dimensions{}
+													}
+													return t.layoutReqHScrollbar(gtx, win)
+												}),
+												layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 													return t.layoutOversizeBanner(gtx, th)
 												}),
 											)
@@ -1814,6 +1824,12 @@ func (t *RequestTab) layoutResponseBody(gtx layout.Context, th *material.Theme, 
 
 			return layout.Dimensions{}
 		}),
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			if t.WrapEnabled {
+				return layout.Dimensions{}
+			}
+			return t.layoutRespHScrollbar(gtx, win)
+		}),
 	)
 }
 
@@ -1867,6 +1883,93 @@ func (t *RequestTab) layoutOversizeBanner(gtx layout.Context, th *material.Theme
 		call.Add(gtx.Ops)
 		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, dim.Size.Y)}
 	})
+}
+
+func (t *RequestTab) layoutReqHScrollbar(gtx layout.Context, win *app.Window) layout.Dimensions {
+	return layoutHScrollbar(gtx, win, t.ReqEditor.GetMaxLineWidth(), t.ReqEditor.GetScrollX(), &t.ReqHScrollDrag, &t.ReqHScrollDragX, func(x int) {
+		t.ReqEditor.SetScrollX(x)
+	})
+}
+
+func (t *RequestTab) layoutRespHScrollbar(gtx layout.Context, win *app.Window) layout.Dimensions {
+	return layoutHScrollbar(gtx, win, t.RespEditor.GetMaxLineWidth(), t.RespEditor.GetScrollX(), &t.HScrollDrag, &t.HScrollDragX, func(x int) {
+		t.RespEditor.SetScrollX(x)
+	})
+}
+
+func layoutHScrollbar(gtx layout.Context, win *app.Window, totalW int, currentX int, drag *gesture.Drag, dragOriginX *float32, setX func(int)) layout.Dimensions {
+	viewW := float32(gtx.Constraints.Max.X)
+	totalWf := float32(totalW)
+	if totalWf <= viewW || totalWf == 0 {
+		return layout.Dimensions{}
+	}
+	maxScroll := totalWf - viewW
+	if maxScroll <= 0 {
+		maxScroll = 1
+	}
+	scrollX := float32(currentX)
+	scrollFraction := scrollX / maxScroll
+	if scrollFraction < 0 {
+		scrollFraction = 0
+	}
+	if scrollFraction > 1 {
+		scrollFraction = 1
+	}
+	thumbW := viewW * (viewW / totalWf)
+	if thumbW < 20 {
+		thumbW = 20
+	}
+	thumbX := scrollFraction * (viewW - thumbW)
+
+	trackHeight := float32(gtx.Dp(unit.Dp(10)))
+	thumbHeight := float32(gtx.Dp(unit.Dp(6)))
+
+	trackRect := image.Rect(
+		0, gtx.Constraints.Max.Y-int(trackHeight),
+		gtx.Constraints.Max.X, gtx.Constraints.Max.Y,
+	)
+
+	stack := clip.Rect(trackRect).Push(gtx.Ops)
+	for {
+		e, ok := drag.Update(gtx.Metric, gtx.Source, gesture.Horizontal)
+		if !ok {
+			break
+		}
+		switch e.Kind {
+		case pointer.Press:
+			*dragOriginX = e.Position.X
+		case pointer.Drag:
+			delta := e.Position.X - *dragOriginX
+			*dragOriginX = e.Position.X
+			var contentDelta float32
+			if viewW > thumbW {
+				contentDelta = delta / (viewW - thumbW) * maxScroll
+			}
+			scrollX += contentDelta
+			newScrollX := int(scrollX)
+			if newScrollX < 0 {
+				newScrollX = 0
+			}
+			if float32(newScrollX) > maxScroll {
+				newScrollX = int(maxScroll)
+			}
+			setX(newScrollX)
+			win.Invalidate()
+		}
+	}
+	pointer.CursorDefault.Add(gtx.Ops)
+	drag.Add(gtx.Ops)
+	stack.Pop()
+
+	rect := image.Rect(
+		int(thumbX),
+		gtx.Constraints.Max.Y-int(thumbHeight)-gtx.Dp(unit.Dp(2)),
+		int(thumbX+thumbW),
+		gtx.Constraints.Max.Y-gtx.Dp(unit.Dp(2)),
+	)
+	paint.FillShape(gtx.Ops, colorScrollThumb, clip.UniformRRect(rect, gtx.Dp(unit.Dp(3))).Op(gtx.Ops))
+
+	return layout.Dimensions{}
 }
 
 func (t *RequestTab) layoutReqScrollbar(gtx layout.Context, win *app.Window) layout.Dimensions {

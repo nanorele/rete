@@ -158,3 +158,113 @@ func paintColoredText(
 func fixedToFloat(i fixed.Int26_6) float32 {
 	return float32(i) / 64.0
 }
+
+type wrapGlyph struct {
+	byteStart int
+	byteEnd   int
+	x         fixed.Int26_6
+	advance   fixed.Int26_6
+	line      int
+	isBreak   bool
+}
+
+func shapeChunkForWrap(
+	shaper *text.Shaper,
+	fnt font.Font,
+	size unit.Sp,
+	gtx layout.Context,
+	chunkText []byte,
+	maxW int,
+) []wrapGlyph {
+	if len(chunkText) == 0 || shaper == nil {
+		return nil
+	}
+	if maxW < 1 {
+		maxW = 1
+	}
+	shaper.LayoutString(text.Parameters{
+		Font:       fnt,
+		PxPerEm:    fixed.I(gtx.Sp(size)),
+		Locale:     gtx.Locale,
+		WrapPolicy: text.WrapGraphemes,
+		MaxWidth:   maxW,
+	}, string(chunkText))
+
+	out := make([]wrapGlyph, 0, 64)
+	line := 0
+	byteAccum := 0
+	for g, ok := shaper.NextGlyph(); ok; g, ok = shaper.NextGlyph() {
+		runeBytes := 0
+		for r := uint16(0); r < g.Runes && byteAccum+runeBytes < len(chunkText); r++ {
+			_, sz := utf8.DecodeRune(chunkText[byteAccum+runeBytes:])
+			runeBytes += sz
+		}
+		out = append(out, wrapGlyph{
+			byteStart: byteAccum,
+			byteEnd:   byteAccum + runeBytes,
+			x:         g.X,
+			advance:   g.Advance,
+			line:      line,
+			isBreak:   g.Flags&text.FlagLineBreak != 0,
+		})
+		byteAccum += runeBytes
+		if g.Flags&text.FlagLineBreak != 0 {
+			line++
+		}
+	}
+	return out
+}
+
+func caretXYInWrap(glyphs []wrapGlyph, byteOff int) (xPx, subLine int) {
+	if len(glyphs) == 0 {
+		return 0, 0
+	}
+	if byteOff <= 0 {
+		return glyphs[0].x.Round(), glyphs[0].line
+	}
+	for _, g := range glyphs {
+		if byteOff <= g.byteStart {
+			return g.x.Round(), g.line
+		}
+	}
+	last := glyphs[len(glyphs)-1]
+	return (last.x + last.advance).Round(), last.line
+}
+
+func byteOffInWrap(glyphs []wrapGlyph, posX, targetLine int) int {
+	if len(glyphs) == 0 {
+		return 0
+	}
+	if targetLine < 0 {
+		targetLine = 0
+	}
+	firstIdx, lastIdx := -1, -1
+	for i, g := range glyphs {
+		if g.line == targetLine {
+			if firstIdx < 0 {
+				firstIdx = i
+			}
+			lastIdx = i
+		} else if g.line > targetLine {
+			break
+		}
+	}
+	if firstIdx < 0 {
+		return glyphs[len(glyphs)-1].byteEnd
+	}
+	posXf := fixed.I(posX)
+	for i := firstIdx; i <= lastIdx; i++ {
+		g := glyphs[i]
+		if posXf < g.x+g.advance/2 {
+			return g.byteStart
+		}
+	}
+	return glyphs[lastIdx].byteEnd
+}
+
+func wrapMaxLine(glyphs []wrapGlyph) int {
+	if len(glyphs) == 0 {
+		return 0
+	}
+	return glyphs[len(glyphs)-1].line
+}

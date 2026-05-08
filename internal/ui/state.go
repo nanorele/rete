@@ -84,6 +84,7 @@ type AppState struct {
 	SidebarWidthPx     int          `json:"sidebar_width_px"`
 	SidebarEnvHeightPx int          `json:"sidebar_env_height_px"`
 	Settings           *AppSettings `json:"settings,omitempty"`
+	EnvIDsOrder        []string     `json:"env_ids_order,omitempty"`
 }
 
 var configPathOverride string
