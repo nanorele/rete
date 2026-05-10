@@ -4,6 +4,9 @@ import (
 	"image"
 	"testing"
 	"time"
+	"tracto/internal/model"
+	"tracto/internal/ui/collections"
+	"tracto/internal/ui/environments"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/layout"
@@ -17,17 +20,17 @@ func TestSidebarLayout(t *testing.T) {
 	ui := NewAppUI()
 	ui.Window = win
 
-	col := &ParsedCollection{
+	col := &collections.ParsedCollection{
 		ID:   "c1",
 		Name: "C1",
-		Root: &CollectionNode{
+		Root: &collections.CollectionNode{
 			Name:     "R1",
 			IsFolder: true,
 			Expanded: true,
-			Children: []*CollectionNode{
+			Children: []*collections.CollectionNode{
 				{
 					Name: "Child",
-					Request: &ParsedRequest{
+					Request: &model.ParsedRequest{
 						Method: "GET",
 					},
 				},
@@ -38,14 +41,14 @@ func TestSidebarLayout(t *testing.T) {
 	col.Root.Children[0].Parent = col.Root
 	col.Root.Children[0].Collection = col
 
-	ui.Collections = append(ui.Collections, &CollectionUI{Data: col})
+	ui.Collections = append(ui.Collections, &collections.CollectionUI{Data: col})
 	ui.updateVisibleCols()
 
-	env := &ParsedEnvironment{
+	env := &model.ParsedEnvironment{
 		ID:   "e1",
 		Name: "E1",
 	}
-	ui.Environments = append(ui.Environments, &EnvironmentUI{Data: env})
+	ui.Environments = append(ui.Environments, &environments.EnvironmentUI{Data: env})
 
 	gtx := layout.Context{
 		Ops:         new(op.Ops),
@@ -77,18 +80,18 @@ func TestSidebarLayout(t *testing.T) {
 func TestSidebar_FolderCreation(t *testing.T) {
 	setupTestConfigDir(t)
 	ui := NewAppUI()
-	col := &ParsedCollection{
+	col := &collections.ParsedCollection{
 		ID: "c1",
-		Root: &CollectionNode{
+		Root: &collections.CollectionNode{
 			Name:     "Root",
 			IsFolder: true,
 		},
 	}
 	col.Root.Collection = col
-	ui.Collections = append(ui.Collections, &CollectionUI{Data: col})
+	ui.Collections = append(ui.Collections, &collections.CollectionUI{Data: col})
 	ui.updateVisibleCols()
 
-	newNode := cloneNode(col.Root, nil)
+	newNode := collections.CloneNode(col.Root, nil)
 	if newNode.Name != "Root Copy" {
 		t.Errorf("expected Root Copy, got %s", newNode.Name)
 	}

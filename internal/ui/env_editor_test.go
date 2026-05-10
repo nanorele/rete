@@ -4,6 +4,8 @@ import (
 	"image"
 	"testing"
 	"time"
+	"tracto/internal/model"
+	"tracto/internal/ui/environments"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/layout"
@@ -17,14 +19,14 @@ func TestEnvEditor(t *testing.T) {
 	ui := NewAppUI()
 	ui.Window = win
 
-	env := &ParsedEnvironment{
+	env := &model.ParsedEnvironment{
 		ID:   "env1",
 		Name: "Test Env",
-		Vars: []EnvVar{{Key: "k1", Value: "v1", Enabled: true}},
+		Vars: []model.EnvVar{{Key: "k1", Value: "v1", Enabled: true}},
 	}
-	ui.Environments = append(ui.Environments, &EnvironmentUI{Data: env})
+	ui.Environments = append(ui.Environments, &environments.EnvironmentUI{Data: env})
 	ui.EditingEnv = ui.Environments[0]
-	ui.EditingEnv.initEditor()
+	ui.EditingEnv.InitEditor()
 
 	gtx := layout.Context{
 		Ops:         new(op.Ops),
@@ -72,10 +74,10 @@ func TestEnvEditor(t *testing.T) {
 func TestEnvEditor_Discard(t *testing.T) {
 	setupTestConfigDir(t)
 	ui := NewAppUI()
-	env := &ParsedEnvironment{ID: "e1", Name: "E1"}
-	ui.Environments = append(ui.Environments, &EnvironmentUI{Data: env})
+	env := &model.ParsedEnvironment{ID: "e1", Name: "E1"}
+	ui.Environments = append(ui.Environments, &environments.EnvironmentUI{Data: env})
 	ui.EditingEnv = ui.Environments[0]
-	ui.EditingEnv.initEditor()
+	ui.EditingEnv.InitEditor()
 
 	gtx := layout.Context{Ops: new(op.Ops)}
 	ui.EditingEnv.BackBtn.Click()
@@ -89,8 +91,8 @@ func TestEnvEditor_Discard(t *testing.T) {
 func TestSaveVarPopup(t *testing.T) {
 	setupTestConfigDir(t)
 	ui := NewAppUI()
-	env := &ParsedEnvironment{ID: "e1", Name: "E1"}
-	ui.Environments = append(ui.Environments, &EnvironmentUI{Data: env})
+	env := &model.ParsedEnvironment{ID: "e1", Name: "E1"}
+	ui.Environments = append(ui.Environments, &environments.EnvironmentUI{Data: env})
 
 	ui.VarPopupEnvID = "e1"
 	ui.VarPopupName = "newVar"

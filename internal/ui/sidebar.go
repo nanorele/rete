@@ -7,6 +7,13 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+	"tracto/internal/model"
+	"tracto/internal/persist"
+	"tracto/internal/ui/collections"
+	"tracto/internal/ui/colorpicker"
+	"tracto/internal/ui/environments"
+	"tracto/internal/ui/theme"
+	"tracto/internal/ui/widgets"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"
@@ -26,7 +33,7 @@ import (
 
 func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 	size := gtx.Constraints.Max
-	paint.FillShape(gtx.Ops, colorBgDark, clip.Rect{Max: size}.Op())
+	paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: size}.Op())
 	gtx.Constraints.Min = size
 
 	// Anchor the sidebar to a CursorDefault so children that don't set
@@ -107,7 +114,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 
 	borderLine := func(gtx layout.Context) layout.Dimensions {
 		rect := clip.Rect{Max: image.Point{X: gtx.Constraints.Max.X, Y: gtx.Dp(unit.Dp(1))}}
-		paint.FillShape(gtx.Ops, colorBorder, rect.Op())
+		paint.FillShape(gtx.Ops, theme.Border, rect.Op())
 		return layout.Dimensions{Size: rect.Max}
 	}
 
@@ -122,11 +129,11 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					data, err := io.ReadAll(file)
 					_ = file.Close()
 					if err == nil {
-						id := newRandomID()
-						col, err := ParseCollection(bytes.NewReader(data), id)
+						id := persist.NewRandomID()
+						col, err := collections.ParseCollection(bytes.NewReader(data), id)
 						if err == nil && col != nil {
-							if werr := atomicWriteFile(filepath.Join(getCollectionsDir(), id+".json"), data); werr == nil {
-								ui.ColLoadedChan <- &CollectionUI{Data: col}
+							if werr := persist.AtomicWriteFile(filepath.Join(persist.CollectionsDir(), id+".json"), data); werr == nil {
+								ui.ColLoadedChan <- &collections.CollectionUI{Data: col}
 								ui.Window.Invalidate()
 							}
 						}
@@ -144,14 +151,14 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					return material.Clickable(gtx, &ui.ColsHeaderClick, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								ic := iconChevronR
+								ic := widgets.IconChevronR
 								if ui.ColsExpanded {
-									ic = iconChevronD
+									ic = widgets.IconChevronD
 								}
 								size := gtx.Dp(unit.Dp(18))
 								gtx.Constraints.Min = image.Pt(size, size)
 								gtx.Constraints.Max = gtx.Constraints.Min
-								return ic.Layout(gtx, colorFgMuted)
+								return ic.Layout(gtx, theme.FgMuted)
 							}),
 							layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -163,7 +170,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				}),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					btn := material.Button(ui.Theme, &ui.AddColBtn, "+")
-					btn.Background = colorBorder
+					btn.Background = theme.Border
 					btn.Color = ui.Theme.Fg
 					btn.TextSize = unit.Sp(11)
 					btn.CornerRadius = unit.Dp(0)
@@ -173,8 +180,8 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(layout.Spacer{Width: unit.Dp(0)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					btn := material.Button(ui.Theme, &ui.ImportBtn, "Import")
-					btn.Background = colorVarFound
-					btn.Color = colorFg
+					btn.Background = theme.VarFound
+					btn.Color = theme.Fg
 					btn.TextSize = unit.Sp(11)
 					btn.CornerRadius = unit.Dp(0)
 					btn.Inset = layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(5), Right: unit.Dp(5)}
@@ -195,13 +202,13 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 		if len(ui.Collections) == 0 {
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				lbl := material.Label(ui.Theme, unit.Sp(12), "No collections loaded")
-				lbl.Color = colorFgMuted
+				lbl.Color = theme.FgMuted
 				lbl.Alignment = text.Middle
 				return lbl.Layout(gtx)
 			})
 		}
 
-		commitRename := func(n *CollectionNode) {
+		commitRename := func(n *collections.CollectionNode) {
 			if n == nil || !n.IsRenaming {
 				return
 			}
@@ -222,7 +229,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 
 		var updateCols bool
 
-		nodeClickFn := func(n *CollectionNode) {
+		nodeClickFn := func(n *collections.CollectionNode) {
 			if ui.RenamingNode != nil && ui.RenamingNode != n {
 				commitRename(ui.RenamingNode)
 			}
@@ -426,9 +433,9 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 			if node.MenuOpen {
 				for node.AddReqBtn.Clicked(gtx) {
 					commitRename(ui.RenamingNode)
-					newNode := &CollectionNode{
+					newNode := &collections.CollectionNode{
 						Name:       "New Request",
-						Request:    &ParsedRequest{Method: "GET"},
+						Request:    &model.ParsedRequest{Method: "GET"},
 						Depth:      node.Depth + 1,
 						Parent:     node,
 						Collection: node.Collection,
@@ -437,16 +444,18 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					newNode.NameEditor.SingleLine = true
 					newNode.NameEditor.Submit = true
 					newNode.NameEditor.SetText("New Request")
+					newNode.NameEditor.SetCaret(0, len([]rune(newNode.Name)))
 					node.Children = append(node.Children, newNode)
 					node.Expanded = true
 					node.MenuOpen = false
+					ui.RenamingNode = newNode
 					updateCols = true
 					ui.markCollectionDirty(node.Collection)
 				}
 
 				for node.AddFldBtn.Clicked(gtx) {
 					commitRename(ui.RenamingNode)
-					newNode := &CollectionNode{
+					newNode := &collections.CollectionNode{
 						Name:       "New Folder",
 						IsFolder:   true,
 						Depth:      node.Depth + 1,
@@ -457,9 +466,11 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					newNode.NameEditor.SingleLine = true
 					newNode.NameEditor.Submit = true
 					newNode.NameEditor.SetText("New Folder")
+					newNode.NameEditor.SetCaret(0, len([]rune(newNode.Name)))
 					node.Children = append(node.Children, newNode)
 					node.Expanded = true
 					node.MenuOpen = false
+					ui.RenamingNode = newNode
 					updateCols = true
 					ui.markCollectionDirty(node.Collection)
 				}
@@ -473,17 +484,45 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				}
 
 				for node.DupBtn.Clicked(gtx) {
-					dup := cloneNode(node, node.Parent)
+					commitRename(ui.RenamingNode)
 					if node.Parent != nil {
+						dup := collections.CloneNode(node, node.Parent)
+						recalcDepth(dup, node.Depth)
 						node.Parent.Children = append(node.Parent.Children, dup)
+						dup.IsRenaming = true
+						dup.NameEditor.SetText(dup.Name)
+						dup.NameEditor.SetCaret(0, len([]rune(dup.Name)))
+						ui.RenamingNode = dup
+						ui.markCollectionDirty(node.Collection)
+					} else {
+						newCol := &collections.ParsedCollection{
+							ID:   persist.NewRandomID(),
+							Name: node.Name + " Copy",
+						}
+						dupRoot := collections.CloneNode(node, nil)
+						dupRoot.Collection = newCol
+						newCol.Root = dupRoot
+						collections.AssignParents(dupRoot, nil, newCol)
+						recalcDepth(dupRoot, 0)
+						ui.Collections = append(ui.Collections, &collections.CollectionUI{Data: newCol})
+						dupRoot.IsRenaming = true
+						dupRoot.NameEditor.SetText(dupRoot.Name)
+						dupRoot.NameEditor.SetCaret(0, len([]rune(dupRoot.Name)))
+						ui.RenamingNode = dupRoot
+						ui.markCollectionDirty(newCol)
+						ui.saveState()
 					}
 					node.MenuOpen = false
 					updateCols = true
-					ui.markCollectionDirty(node.Collection)
 				}
 
 				for node.DelBtn.Clicked(gtx) {
-					removed := collectSubtree(node)
+					if ui.RenamingNode != nil {
+						if _, isRemoved := collections.CollectSubtree(node)[ui.RenamingNode]; isRemoved {
+							ui.RenamingNode = nil
+						}
+					}
+					removed := collections.CollectSubtree(node)
 					if node.Parent != nil {
 						for idx, c := range node.Parent.Children {
 							if c == node {
@@ -493,18 +532,24 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 						}
 						ui.markCollectionDirty(node.Collection)
 					} else {
+						colID := node.Collection.ID
 						for idx, c := range ui.Collections {
 							if c.Data == node.Collection {
 								ui.Collections = append(ui.Collections[:idx], ui.Collections[idx+1:]...)
 								break
 							}
 						}
-						delete(ui.dirtyCollections, node.Collection.ID)
-						_ = os.Remove(filepath.Join(getCollectionsDir(), node.Collection.ID+".json"))
+						delete(ui.dirtyCollections, colID)
+						if ui.deletedCollections == nil {
+							ui.deletedCollections = make(map[string]struct{})
+						}
+						ui.deletedCollections[colID] = struct{}{}
+						_ = os.Remove(filepath.Join(persist.CollectionsDir(), colID+".json"))
+						ui.saveState()
 					}
-					for _, tab := range ui.Tabs {
-						if _, ok := removed[tab.LinkedNode]; ok {
-							tab.LinkedNode = nil
+					for i := len(ui.Tabs) - 1; i >= 0; i-- {
+						if _, ok := removed[ui.Tabs[i].LinkedNode]; ok {
+							ui.closeTab(i)
 						}
 					}
 					node.MenuOpen = false
@@ -531,9 +576,9 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 							rect := clip.UniformRRect(image.Rectangle{Max: size}, 4)
 							switch {
 							case isActiveNode:
-								paint.FillShape(gtx.Ops, colorAccentDim, clip.Rect{Max: size}.Op())
+								paint.FillShape(gtx.Ops, theme.AccentDim, clip.Rect{Max: size}.Op())
 							case nodeHovered:
-								paint.FillShape(gtx.Ops, colorBgHover, rect.Op(gtx.Ops))
+								paint.FillShape(gtx.Ops, theme.BgHover, rect.Op(gtx.Ops))
 							}
 							defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 							node.Drag.Add(gtx.Ops)
@@ -554,19 +599,19 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 									children := make([]layout.FlexChild, 0, 3)
 									if node.IsFolder {
 										children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-											ic := iconChevronR
+											ic := widgets.IconChevronR
 											if node.Expanded {
-												ic = iconChevronD
+												ic = widgets.IconChevronD
 											}
 											size := gtx.Dp(unit.Dp(18))
 											gtx.Constraints.Min = image.Pt(size, size)
 											gtx.Constraints.Max = gtx.Constraints.Min
-											return ic.Layout(gtx, colorFgMuted)
+											return ic.Layout(gtx, theme.FgMuted)
 										}))
 										children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout))
 										children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 											if node.IsRenaming {
-												return InlineRenameField(gtx, ui.Theme, &node.NameEditor)
+												return widgets.InlineRenameField(gtx, ui.Theme, &node.NameEditor)
 											}
 											lbl := material.Label(ui.Theme, unit.Sp(12), node.Name)
 											lbl.Alignment = text.Start
@@ -578,13 +623,13 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 									} else if node.Request != nil {
 										children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 											lbl := material.Label(ui.Theme, unit.Sp(10), node.Request.Method)
-											lbl.Color = getMethodColor(node.Request.Method)
+											lbl.Color = theme.MethodColor(node.Request.Method)
 											return lbl.Layout(gtx)
 										}))
 										children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout))
 										children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 											if node.IsRenaming {
-												return InlineRenameField(gtx, ui.Theme, &node.NameEditor)
+												return widgets.InlineRenameField(gtx, ui.Theme, &node.NameEditor)
 											}
 											lbl := material.Label(ui.Theme, unit.Sp(12), node.Name)
 											lbl.Alignment = text.Start
@@ -596,7 +641,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								btn := material.Button(ui.Theme, &node.MenuBtn, "⋮")
-								btn.Background = colorTransparent
+								btn.Background = theme.Transparent
 								btn.Color = ui.Theme.Fg
 								btn.Inset = layout.UniformInset(unit.Dp(2))
 								btn.TextSize = unit.Sp(14)
@@ -624,13 +669,13 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 						}
 						op.Offset(image.Pt(menuX, gtx.Dp(unit.Dp(24)))).Add(gtx.Ops)
 						widget.Border{
-							Color:        colorBorderLight,
+							Color:        theme.BorderLight,
 							CornerRadius: unit.Dp(4),
 							Width:        unit.Dp(1),
 						}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return layout.Stack{}.Layout(gtx,
 								layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-									paint.FillShape(gtx.Ops, colorBgPopup, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
+									paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
 									defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
 									event.Op(gtx.Ops, &node.MenuOpen)
 									for {
@@ -646,22 +691,22 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 										actions := make([]layout.FlexChild, 0, 5)
 										if node.IsFolder || node.Depth == 0 {
 											actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												return menuOption(gtx, ui.Theme, &node.AddReqBtn, "Add Request", iconAddReq)
+												return widgets.MenuOption(gtx, ui.Theme, &node.AddReqBtn, "Add Request", widgets.IconAddReq)
 											}))
 											actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												return menuOption(gtx, ui.Theme, &node.AddFldBtn, "Add Folder", iconAddFld)
+												return widgets.MenuOption(gtx, ui.Theme, &node.AddFldBtn, "Add Folder", widgets.IconAddFld)
 											}))
 										}
 										actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-											return menuOption(gtx, ui.Theme, &node.EditBtn, "Rename", iconRename)
+											return widgets.MenuOption(gtx, ui.Theme, &node.EditBtn, "Rename", widgets.IconRename)
 										}))
 										if node.Depth > 0 {
 											actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												return menuOption(gtx, ui.Theme, &node.DupBtn, "Duplicate", iconDup)
+												return widgets.MenuOption(gtx, ui.Theme, &node.DupBtn, "Duplicate", widgets.IconDup)
 											}))
 										}
 										actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-											return menuOption(gtx, ui.Theme, &node.DelBtn, "Delete", iconDel)
+											return widgets.MenuOption(gtx, ui.Theme, &node.DelBtn, "Delete", widgets.IconDel)
 										}))
 										return layout.Flex{Axis: layout.Vertical}.Layout(gtx, actions...)
 									})
@@ -759,7 +804,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 						}
 						hMacro := op.Record(gtx.Ops)
 						hOff := op.Offset(image.Pt(0, hY)).Push(gtx.Ops)
-						paint.FillShape(gtx.Ops, colorAccentDim, clip.Rect{Max: image.Pt(rowW, hH)}.Op())
+						paint.FillShape(gtx.Ops, theme.AccentDim, clip.Rect{Max: image.Pt(rowW, hH)}.Op())
 						hOff.Pop()
 						op.Defer(gtx.Ops, hMacro.Stop())
 					}
@@ -782,7 +827,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					}
 					lineMacro := op.Record(gtx.Ops)
 					lineOff := op.Offset(image.Pt(lineLeft, lineTop)).Push(gtx.Ops)
-					paint.FillShape(gtx.Ops, colorAccent, clip.Rect{Max: image.Pt(rowW-lineLeft, lineH)}.Op())
+					paint.FillShape(gtx.Ops, theme.Accent, clip.Rect{Max: image.Pt(rowW-lineLeft, lineH)}.Op())
 					lineOff.Pop()
 					op.Defer(gtx.Ops, lineMacro.Stop())
 				}
@@ -807,11 +852,11 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					data, err := io.ReadAll(file)
 					_ = file.Close()
 					if err == nil {
-						id := newRandomID()
-						env, err := ParseEnvironment(bytes.NewReader(data), id)
+						id := persist.NewRandomID()
+						env, err := environments.ParseEnvironment(bytes.NewReader(data), id)
 						if err == nil && env != nil {
-							if werr := atomicWriteFile(filepath.Join(getEnvironmentsDir(), id+".json"), data); werr == nil {
-								ui.EnvLoadedChan <- &EnvironmentUI{Data: env}
+							if werr := persist.AtomicWriteFile(filepath.Join(persist.EnvironmentsDir(), id+".json"), data); werr == nil {
+								ui.EnvLoadedChan <- &environments.EnvironmentUI{Data: env}
 								ui.Window.Invalidate()
 							}
 						}
@@ -829,14 +874,14 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					return material.Clickable(gtx, &ui.EnvsHeaderClick, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								ic := iconChevronR
+								ic := widgets.IconChevronR
 								if ui.EnvsExpanded {
-									ic = iconChevronD
+									ic = widgets.IconChevronD
 								}
 								size := gtx.Dp(unit.Dp(18))
 								gtx.Constraints.Min = image.Pt(size, size)
 								gtx.Constraints.Max = gtx.Constraints.Min
-								return ic.Layout(gtx, colorFgMuted)
+								return ic.Layout(gtx, theme.FgMuted)
 							}),
 							layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -848,7 +893,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				}),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					btn := material.Button(ui.Theme, &ui.AddEnvBtn, "+")
-					btn.Background = colorBorder
+					btn.Background = theme.Border
 					btn.Color = ui.Theme.Fg
 					btn.TextSize = unit.Sp(11)
 					btn.CornerRadius = unit.Dp(0)
@@ -858,8 +903,8 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(layout.Spacer{Width: unit.Dp(0)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					btn := material.Button(ui.Theme, &ui.ImportEnvBtn, "Import")
-					btn.Background = colorVarFound
-					btn.Color = colorFg
+					btn.Background = theme.VarFound
+					btn.Color = theme.Fg
 					btn.TextSize = unit.Sp(11)
 					btn.CornerRadius = unit.Dp(0)
 					btn.Inset = layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(5), Right: unit.Dp(5)}
@@ -877,13 +922,13 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 		if len(ui.Environments) == 0 {
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				lbl := material.Label(ui.Theme, unit.Sp(12), "No environments loaded")
-				lbl.Color = colorFgMuted
+				lbl.Color = theme.FgMuted
 				lbl.Alignment = text.Middle
 				return lbl.Layout(gtx)
 			})
 		}
 
-		envClickFn := func(env *EnvironmentUI) {
+		envClickFn := func(env *environments.EnvironmentUI) {
 			if env.IsRenaming {
 				return
 			}
@@ -963,7 +1008,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 			}
 		}
 
-		var envToDelete *EnvironmentUI
+		var envToDelete *environments.EnvironmentUI
 		envList := material.List(ui.Theme, &ui.EnvList)
 		envList.AnchorStrategy = material.Overlay
 		dim := envList.Layout(gtx, len(envSnapshot), func(gtx layout.Context, idx int) layout.Dimensions {
@@ -1022,14 +1067,14 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 			rowDim := layout.Inset{Left: unit.Dp(0), Right: unit.Dp(0), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
 
-				commitEnvRename := func(e *EnvironmentUI) {
+				commitEnvRename := func(e *environments.EnvironmentUI) {
 					if !e.IsRenaming {
 						return
 					}
 					name := e.InlineNameEd.Text()
 					if name != "" {
 						e.Data.Name = name
-						_ = SaveEnvironment(e.Data)
+						_ = persist.SaveEnvironment(e.Data)
 					}
 					e.IsRenaming = false
 					e.RenamingFocused = false
@@ -1072,7 +1117,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					}
 					ui.pendingEnvClose = nil
 					ui.EditingEnv = env
-					env.initEditor()
+					env.InitEditor()
 					env.MenuOpen = false
 					ui.Window.Invalidate()
 				}
@@ -1082,12 +1127,12 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				}
 
 				envHovered := env.Hover.Update(gtx.Source)
-				bgColor := colorBgDark
+				bgColor := theme.BgDark
 				if isActive {
-					bgColor = colorBg
+					bgColor = theme.Bg
 				}
 				if envHovered {
-					bgColor = colorBgHover
+					bgColor = theme.BgHover
 				}
 
 				for env.MenuBtn.Clicked(gtx) {
@@ -1098,7 +1143,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					}
 					env.MenuOpen = !env.MenuOpen
 					if env.MenuOpen {
-						env.MenuClickY = GlobalPointerPos.Y
+						env.MenuClickY = widgets.GlobalPointerPos.Y
 					}
 				}
 				if env.MenuOpen {
@@ -1123,7 +1168,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 						if !isEnvPlaceholder {
 							paint.FillShape(gtx.Ops, bgColor, rect.Op(gtx.Ops))
 							if isActive {
-								paint.FillShape(gtx.Ops, envHighlightColor(env.Data), clip.Rect{Max: image.Point{X: gtx.Dp(unit.Dp(2)), Y: size.Y}}.Op())
+								paint.FillShape(gtx.Ops, environments.HighlightColor(env.Data), clip.Rect{Max: image.Point{X: gtx.Dp(unit.Dp(2)), Y: size.Y}}.Op())
 							}
 							defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 							env.Drag.Add(gtx.Ops)
@@ -1145,7 +1190,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 								layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 									return layout.Inset{Left: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										if env.IsRenaming {
-											return InlineRenameField(gtx, ui.Theme, &env.InlineNameEd)
+											return widgets.InlineRenameField(gtx, ui.Theme, &env.InlineNameEd)
 										}
 										lbl := material.Label(ui.Theme, unit.Sp(12), env.Data.Name)
 										lbl.MaxLines = 1
@@ -1158,23 +1203,23 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 								layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 									for env.SelectBtn.Clicked(gtx) {
-										if ui.EnvColorPicker.isOpen() && ui.EnvColorEnvID == env.Data.ID {
-											ui.EnvColorPicker.closePicker()
+										if ui.EnvColorPicker.IsOpen() && ui.EnvColorEnvID == env.Data.ID {
+											ui.EnvColorPicker.Close()
 										} else {
 											ui.EnvColorEnvID = env.Data.ID
-											ui.EnvColorPicker.open(pickerEnv, 0, envHighlightColor(env.Data), f32Point{X: GlobalPointerPos.X, Y: GlobalPointerPos.Y})
+											ui.EnvColorPicker.Open(colorpicker.KindEnv, 0, environments.HighlightColor(env.Data), colorpicker.Anchor{X: widgets.GlobalPointerPos.X, Y: widgets.GlobalPointerPos.Y})
 										}
 									}
 									return material.Clickable(gtx, &env.SelectBtn, func(gtx layout.Context) layout.Dimensions {
 										size := gtx.Dp(18)
 										gtx.Constraints.Min = image.Pt(size, size)
 										gtx.Constraints.Max = gtx.Constraints.Min
-										swatch := envHighlightColor(env.Data)
+										swatch := environments.HighlightColor(env.Data)
 										border := gtx.Dp(unit.Dp(1))
 										if border < 1 {
 											border = 1
 										}
-										paint.FillShape(gtx.Ops, colorBorderLight, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 3).Op(gtx.Ops))
+										paint.FillShape(gtx.Ops, theme.BorderLight, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 3).Op(gtx.Ops))
 										inner := image.Rect(border, border, size-border, size-border)
 										paint.FillShape(gtx.Ops, swatch, clip.UniformRRect(inner, 2).Op(gtx.Ops))
 										return layout.Dimensions{Size: gtx.Constraints.Min}
@@ -1186,7 +1231,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 										size := gtx.Dp(18)
 										gtx.Constraints.Min = image.Pt(size, size)
 										gtx.Constraints.Max = gtx.Constraints.Min
-										iconCol := colorFgMuted
+										iconCol := theme.FgMuted
 										if env.MenuBtn.Hovered() {
 											iconCol = ui.Theme.Fg
 										}
@@ -1218,13 +1263,13 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 						}
 						op.Offset(image.Pt(menuX, menuY)).Add(gtx.Ops)
 						widget.Border{
-							Color:        colorBorderLight,
+							Color:        theme.BorderLight,
 							CornerRadius: unit.Dp(4),
 							Width:        unit.Dp(1),
 						}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return layout.Stack{}.Layout(gtx,
 								layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-									paint.FillShape(gtx.Ops, colorBgPopup, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
+									paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
 									defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
 									event.Op(gtx.Ops, &env.MenuOpen)
 									for {
@@ -1239,16 +1284,16 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 									return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												return menuOption(gtx, ui.Theme, &env.EditBtn, "Edit", iconSettings)
+												return widgets.MenuOption(gtx, ui.Theme, &env.EditBtn, "Edit", widgets.IconSettings)
 											}),
 											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												return menuOption(gtx, ui.Theme, &env.RenameBtn, "Rename", iconRename)
+												return widgets.MenuOption(gtx, ui.Theme, &env.RenameBtn, "Rename", widgets.IconRename)
 											}),
 											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												return menuOption(gtx, ui.Theme, &env.DupBtn, "Duplicate", iconDup)
+												return widgets.MenuOption(gtx, ui.Theme, &env.DupBtn, "Duplicate", widgets.IconDup)
 											}),
 											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												return menuOptionDanger(gtx, ui.Theme, &env.DelBtn, "Delete", iconDel)
+												return widgets.MenuOptionDanger(gtx, ui.Theme, &env.DelBtn, "Delete", widgets.IconDel)
 											}),
 										)
 									})
@@ -1316,7 +1361,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				}
 				lineMacro := op.Record(gtx.Ops)
 				lineOff := op.Offset(image.Pt(0, lineTop)).Push(gtx.Ops)
-				paint.FillShape(gtx.Ops, colorAccent, clip.Rect{Max: image.Pt(rowW, lineH)}.Op())
+				paint.FillShape(gtx.Ops, theme.Accent, clip.Rect{Max: image.Pt(rowW, lineH)}.Op())
 				lineOff.Pop()
 				op.Defer(gtx.Ops, lineMacro.Stop())
 			}
@@ -1330,9 +1375,9 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 	envDivider := func(gtx layout.Context) layout.Dimensions {
 		hit := gtx.Dp(unit.Dp(6))
 		size := image.Point{X: gtx.Constraints.Max.X, Y: hit}
-		lineCol := colorBorder
+		lineCol := theme.Border
 		if ui.SidebarEnvDrag.Dragging() {
-			lineCol = colorAccent
+			lineCol = theme.Accent
 		}
 		vis := gtx.Dp(unit.Dp(1))
 		lineY := hit - vis
@@ -1425,7 +1470,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 		)
 		if !ui.Settings.HideSidebar {
 			line := gtx.Dp(unit.Dp(1))
-			paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(gutterW-line, 0), Max: image.Pt(gutterW, h)}.Op())
+			paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(gutterW-line, 0), Max: image.Pt(gutterW, h)}.Op())
 		}
 		return layout.Dimensions{Size: image.Pt(gutterW, h)}
 	}
@@ -1442,7 +1487,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 	)
 }
 
-func renderNodeGhost(gtx layout.Context, th *material.Theme, node *CollectionNode) layout.Dimensions {
+func renderNodeGhost(gtx layout.Context, th *material.Theme, node *collections.CollectionNode) layout.Dimensions {
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
 	rowH := gtx.Constraints.Max.Y
 	if rowH <= 0 {
@@ -1454,8 +1499,8 @@ func renderNodeGhost(gtx layout.Context, th *material.Theme, node *CollectionNod
 			size.Y = gtx.Dp(unit.Dp(20))
 		}
 		rect := clip.UniformRRect(image.Rectangle{Max: size}, 4)
-		paint.FillShape(gtx.Ops, colorBgDragGhost, rect.Op(gtx.Ops))
-		paintBorder1px(gtx, size, colorAccent)
+		paint.FillShape(gtx.Ops, theme.BgDragGhost, rect.Op(gtx.Ops))
+		widgets.PaintBorder1px(gtx, size, theme.Accent)
 		gtx.Constraints.Min = size
 		gtx.Constraints.Max = size
 		return layout.Inset{
@@ -1466,14 +1511,14 @@ func renderNodeGhost(gtx layout.Context, th *material.Theme, node *CollectionNod
 			children := make([]layout.FlexChild, 0, 3)
 			if node.IsFolder {
 				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					ic := iconChevronR
+					ic := widgets.IconChevronR
 					if node.Expanded {
-						ic = iconChevronD
+						ic = widgets.IconChevronD
 					}
 					sz := gtx.Dp(unit.Dp(18))
 					gtx.Constraints.Min = image.Pt(sz, sz)
 					gtx.Constraints.Max = gtx.Constraints.Min
-					return ic.Layout(gtx, colorFgMuted)
+					return ic.Layout(gtx, theme.FgMuted)
 				}))
 				children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout))
 				children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -1487,7 +1532,7 @@ func renderNodeGhost(gtx layout.Context, th *material.Theme, node *CollectionNod
 			} else if node.Request != nil {
 				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(th, unit.Sp(10), node.Request.Method)
-					lbl.Color = getMethodColor(node.Request.Method)
+					lbl.Color = theme.MethodColor(node.Request.Method)
 					return lbl.Layout(gtx)
 				}))
 				children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout))
@@ -1502,7 +1547,7 @@ func renderNodeGhost(gtx layout.Context, th *material.Theme, node *CollectionNod
 	})
 }
 
-func renderEnvGhost(gtx layout.Context, th *material.Theme, env *EnvironmentUI) layout.Dimensions {
+func renderEnvGhost(gtx layout.Context, th *material.Theme, env *environments.EnvironmentUI) layout.Dimensions {
 	gtx.Constraints.Min.X = gtx.Constraints.Max.X
 	rowH := gtx.Constraints.Max.Y
 	if rowH <= 0 {
@@ -1510,8 +1555,8 @@ func renderEnvGhost(gtx layout.Context, th *material.Theme, env *EnvironmentUI) 
 	}
 	size := image.Pt(gtx.Constraints.Max.X, rowH)
 	rect := clip.UniformRRect(image.Rectangle{Max: size}, 4)
-	paint.FillShape(gtx.Ops, colorBgDragGhost, rect.Op(gtx.Ops))
-	paintBorder1px(gtx, size, colorAccent)
+	paint.FillShape(gtx.Ops, theme.BgDragGhost, rect.Op(gtx.Ops))
+	widgets.PaintBorder1px(gtx, size, theme.Accent)
 	gtx.Constraints.Min = size
 	gtx.Constraints.Max = size
 	return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1532,13 +1577,12 @@ func renderEnvGhost(gtx layout.Context, th *material.Theme, env *EnvironmentUI) 
 				if border < 1 {
 					border = 1
 				}
-				paint.FillShape(gtx.Ops, colorBorderLight, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 3).Op(gtx.Ops))
+				paint.FillShape(gtx.Ops, theme.BorderLight, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 3).Op(gtx.Ops))
 				inner := image.Rect(border, border, sw-border, sw-border)
-				paint.FillShape(gtx.Ops, envHighlightColor(env.Data), clip.UniformRRect(inner, 2).Op(gtx.Ops))
+				paint.FillShape(gtx.Ops, environments.HighlightColor(env.Data), clip.UniformRRect(inner, 2).Op(gtx.Ops))
 				return layout.Dimensions{Size: gtx.Constraints.Min}
 			}),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 		)
 	})
 }
-

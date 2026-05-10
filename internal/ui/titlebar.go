@@ -3,6 +3,9 @@ package ui
 import (
 	"image"
 	"time"
+	"tracto/internal/ui/theme"
+	"tracto/internal/ui/widgets"
+	"tracto/internal/ui/workspace"
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/io/event"
@@ -23,14 +26,14 @@ func (ui *AppUI) layoutTitleBtn(gtx layout.Context, btn *widget.Clickable, kind 
 	gtx.Constraints.Max = btnSize
 
 	return btn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		bg := colorBgDark
+		bg := theme.BgDark
 		fg := ui.Theme.Fg
 
 		if btn.Hovered() {
-			bg = colorBgHover
+			bg = theme.BgHover
 			if kind == 3 {
-				bg = colorCloseHover
-				fg = colorWhite
+				bg = theme.CloseHover
+				fg = theme.White
 			}
 		}
 
@@ -102,9 +105,9 @@ func (ui *AppUI) layoutTitleSettingsBtn(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	col := colorFgMuted
+	col := theme.FgMuted
 	if ui.SettingsOpen {
-		col = colorAccent
+		col = theme.Accent
 	}
 
 	return ui.SettingsBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -112,9 +115,9 @@ func (ui *AppUI) layoutTitleSettingsBtn(gtx layout.Context) layout.Dimensions {
 		system.ActionInputOp(system.ActionRaise).Add(gtx.Ops)
 		areaStack.Pop()
 
-		bg := colorBgDark
+		bg := theme.BgDark
 		if ui.SettingsBtn.Hovered() {
-			bg = colorBgHover
+			bg = theme.BgHover
 		}
 		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: btnSize}.Op())
 
@@ -123,7 +126,7 @@ func (ui *AppUI) layoutTitleSettingsBtn(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					size := gtx.Dp(unit.Dp(16))
 					gtx.Constraints = layout.Exact(image.Pt(size, size))
-					return iconSettings.Layout(gtx, col)
+					return widgets.IconSettings.Layout(gtx, col)
 				}),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -146,7 +149,7 @@ func (ui *AppUI) layoutTitleBugBtn(gtx layout.Context) layout.Dimensions {
 
 	for ui.BugReportBtn.Clicked(gtx) {
 		if ui.BugReportURL != "" {
-			go openFile(ui.BugReportURL)
+			go workspace.OpenFile(ui.BugReportURL)
 		}
 	}
 
@@ -155,15 +158,15 @@ func (ui *AppUI) layoutTitleBugBtn(gtx layout.Context) layout.Dimensions {
 		system.ActionInputOp(system.ActionRaise).Add(gtx.Ops)
 		areaStack.Pop()
 
-		bg := colorBgDark
+		bg := theme.BgDark
 		if ui.BugReportBtn.Hovered() {
-			bg = colorBgHover
+			bg = theme.BgHover
 		}
 		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: btnSize}.Op())
 
-		col := colorFgMuted
+		col := theme.FgMuted
 		if ui.BugReportBtn.Hovered() {
-			col = colorDanger
+			col = theme.Danger
 		}
 
 		layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -171,7 +174,7 @@ func (ui *AppUI) layoutTitleBugBtn(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					size := gtx.Dp(unit.Dp(16))
 					gtx.Constraints = layout.Exact(image.Pt(size, size))
-					return iconBug.Layout(gtx, col)
+					return widgets.IconBug.Layout(gtx, col)
 				}),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -193,7 +196,7 @@ func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
 	gtx.Constraints.Max.Y = height
 	totalW := gtx.Constraints.Max.X
 
-	paint.FillShape(gtx.Ops, colorBgDark, clip.Rect{Max: image.Point{X: totalW, Y: height}}.Op())
+	paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: image.Point{X: totalW, Y: height}}.Op())
 
 	if ui.BtnClose.Clicked(gtx) && ui.Window != nil {
 		ui.Window.Perform(system.ActionClose)
@@ -265,7 +268,7 @@ func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
 			lbl := material.Label(ui.Theme, unit.Sp(12), title)
 			lbl.Font.Typeface = ""
 			lbl.MaxLines = 1
-			lbl.Color = colorFgMuted
+			lbl.Color = theme.FgMuted
 			return lbl.Layout(gtx)
 		})
 		labelCall := labelMacro.Stop()

@@ -5,6 +5,12 @@ import (
 	"image"
 	"strconv"
 	"strings"
+	"tracto/internal/model"
+	"tracto/internal/persist"
+	"tracto/internal/ui/colorpicker"
+	"tracto/internal/ui/settings"
+	"tracto/internal/ui/theme"
+	"tracto/internal/ui/widgets"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"
@@ -33,7 +39,7 @@ var acceptEncodingOptions = []struct {
 }
 
 type SettingsEditorState struct {
-	Draft AppSettings
+	Draft model.AppSettings
 
 	Category    int
 	CategoryBtn []widget.Clickable
@@ -71,35 +77,35 @@ type SettingsEditorState struct {
 	SidebarWidthInc    widget.Clickable
 	SidebarWidthEditor widget.Editor
 
-	TimeoutDec               widget.Clickable
-	TimeoutInc               widget.Clickable
-	TimeoutEditor            widget.Editor
-	ConnectTimeoutDec        widget.Clickable
-	ConnectTimeoutInc        widget.Clickable
-	ConnectTimeoutEditor     widget.Editor
-	TLSTimeoutDec            widget.Clickable
-	TLSTimeoutInc            widget.Clickable
-	TLSTimeoutEditor         widget.Editor
-	IdleTimeoutDec           widget.Clickable
-	IdleTimeoutInc           widget.Clickable
-	IdleTimeoutEditor        widget.Editor
-	MaxRedirectsDec          widget.Clickable
-	MaxRedirectsInc          widget.Clickable
-	MaxRedirectsEditor       widget.Editor
-	MaxConnsDec              widget.Clickable
-	MaxConnsInc              widget.Clickable
-	MaxConnsEditor           widget.Editor
-	FollowRedirects          widget.Bool
-	VerifySSL                widget.Bool
-	KeepAlive                widget.Bool
-	DisableHTTP2             widget.Bool
-	CookieJar                widget.Bool
-	SendConnClose            widget.Bool
-	UserAgentEditor          widget.Editor
-	ProxyEditor              widget.Editor
-	DefaultHdrEdit           widget.Editor
-	DefaultMethodBtn         []widget.Clickable
-	AcceptEncodingBtn        []widget.Clickable
+	TimeoutDec           widget.Clickable
+	TimeoutInc           widget.Clickable
+	TimeoutEditor        widget.Editor
+	ConnectTimeoutDec    widget.Clickable
+	ConnectTimeoutInc    widget.Clickable
+	ConnectTimeoutEditor widget.Editor
+	TLSTimeoutDec        widget.Clickable
+	TLSTimeoutInc        widget.Clickable
+	TLSTimeoutEditor     widget.Editor
+	IdleTimeoutDec       widget.Clickable
+	IdleTimeoutInc       widget.Clickable
+	IdleTimeoutEditor    widget.Editor
+	MaxRedirectsDec      widget.Clickable
+	MaxRedirectsInc      widget.Clickable
+	MaxRedirectsEditor   widget.Editor
+	MaxConnsDec          widget.Clickable
+	MaxConnsInc          widget.Clickable
+	MaxConnsEditor       widget.Editor
+	FollowRedirects      widget.Bool
+	VerifySSL            widget.Bool
+	KeepAlive            widget.Bool
+	DisableHTTP2         widget.Bool
+	CookieJar            widget.Bool
+	SendConnClose        widget.Bool
+	UserAgentEditor      widget.Editor
+	ProxyEditor          widget.Editor
+	DefaultHdrEdit       widget.Editor
+	DefaultMethodBtn     []widget.Clickable
+	AcceptEncodingBtn    []widget.Clickable
 
 	JSONIndentDec           widget.Clickable
 	JSONIndentInc           widget.Clickable
@@ -136,7 +142,7 @@ type SettingsEditorState struct {
 	ThemeColorsList       widget.List
 	SyntaxColorsList      widget.List
 
-	ColorPicker colorPickerState
+	ColorPicker colorpicker.State
 
 	NewThemeBtn        widget.Clickable
 	NewThemeDialogOpen bool
@@ -151,22 +157,22 @@ type SettingsEditorState struct {
 	initialized bool
 }
 
-func newSettingsEditorState(current AppSettings) *SettingsEditorState {
+func newSettingsEditorState(current model.AppSettings) *SettingsEditorState {
 	s := &SettingsEditorState{
 		Draft:                 current,
 		CategoryBtn:           make([]widget.Clickable, len(settingsCategories)),
-		ThemeBtns:             make([]widget.Clickable, len(themeRegistry)),
-		DefaultMethodBtn:      make([]widget.Clickable, len(methods)),
+		ThemeBtns:             make([]widget.Clickable, len(theme.Registry)),
+		DefaultMethodBtn:      make([]widget.Clickable, len(settings.Methods)),
 		AcceptEncodingBtn:     make([]widget.Clickable, len(acceptEncodingOptions)),
-		SyntaxOverrideEditors: make([]widget.Editor, len(tokenColorTable)),
-		SyntaxResetBtns:       make([]widget.Clickable, len(tokenColorTable)),
-		SyntaxSwatchBtns:      make([]widget.Clickable, len(tokenColorTable)),
-		ThemeColorEditors:     make([]widget.Editor, len(paletteColorTable)),
-		ThemeColorResetBtns:   make([]widget.Clickable, len(paletteColorTable)),
-		ThemeColorSwatchBtns:  make([]widget.Clickable, len(paletteColorTable)),
+		SyntaxOverrideEditors: make([]widget.Editor, len(theme.TokenColorTable)),
+		SyntaxResetBtns:       make([]widget.Clickable, len(theme.TokenColorTable)),
+		SyntaxSwatchBtns:      make([]widget.Clickable, len(theme.TokenColorTable)),
+		ThemeColorEditors:     make([]widget.Editor, len(theme.PaletteColorTable)),
+		ThemeColorResetBtns:   make([]widget.Clickable, len(theme.PaletteColorTable)),
+		ThemeColorSwatchBtns:  make([]widget.Clickable, len(theme.PaletteColorTable)),
 	}
-	s.ColorPicker.kind = pickerNone
-	s.ColorPicker.openIdx = -1
+	s.ColorPicker.Kind = colorpicker.KindNone
+	s.ColorPicker.OpenIdx = -1
 	for i := range s.SyntaxOverrideEditors {
 		s.SyntaxOverrideEditors[i].SingleLine = true
 		s.SyntaxOverrideEditors[i].Submit = true
@@ -207,7 +213,7 @@ func newSettingsEditorState(current AppSettings) *SettingsEditorState {
 	return s
 }
 
-func headersToText(hs []DefaultHeader) string {
+func headersToText(hs []model.DefaultHeader) string {
 	if len(hs) == 0 {
 		return ""
 	}
@@ -224,11 +230,11 @@ func headersToText(hs []DefaultHeader) string {
 	return strings.TrimRight(b.String(), "\n")
 }
 
-func textToHeaders(s string) []DefaultHeader {
+func textToHeaders(s string) []model.DefaultHeader {
 	if strings.TrimSpace(s) == "" {
 		return nil
 	}
-	var out []DefaultHeader
+	var out []model.DefaultHeader
 	for _, line := range strings.Split(s, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" || strings.HasPrefix(line, "#") {
@@ -243,7 +249,7 @@ func textToHeaders(s string) []DefaultHeader {
 		if k == "" {
 			continue
 		}
-		out = append(out, DefaultHeader{Key: k, Value: v})
+		out = append(out, model.DefaultHeader{Key: k, Value: v})
 	}
 	return out
 }
@@ -273,9 +279,9 @@ func (ui *AppUI) applyDraftSettings() {
 	st.Draft.TrimTrailingWhitespace = st.TrimTrailingWS.Value
 	st.Draft.BracketPairColorization = st.BracketPairColorization.Value
 
-	st.Draft = st.Draft.sanitized()
+	st.Draft = settings.Sanitize(st.Draft)
 	ui.Settings = st.Draft
-	applyAppSettings(ui.Theme, ui.Settings)
+	settings.Apply(ui.Theme, ui.Settings)
 }
 
 func (ui *AppUI) closeSettings() {
@@ -292,16 +298,16 @@ func (st *SettingsEditorState) syncSyntaxEditors() {
 	}
 	st.syntaxEditorsThemeID = st.Draft.Theme
 	ov := st.Draft.SyntaxOverrides[st.Draft.Theme]
-	for i, entry := range tokenColorTable {
-		st.SyntaxOverrideEditors[i].SetText(entry.getOv(ov))
+	for i, entry := range theme.TokenColorTable {
+		st.SyntaxOverrideEditors[i].SetText(entry.GetOv(ov))
 	}
 }
 
 func (st *SettingsEditorState) putOverride(i int, h string) {
 	themeID := st.Draft.Theme
 	ov := st.Draft.SyntaxOverrides[themeID]
-	tokenColorTable[i].setOv(&ov, h)
-	if ov == (ThemeSyntaxOverride{}) {
+	theme.TokenColorTable[i].SetOv(&ov, h)
+	if ov == (model.ThemeSyntaxOverride{}) {
 		if st.Draft.SyntaxOverrides != nil {
 			delete(st.Draft.SyntaxOverrides, themeID)
 			if len(st.Draft.SyntaxOverrides) == 0 {
@@ -311,7 +317,7 @@ func (st *SettingsEditorState) putOverride(i int, h string) {
 		return
 	}
 	if st.Draft.SyntaxOverrides == nil {
-		st.Draft.SyntaxOverrides = map[string]ThemeSyntaxOverride{}
+		st.Draft.SyntaxOverrides = map[string]model.ThemeSyntaxOverride{}
 	}
 	st.Draft.SyntaxOverrides[themeID] = ov
 }
@@ -322,16 +328,16 @@ func (st *SettingsEditorState) syncThemeEditors() {
 	}
 	st.themeEditorsThemeID = st.Draft.Theme
 	ov := st.Draft.ThemeOverrides[st.Draft.Theme]
-	for i, entry := range paletteColorTable {
-		st.ThemeColorEditors[i].SetText(entry.getOv(ov))
+	for i, entry := range theme.PaletteColorTable {
+		st.ThemeColorEditors[i].SetText(entry.GetOv(ov))
 	}
 }
 
 func (st *SettingsEditorState) putThemeOverride(i int, h string) {
 	themeID := st.Draft.Theme
 	ov := st.Draft.ThemeOverrides[themeID]
-	paletteColorTable[i].setOv(&ov, h)
-	if ov == (ThemeColorOverride{}) {
+	theme.PaletteColorTable[i].SetOv(&ov, h)
+	if ov == (model.ThemeColorOverride{}) {
 		if st.Draft.ThemeOverrides != nil {
 			delete(st.Draft.ThemeOverrides, themeID)
 			if len(st.Draft.ThemeOverrides) == 0 {
@@ -341,7 +347,7 @@ func (st *SettingsEditorState) putThemeOverride(i int, h string) {
 		return
 	}
 	if st.Draft.ThemeOverrides == nil {
-		st.Draft.ThemeOverrides = map[string]ThemeColorOverride{}
+		st.Draft.ThemeOverrides = map[string]model.ThemeColorOverride{}
 	}
 	st.Draft.ThemeOverrides[themeID] = ov
 }
@@ -350,7 +356,7 @@ func (ui *AppUI) resetSettings() {
 	if ui.SettingsState == nil {
 		return
 	}
-	def := defaultSettings()
+	def := model.DefaultSettings()
 	st := ui.SettingsState
 	st.Draft = def
 	st.HideTabBar.Value = def.HideTabBar
@@ -399,16 +405,16 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 	changed := false
 	for i := range st.ThemeBtns {
 		for st.ThemeBtns[i].Clicked(gtx) {
-			tid := themeRegistry[i].ID
+			tid := theme.Registry[i].ID
 			if st.Draft.Theme != tid {
 				st.Draft.Theme = tid
-				st.ColorPicker.closePicker()
+				st.ColorPicker.Close()
 				changed = true
 			}
 		}
 	}
-	if len(st.NewThemeBaseBtns) != len(themeRegistry) {
-		st.NewThemeBaseBtns = make([]widget.Clickable, len(themeRegistry))
+	if len(st.NewThemeBaseBtns) != len(theme.Registry) {
+		st.NewThemeBaseBtns = make([]widget.Clickable, len(theme.Registry))
 	}
 	if len(st.CustomThemeBtns) != len(st.Draft.CustomThemes) {
 		st.CustomThemeBtns = make([]widget.Clickable, len(st.Draft.CustomThemes))
@@ -420,7 +426,7 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 				tid := st.Draft.CustomThemes[i].ID
 				if st.Draft.Theme != tid {
 					st.Draft.Theme = tid
-					st.ColorPicker.closePicker()
+					st.ColorPicker.Close()
 					changed = true
 				}
 			}
@@ -459,7 +465,7 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 	}
 	for i := range st.NewThemeBaseBtns {
 		for st.NewThemeBaseBtns[i].Clicked(gtx) {
-			st.NewThemeBaseID = themeRegistry[i].ID
+			st.NewThemeBaseID = theme.Registry[i].ID
 		}
 	}
 	for st.NewThemeCancelBtn.Clicked(gtx) {
@@ -474,14 +480,14 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 		if baseID == "" {
 			baseID = "dark"
 		}
-		basePalette := paletteFor(baseID, st.Draft.CustomThemes)
-		newID := "custom-" + newRandomID()[:8]
-		ct := CustomTheme{
+		basePalette := theme.PaletteFor(baseID, st.Draft.CustomThemes)
+		newID := "custom-" + persist.NewRandomID()[:8]
+		ct := model.CustomTheme{
 			ID:      newID,
 			Name:    name,
 			BasedOn: baseID,
-			Palette: paletteToOverride(basePalette),
-			Syntax:  syntaxToOverride(basePalette.Syntax),
+			Palette: theme.PaletteToOverride(basePalette),
+			Syntax:  theme.SyntaxToOverride(basePalette.Syntax),
 		}
 		st.Draft.CustomThemes = append(st.Draft.CustomThemes, ct)
 		st.Draft.Theme = newID
@@ -489,7 +495,7 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 		st.NewThemeNameEditor.SetText("")
 		st.CustomThemeBtns = make([]widget.Clickable, len(st.Draft.CustomThemes))
 		st.CustomThemeDelBtns = make([]widget.Clickable, len(st.Draft.CustomThemes))
-		st.ColorPicker.closePicker()
+		st.ColorPicker.Close()
 		changed = true
 	}
 	st.syncSyntaxEditors()
@@ -581,8 +587,8 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 	}
 	for i := range st.DefaultMethodBtn {
 		for st.DefaultMethodBtn[i].Clicked(gtx) {
-			if st.Draft.DefaultMethod != methods[i] {
-				st.Draft.DefaultMethod = methods[i]
+			if st.Draft.DefaultMethod != settings.Methods[i] {
+				st.Draft.DefaultMethod = settings.Methods[i]
 				changed = true
 			}
 		}
@@ -834,36 +840,36 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 		for st.SyntaxResetBtns[i].Clicked(gtx) {
 			st.putOverride(i, "")
 			st.SyntaxOverrideEditors[i].SetText("")
-			if st.ColorPicker.kind == pickerSyntax && st.ColorPicker.openIdx == i {
-				st.ColorPicker.closePicker()
+			if st.ColorPicker.Kind == colorpicker.KindSyntax && st.ColorPicker.OpenIdx == i {
+				st.ColorPicker.Close()
 			}
 			changed = true
 		}
 	}
 	for i := range st.SyntaxSwatchBtns {
 		for st.SyntaxSwatchBtns[i].Clicked(gtx) {
-			if st.ColorPicker.kind == pickerSyntax && st.ColorPicker.openIdx == i {
-				st.ColorPicker.closePicker()
+			if st.ColorPicker.Kind == colorpicker.KindSyntax && st.ColorPicker.OpenIdx == i {
+				st.ColorPicker.Close()
 			} else {
-				base := paletteFor(st.Draft.Theme, st.Draft.CustomThemes).Syntax
+				base := theme.PaletteFor(st.Draft.Theme, st.Draft.CustomThemes).Syntax
 				if ov, ok := st.Draft.SyntaxOverrides[st.Draft.Theme]; ok {
-					base = applySyntaxOverride(base, ov)
+					base = theme.ApplySyntaxOverride(base, ov)
 				}
-				st.ColorPicker.open(pickerSyntax, i, tokenColorTable[i].getBase(base), f32Point{X: GlobalPointerPos.X, Y: GlobalPointerPos.Y})
+				st.ColorPicker.Open(colorpicker.KindSyntax, i, theme.TokenColorTable[i].GetBase(base), colorpicker.Anchor{X: widgets.GlobalPointerPos.X, Y: widgets.GlobalPointerPos.Y})
 			}
 			changed = true
 		}
 	}
-	if st.ColorPicker.isOpen() {
-		cur := [3]float32{st.ColorPicker.h, st.ColorPicker.s, st.ColorPicker.v}
-		if cur != st.ColorPicker.lastHSV {
-			hex := hexFromColor(st.ColorPicker.currentColor())
-			idx := st.ColorPicker.openIdx
-			switch st.ColorPicker.kind {
-			case pickerSyntax:
+	if st.ColorPicker.IsOpen() {
+		cur := [3]float32{st.ColorPicker.H, st.ColorPicker.S, st.ColorPicker.V}
+		if cur != st.ColorPicker.LastHSV {
+			hex := theme.HexFromColor(st.ColorPicker.Color())
+			idx := st.ColorPicker.OpenIdx
+			switch st.ColorPicker.Kind {
+			case colorpicker.KindSyntax:
 				st.SyntaxOverrideEditors[idx].SetText(hex)
 				st.putOverride(idx, hex)
-			case pickerTheme:
+			case colorpicker.KindTheme:
 				if idx >= 0 && idx < len(st.ThemeColorEditors) {
 					st.ThemeColorEditors[idx].SetText(hex)
 					st.putThemeOverride(idx, hex)
@@ -871,10 +877,10 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 			}
 			changed = true
 		}
-		st.ColorPicker.lastHSV = cur
+		st.ColorPicker.LastHSV = cur
 	}
-	for st.ColorPicker.close.Clicked(gtx) {
-		st.ColorPicker.closePicker()
+	for st.ColorPicker.CloseBtn.Clicked(gtx) {
+		st.ColorPicker.Close()
 		changed = true
 	}
 	st.syncThemeEditors()
@@ -898,22 +904,22 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 		for st.ThemeColorResetBtns[i].Clicked(gtx) {
 			st.putThemeOverride(i, "")
 			st.ThemeColorEditors[i].SetText("")
-			if st.ColorPicker.kind == pickerTheme && st.ColorPicker.openIdx == i {
-				st.ColorPicker.closePicker()
+			if st.ColorPicker.Kind == colorpicker.KindTheme && st.ColorPicker.OpenIdx == i {
+				st.ColorPicker.Close()
 			}
 			changed = true
 		}
 	}
 	for i := range st.ThemeColorSwatchBtns {
 		for st.ThemeColorSwatchBtns[i].Clicked(gtx) {
-			if st.ColorPicker.kind == pickerTheme && st.ColorPicker.openIdx == i {
-				st.ColorPicker.closePicker()
+			if st.ColorPicker.Kind == colorpicker.KindTheme && st.ColorPicker.OpenIdx == i {
+				st.ColorPicker.Close()
 			} else {
-				base := paletteFor(st.Draft.Theme, st.Draft.CustomThemes)
+				base := theme.PaletteFor(st.Draft.Theme, st.Draft.CustomThemes)
 				if ov, ok := st.Draft.ThemeOverrides[st.Draft.Theme]; ok {
-					base = applyThemeOverride(base, ov)
+					base = theme.ApplyOverride(base, ov)
 				}
-				st.ColorPicker.open(pickerTheme, i, paletteColorTable[i].getBase(base), f32Point{X: GlobalPointerPos.X, Y: GlobalPointerPos.Y})
+				st.ColorPicker.Open(colorpicker.KindTheme, i, theme.PaletteColorTable[i].GetBase(base), colorpicker.Anchor{X: widgets.GlobalPointerPos.X, Y: widgets.GlobalPointerPos.Y})
 			}
 			changed = true
 		}
@@ -1025,7 +1031,7 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						size := image.Pt(1, gtx.Constraints.Max.Y)
-						paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Max: size}.Op())
+						paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Max: size}.Op())
 						return layout.Dimensions{Size: size}
 					}),
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -1068,30 +1074,30 @@ func connsStep(current int) int {
 func methodGrid(th *material.Theme, st *SettingsEditorState, gtx layout.Context) layout.Dimensions {
 	height := gtx.Dp(unit.Dp(28))
 	gap := gtx.Dp(unit.Dp(2))
-	children := make([]layout.FlexChild, 0, len(methods)*2)
-	for i, m := range methods {
+	children := make([]layout.FlexChild, 0, len(settings.Methods)*2)
+	for i, m := range settings.Methods {
 		i, m := i, m
 		children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return material.Clickable(gtx, &st.DefaultMethodBtn[i], func(gtx layout.Context) layout.Dimensions {
 				size := image.Pt(gtx.Constraints.Max.X, height)
 				gtx.Constraints.Min = size
 				gtx.Constraints.Max = size
-				borderC := colorBorder
+				borderC := theme.Border
 				borderW := gtx.Dp(unit.Dp(1))
 				active := st.Draft.DefaultMethod == m
 				if active {
-					borderC = colorAccent
+					borderC = theme.Accent
 					borderW = gtx.Dp(unit.Dp(2))
 				} else if st.DefaultMethodBtn[i].Hovered() {
-					borderC = colorBorderLight
+					borderC = theme.BorderLight
 				}
 				outer := clip.UniformRRect(image.Rectangle{Max: size}, 4)
 				paint.FillShape(gtx.Ops, borderC, outer.Op(gtx.Ops))
 				inner := image.Rect(borderW, borderW, size.X-borderW, size.Y-borderW)
-				paint.FillShape(gtx.Ops, colorBgField, clip.UniformRRect(inner, 3).Op(gtx.Ops))
+				paint.FillShape(gtx.Ops, theme.BgField, clip.UniformRRect(inner, 3).Op(gtx.Ops))
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					lbl := monoLabel(th, unit.Sp(11), m)
-					lbl.Color = getMethodColor(m)
+					lbl := widgets.MonoLabel(th, unit.Sp(11), m)
+					lbl.Color = theme.MethodColor(m)
 					if active {
 						lbl.Font.Weight = font.Bold
 					}
@@ -1099,7 +1105,7 @@ func methodGrid(th *material.Theme, st *SettingsEditorState, gtx layout.Context)
 				})
 			})
 		}))
-		if i < len(methods)-1 {
+		if i < len(settings.Methods)-1 {
 			children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(float32(gap) / gtx.Metric.PxPerDp)}.Layout))
 		}
 	}
@@ -1117,22 +1123,22 @@ func acceptEncodingGrid(th *material.Theme, st *SettingsEditorState, gtx layout.
 				size := image.Pt(gtx.Constraints.Max.X, height)
 				gtx.Constraints.Min = size
 				gtx.Constraints.Max = size
-				borderC := colorBorder
+				borderC := theme.Border
 				borderW := gtx.Dp(unit.Dp(1))
 				active := st.Draft.DefaultAcceptEncoding == opt.Value
 				if active {
-					borderC = colorAccent
+					borderC = theme.Accent
 					borderW = gtx.Dp(unit.Dp(2))
 				} else if st.AcceptEncodingBtn[i].Hovered() {
-					borderC = colorBorderLight
+					borderC = theme.BorderLight
 				}
 				outer := clip.UniformRRect(image.Rectangle{Max: size}, 4)
 				paint.FillShape(gtx.Ops, borderC, outer.Op(gtx.Ops))
 				inner := image.Rect(borderW, borderW, size.X-borderW, size.Y-borderW)
-				paint.FillShape(gtx.Ops, colorBgField, clip.UniformRRect(inner, 3).Op(gtx.Ops))
+				paint.FillShape(gtx.Ops, theme.BgField, clip.UniformRRect(inner, 3).Op(gtx.Ops))
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(th, unit.Sp(11), opt.Label)
-					lbl.Color = colorFg
+					lbl.Color = theme.Fg
 					if active {
 						lbl.Font.Weight = font.Bold
 					}
@@ -1155,14 +1161,14 @@ func (ui *AppUI) layoutSettingsHeader(gtx layout.Context) layout.Dimensions {
 				size := image.Pt(gtx.Dp(unit.Dp(28)), gtx.Dp(unit.Dp(28)))
 				gtx.Constraints.Min = size
 				gtx.Constraints.Max = size
-				bg := colorBorder
+				bg := theme.Border
 				if st.BackBtn.Hovered() {
-					bg = colorBorderLight
+					bg = theme.BorderLight
 				}
 				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min = image.Pt(gtx.Dp(16), gtx.Dp(16))
-					return iconBack.Layout(gtx, ui.Theme.Fg)
+					return widgets.IconBack.Layout(gtx, ui.Theme.Fg)
 				})
 			})
 		}),
@@ -1180,9 +1186,9 @@ func (ui *AppUI) layoutSettingsHeader(gtx layout.Context) layout.Dimensions {
 				size := image.Pt(gtx.Dp(unit.Dp(140)), gtx.Dp(unit.Dp(32)))
 				gtx.Constraints.Min = size
 				gtx.Constraints.Max = size
-				bg := colorBorder
+				bg := theme.Border
 				if st.ResetBtn.Hovered() {
-					bg = colorBorderLight
+					bg = theme.BorderLight
 				}
 				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1205,13 +1211,13 @@ func (ui *AppUI) layoutSettingsCategories(gtx layout.Context) layout.Dimensions 
 			return material.Clickable(gtx, &st.CategoryBtn[i], func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.X = gtx.Constraints.Max.X
-					bg := colorTransparent
-					fg := colorFgMuted
+					bg := theme.Transparent
+					fg := theme.FgMuted
 					if st.Category == i {
-						bg = colorBgHover
+						bg = theme.BgHover
 						fg = ui.Theme.Fg
 					} else if st.CategoryBtn[i].Hovered() {
-						bg = colorBgSecondary
+						bg = theme.BgSecondary
 					}
 					rect := clip.UniformRRect(image.Rectangle{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(32)))}, 4)
 					paint.FillShape(gtx.Ops, bg, rect.Op(gtx.Ops))
@@ -1249,9 +1255,9 @@ func (ui *AppUI) layoutSettingsContent(gtx layout.Context) layout.Dimensions {
 
 func (ui *AppUI) sectionsAppearance() []layout.Widget {
 	st := ui.SettingsState
-	def := defaultSettings()
+	def := model.DefaultSettings()
 	defName := "Dark+"
-	for _, t := range themeRegistry {
+	for _, t := range theme.Registry {
 		if t.ID == def.Theme {
 			defName = t.Name
 			break
@@ -1261,7 +1267,7 @@ func (ui *AppUI) sectionsAppearance() []layout.Widget {
 	sideHint := "Hide the collections/environments sidebar. " + defaultShownHidden(def.HideSidebar)
 	restoreHint := "Reopen previously open tabs when the app starts. " + defaultOnOff(def.RestoreTabsOnStartup)
 	activeThemeName := defName
-	for _, t := range themeRegistry {
+	for _, t := range theme.Registry {
 		if t.ID == st.Draft.Theme {
 			activeThemeName = t.Name
 			break
@@ -1314,7 +1320,7 @@ func (ui *AppUI) sectionsAppearance() []layout.Widget {
 			settingsHint(ui.Theme, "Type a hex color (e.g. #1F1F1F) or click the swatch for a picker. Empty = theme default."),
 			spacerH(8),
 		)
-		for i := range paletteColorTable {
+		for i := range theme.PaletteColorTable {
 			idx := i
 			widgets = append(widgets, themeColorRow(ui.Theme, st, idx))
 			widgets = append(widgets, spacerH(4))
@@ -1323,22 +1329,22 @@ func (ui *AppUI) sectionsAppearance() []layout.Widget {
 			spacerH(4),
 			func(gtx layout.Context) layout.Dimensions {
 				size := image.Point{X: gtx.Constraints.Max.X, Y: gtx.Dp(unit.Dp(1))}
-				paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Max: size}.Op())
+				paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Max: size}.Op())
 				return layout.Dimensions{Size: size}
 			},
 			spacerH(8),
 			func(gtx layout.Context) layout.Dimensions {
 				lbl := material.Label(ui.Theme, unit.Sp(11), "Syntax")
-				lbl.Color = colorFgMuted
+				lbl.Color = theme.FgMuted
 				lbl.Font.Weight = font.Bold
 				return lbl.Layout(gtx)
 			},
 			spacerH(8),
 		)
-		for i := range tokenColorTable {
+		for i := range theme.TokenColorTable {
 			idx := i
 			widgets = append(widgets, syntaxColorRow(ui.Theme, st, idx))
-			if idx < len(tokenColorTable)-1 {
+			if idx < len(theme.TokenColorTable)-1 {
 				widgets = append(widgets, spacerH(4))
 			}
 		}
@@ -1359,7 +1365,7 @@ func spoilerHeader(th *material.Theme, headerBtn, resetBtn *widget.Clickable, ti
 								chev = "▼"
 							}
 							lbl := material.Label(th, unit.Sp(10), chev)
-							lbl.Color = colorFgMuted
+							lbl.Color = theme.FgMuted
 							return lbl.Layout(gtx)
 						}),
 						layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
@@ -1375,9 +1381,9 @@ func spoilerHeader(th *material.Theme, headerBtn, resetBtn *widget.Clickable, ti
 				return material.Clickable(gtx, resetBtn, func(gtx layout.Context) layout.Dimensions {
 					return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						lbl := material.Label(th, unit.Sp(11), "Reset all")
-						lbl.Color = colorFgMuted
+						lbl.Color = theme.FgMuted
 						if resetBtn.Hovered() {
-							lbl.Color = colorAccent
+							lbl.Color = theme.Accent
 						}
 						return lbl.Layout(gtx)
 					})
@@ -1388,13 +1394,13 @@ func spoilerHeader(th *material.Theme, headerBtn, resetBtn *widget.Clickable, ti
 }
 
 func themeColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout.Widget {
-	entry := paletteColorTable[idx]
+	entry := theme.PaletteColorTable[idx]
 	return func(gtx layout.Context) layout.Dimensions {
-		base := paletteFor(st.Draft.Theme, st.Draft.CustomThemes)
+		base := theme.PaletteFor(st.Draft.Theme, st.Draft.CustomThemes)
 		if ov, ok := st.Draft.ThemeOverrides[st.Draft.Theme]; ok {
-			base = applyThemeOverride(base, ov)
+			base = theme.ApplyOverride(base, ov)
 		}
-		swatchColor := entry.getBase(base)
+		swatchColor := entry.GetBase(base)
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				size := image.Pt(gtx.Dp(unit.Dp(20)), gtx.Dp(unit.Dp(20)))
@@ -1402,13 +1408,13 @@ func themeColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout.
 				gtx.Constraints.Max = size
 				return material.Clickable(gtx, &st.ThemeColorSwatchBtns[idx], func(gtx layout.Context) layout.Dimensions {
 					border := gtx.Dp(unit.Dp(1))
-					if st.ColorPicker.kind == pickerTheme && st.ColorPicker.openIdx == idx {
+					if st.ColorPicker.Kind == colorpicker.KindTheme && st.ColorPicker.OpenIdx == idx {
 						border = gtx.Dp(unit.Dp(2))
-						paint.FillShape(gtx.Ops, colorAccent, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
+						paint.FillShape(gtx.Ops, theme.Accent, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
 					} else {
-						borderC := colorBorderLight
+						borderC := theme.BorderLight
 						if st.ThemeColorSwatchBtns[idx].Hovered() {
-							borderC = colorAccent
+							borderC = theme.Accent
 						}
 						paint.FillShape(gtx.Ops, borderC, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
 					}
@@ -1419,13 +1425,13 @@ func themeColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout.
 			}),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(10)}.Layout),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				lbl := material.Label(th, unit.Sp(12), entry.label)
+				lbl := material.Label(th, unit.Sp(12), entry.Label)
 				return lbl.Layout(gtx)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Max.X = gtx.Dp(unit.Dp(110))
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				return TextField(gtx, th, &st.ThemeColorEditors[idx], hexFromColor(entry.getBase(paletteFor(st.Draft.Theme, st.Draft.CustomThemes))), true, nil, 0, unit.Sp(11))
+				return widgets.TextField(gtx, th, &st.ThemeColorEditors[idx], theme.HexFromColor(entry.GetBase(theme.PaletteFor(st.Draft.Theme, st.Draft.CustomThemes))), true, nil, 0, unit.Sp(11))
 			}),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1433,16 +1439,16 @@ func themeColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout.
 				gtx.Constraints.Min = size
 				gtx.Constraints.Max = size
 				return material.Clickable(gtx, &st.ThemeColorResetBtns[idx], func(gtx layout.Context) layout.Dimensions {
-					bg := colorBgField
+					bg := theme.BgField
 					if st.ThemeColorResetBtns[idx].Hovered() {
-						bg = colorBgHover
+						bg = theme.BgHover
 					}
 					paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
 					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						isz := gtx.Dp(unit.Dp(14))
 						gtx.Constraints.Min = image.Pt(isz, isz)
 						gtx.Constraints.Max = gtx.Constraints.Min
-						return iconRefresh.Layout(gtx, colorFgMuted)
+						return widgets.IconRefresh.Layout(gtx, theme.FgMuted)
 					})
 				})
 			}),
@@ -1451,13 +1457,13 @@ func themeColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout.
 }
 
 func syntaxColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout.Widget {
-	entry := tokenColorTable[idx]
+	entry := theme.TokenColorTable[idx]
 	return func(gtx layout.Context) layout.Dimensions {
-		basePalette := paletteFor(st.Draft.Theme, st.Draft.CustomThemes).Syntax
+		basePalette := theme.PaletteFor(st.Draft.Theme, st.Draft.CustomThemes).Syntax
 		if ov, ok := st.Draft.SyntaxOverrides[st.Draft.Theme]; ok {
-			basePalette = applySyntaxOverride(basePalette, ov)
+			basePalette = theme.ApplySyntaxOverride(basePalette, ov)
 		}
-		swatchColor := entry.getBase(basePalette)
+		swatchColor := entry.GetBase(basePalette)
 
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1466,13 +1472,13 @@ func syntaxColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout
 				gtx.Constraints.Max = size
 				return material.Clickable(gtx, &st.SyntaxSwatchBtns[idx], func(gtx layout.Context) layout.Dimensions {
 					border := gtx.Dp(unit.Dp(1))
-					if st.ColorPicker.kind == pickerSyntax && st.ColorPicker.openIdx == idx {
+					if st.ColorPicker.Kind == colorpicker.KindSyntax && st.ColorPicker.OpenIdx == idx {
 						border = gtx.Dp(unit.Dp(2))
-						paint.FillShape(gtx.Ops, colorAccent, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
+						paint.FillShape(gtx.Ops, theme.Accent, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
 					} else {
-						borderC := colorBorderLight
+						borderC := theme.BorderLight
 						if st.SyntaxSwatchBtns[idx].Hovered() {
-							borderC = colorAccent
+							borderC = theme.Accent
 						}
 						paint.FillShape(gtx.Ops, borderC, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
 					}
@@ -1483,13 +1489,13 @@ func syntaxColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout
 			}),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(10)}.Layout),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				lbl := material.Label(th, unit.Sp(12), entry.label)
+				lbl := material.Label(th, unit.Sp(12), entry.Label)
 				return lbl.Layout(gtx)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Max.X = gtx.Dp(unit.Dp(110))
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				return TextField(gtx, th, &st.SyntaxOverrideEditors[idx], hexFromColor(entry.getBase(paletteFor(st.Draft.Theme, st.Draft.CustomThemes).Syntax)), true, nil, 0, unit.Sp(11))
+				return widgets.TextField(gtx, th, &st.SyntaxOverrideEditors[idx], theme.HexFromColor(entry.GetBase(theme.PaletteFor(st.Draft.Theme, st.Draft.CustomThemes).Syntax)), true, nil, 0, unit.Sp(11))
 			}),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1497,16 +1503,16 @@ func syntaxColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout
 				gtx.Constraints.Min = size
 				gtx.Constraints.Max = size
 				return material.Clickable(gtx, &st.SyntaxResetBtns[idx], func(gtx layout.Context) layout.Dimensions {
-					bg := colorBgField
+					bg := theme.BgField
 					if st.SyntaxResetBtns[idx].Hovered() {
-						bg = colorBgHover
+						bg = theme.BgHover
 					}
 					paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
 					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						isz := gtx.Dp(unit.Dp(14))
 						gtx.Constraints.Min = image.Pt(isz, isz)
 						gtx.Constraints.Max = gtx.Constraints.Min
-						return iconRefresh.Layout(gtx, colorFgMuted)
+						return widgets.IconRefresh.Layout(gtx, theme.FgMuted)
 					})
 				})
 			}),
@@ -1516,7 +1522,7 @@ func syntaxColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout
 
 func (ui *AppUI) sectionsSizes() []layout.Widget {
 	st := ui.SettingsState
-	def := defaultSettings()
+	def := model.DefaultSettings()
 	return []layout.Widget{
 		settingsSectionTitle(ui.Theme, "UI text size"),
 		spacerH(4),
@@ -1564,7 +1570,7 @@ func (ui *AppUI) sectionsSizes() []layout.Widget {
 
 func (ui *AppUI) sectionsHTTP() []layout.Widget {
 	st := ui.SettingsState
-	def := defaultSettings()
+	def := model.DefaultSettings()
 	redirectHint := "Follow HTTP 3xx redirects automatically. " + defaultOnOff(def.FollowRedirects)
 	verifyHint := "Verify TLS certificates for HTTPS requests. Disable only for local dev against self-signed certs. " + defaultOnOff(def.VerifySSL)
 	keepAliveHint := "Reuse TCP connections across requests to the same host. " + defaultOnOff(def.KeepAlive)
@@ -1614,7 +1620,7 @@ func (ui *AppUI) sectionsHTTP() []layout.Widget {
 		settingsHint(ui.Theme, fmt.Sprintf("Sent on every request unless overridden by a per-request header. Default: %s.", def.UserAgent)),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			return TextField(gtx, ui.Theme, &st.UserAgentEditor, "User-Agent", true, nil, 0, unit.Sp(13))
+			return widgets.TextField(gtx, ui.Theme, &st.UserAgentEditor, "User-Agent", true, nil, 0, unit.Sp(13))
 		},
 		spacerH(20),
 
@@ -1680,7 +1686,7 @@ func (ui *AppUI) sectionsHTTP() []layout.Widget {
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = gtx.Dp(unit.Dp(360))
-			return TextField(gtx, ui.Theme, &st.ProxyEditor, "http://proxy.local:8080", true, nil, 0, unit.Sp(13))
+			return widgets.TextField(gtx, ui.Theme, &st.ProxyEditor, "http://proxy.local:8080", true, nil, 0, unit.Sp(13))
 		},
 		spacerH(20),
 
@@ -1691,14 +1697,14 @@ func (ui *AppUI) sectionsHTTP() []layout.Widget {
 		func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = gtx.Dp(unit.Dp(480))
 			gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(96))
-			return TextField(gtx, ui.Theme, &st.DefaultHdrEdit, "Accept: application/json", true, nil, 0, unit.Sp(13))
+			return widgets.TextField(gtx, ui.Theme, &st.DefaultHdrEdit, "Accept: application/json", true, nil, 0, unit.Sp(13))
 		},
 	}
 }
 
 func (ui *AppUI) sectionsAdvanced() []layout.Widget {
 	st := ui.SettingsState
-	def := defaultSettings()
+	def := model.DefaultSettings()
 	wrapHint := "Wrap long lines by default in new editors. " + defaultOnOff(def.WrapLinesDefault)
 	autoFmtHint := "Pretty-print JSON responses in the preview viewer. Disable to display raw bytes as received. " + defaultOnOff(def.AutoFormatJSON)
 	autoFmtReqHint := "Pretty-print the JSON request body before sending if it parses as valid JSON. Uses the JSON indent setting. " + defaultOnOff(def.AutoFormatJSONRequest)
@@ -1770,7 +1776,7 @@ func spacerH(h int) layout.Widget {
 func settingsHint(th *material.Theme, text string) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		lbl := material.Label(th, unit.Sp(11), text)
-		lbl.Color = colorFgMuted
+		lbl.Color = theme.FgMuted
 		return lbl.Layout(gtx)
 	}
 }
@@ -1805,7 +1811,7 @@ func stepperEditableRow(th *material.Theme, dec, inc *widget.Clickable, ed *widg
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.X = gtx.Dp(unit.Dp(80))
 				gtx.Constraints.Max.X = gtx.Constraints.Min.X
-				return TextField(gtx, th, ed, "", true, nil, 0, unit.Sp(13))
+				return widgets.TextField(gtx, th, ed, "", true, nil, 0, unit.Sp(13))
 			}),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1813,7 +1819,7 @@ func stepperEditableRow(th *material.Theme, dec, inc *widget.Clickable, ed *widg
 					return layout.Dimensions{}
 				}
 				lbl := material.Label(th, unit.Sp(12), unit_)
-				lbl.Color = colorFgMuted
+				lbl.Color = theme.FgMuted
 				return lbl.Layout(gtx)
 			}),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
@@ -1908,9 +1914,9 @@ func stepperBtn(th *material.Theme, btn *widget.Clickable, label string) layout.
 			size := image.Pt(gtx.Dp(unit.Dp(28)), gtx.Dp(unit.Dp(28)))
 			gtx.Constraints.Min = size
 			gtx.Constraints.Max = size
-			bg := colorBorder
+			bg := theme.Border
 			if btn.Hovered() {
-				bg = colorBorderLight
+				bg = theme.BorderLight
 			}
 			paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1924,8 +1930,8 @@ func stepperBtn(th *material.Theme, btn *widget.Clickable, label string) layout.
 
 func styledSwitch(th *material.Theme, b *widget.Bool) material.SwitchStyle {
 	sw := material.Switch(th, b, "")
-	sw.Color.Disabled = mixColor(colorBg, colorFg, 0.55)
-	sw.Color.Track = mixColor(colorBg, colorFg, 0.3)
+	sw.Color.Disabled = theme.Mix(theme.Bg, theme.Fg, 0.55)
+	sw.Color.Track = theme.Mix(theme.Bg, theme.Fg, 0.3)
 	return sw
 }
 
@@ -1940,7 +1946,7 @@ func settingsSwitchRow(th *material.Theme, title, hint string, control layout.Wi
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						lbl := material.Label(th, unit.Sp(11), hint)
-						lbl.Color = colorFgMuted
+						lbl.Color = theme.FgMuted
 						return lbl.Layout(gtx)
 					}),
 				)
@@ -1955,7 +1961,7 @@ func (ui *AppUI) layoutNewThemeRow(gtx layout.Context, st *SettingsEditorState) 
 		return layout.Dimensions{}
 	}
 	return widget.Border{
-		Color:        colorBorder,
+		Color:        theme.Border,
 		CornerRadius: unit.Dp(4),
 		Width:        unit.Dp(1),
 	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1969,17 +1975,17 @@ func (ui *AppUI) layoutNewThemeRow(gtx layout.Context, st *SettingsEditorState) 
 				layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(ui.Theme, unit.Sp(11), "Name")
-					lbl.Color = colorFgMuted
+					lbl.Color = theme.FgMuted
 					return lbl.Layout(gtx)
 				}),
 				layout.Rigid(layout.Spacer{Height: unit.Dp(2)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return TextField(gtx, ui.Theme, &st.NewThemeNameEditor, "My theme", true, nil, 0, unit.Sp(12))
+					return widgets.TextField(gtx, ui.Theme, &st.NewThemeNameEditor, "My theme", true, nil, 0, unit.Sp(12))
 				}),
 				layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(ui.Theme, unit.Sp(11), "Based on")
-					lbl.Color = colorFgMuted
+					lbl.Color = theme.FgMuted
 					return lbl.Layout(gtx)
 				}),
 				layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
@@ -1998,7 +2004,7 @@ func (ui *AppUI) layoutNewThemeRow(gtx layout.Context, st *SettingsEditorState) 
 						layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							btn := material.Button(ui.Theme, &st.NewThemeCancelBtn, "Cancel")
-							btn.Background = colorBorder
+							btn.Background = theme.Border
 							btn.Color = ui.Theme.Fg
 							btn.TextSize = unit.Sp(12)
 							btn.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(14), Right: unit.Dp(14)}
@@ -2020,12 +2026,12 @@ func (ui *AppUI) layoutBaseThemePicker(gtx layout.Context, st *SettingsEditorSta
 		perRow = 1
 	}
 	var rows []layout.FlexChild
-	for i := 0; i < len(themeRegistry); i += perRow {
+	for i := 0; i < len(theme.Registry); i += perRow {
 		end := i + perRow
-		if end > len(themeRegistry) {
-			end = len(themeRegistry)
+		if end > len(theme.Registry) {
+			end = len(theme.Registry)
 		}
-		slice := themeRegistry[i:end]
+		slice := theme.Registry[i:end]
 		baseIdx := i
 		rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			var cols []layout.FlexChild
@@ -2038,9 +2044,9 @@ func (ui *AppUI) layoutBaseThemePicker(gtx layout.Context, st *SettingsEditorSta
 						bg := t.Palette.Bg
 						paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
 						if st.NewThemeBaseID == t.ID {
-							paint.FillShape(gtx.Ops, colorAccent, clip.Stroke{Path: clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Path(gtx.Ops), Width: 2}.Op())
+							paint.FillShape(gtx.Ops, theme.Accent, clip.Stroke{Path: clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Path(gtx.Ops), Width: 2}.Op())
 						} else {
-							paintBorder1px(gtx, gtx.Constraints.Min, colorBorderLight)
+							widgets.PaintBorder1px(gtx, gtx.Constraints.Min, theme.BorderLight)
 						}
 						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							lbl := material.Label(ui.Theme, unit.Sp(11), t.Name)
@@ -2070,22 +2076,22 @@ func themeGrid(th *material.Theme, st *SettingsEditorState, gtx layout.Context) 
 	}
 
 	type tileEntry struct {
-		def      themeDef
+		def      theme.Def
 		btn      *widget.Clickable
 		delBtn   *widget.Clickable
 		isCustom bool
 		isAdd    bool
 	}
 	var entries []tileEntry
-	for i := range themeRegistry {
-		entries = append(entries, tileEntry{def: themeRegistry[i], btn: &st.ThemeBtns[i]})
+	for i := range theme.Registry {
+		entries = append(entries, tileEntry{def: theme.Registry[i], btn: &st.ThemeBtns[i]})
 	}
 	for i, c := range st.Draft.CustomThemes {
 		if i >= len(st.CustomThemeBtns) || i >= len(st.CustomThemeDelBtns) {
 			break
 		}
 		entries = append(entries, tileEntry{
-			def:      themeDef{ID: c.ID, Name: c.Name, Palette: paletteFor(c.ID, st.Draft.CustomThemes)},
+			def:      theme.Def{ID: c.ID, Name: c.Name, Palette: theme.PaletteFor(c.ID, st.Draft.CustomThemes)},
 			btn:      &st.CustomThemeBtns[i],
 			delBtn:   &st.CustomThemeDelBtns[i],
 			isCustom: true,
@@ -2128,29 +2134,29 @@ func themeTileFixedNew(th *material.Theme, btn *widget.Clickable, active bool, t
 			size := image.Pt(tileW, tileH)
 			gtx.Constraints.Min = size
 			gtx.Constraints.Max = size
-			borderC := colorBorder
+			borderC := theme.Border
 			borderW := gtx.Dp(unit.Dp(1))
 			if active {
-				borderC = colorAccent
+				borderC = theme.Accent
 				borderW = gtx.Dp(unit.Dp(2))
 			} else if btn.Hovered() {
-				borderC = colorBorderLight
+				borderC = theme.BorderLight
 			}
 			outer := clip.UniformRRect(image.Rectangle{Max: size}, 6)
 			paint.FillShape(gtx.Ops, borderC, outer.Op(gtx.Ops))
 			innerRect := image.Rect(borderW, borderW, size.X-borderW, size.Y-borderW)
 			inner := clip.UniformRRect(innerRect, 5)
-			paint.FillShape(gtx.Ops, colorBgField, inner.Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, theme.BgField, inner.Op(gtx.Ops))
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						lbl := material.Label(th, unit.Sp(28), "+")
-						lbl.Color = colorFgMuted
+						lbl.Color = theme.FgMuted
 						return lbl.Layout(gtx)
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						lbl := material.Label(th, unit.Sp(11), "New theme")
-						lbl.Color = colorFgMuted
+						lbl.Color = theme.FgMuted
 						return lbl.Layout(gtx)
 					}),
 				)
@@ -2159,7 +2165,7 @@ func themeTileFixedNew(th *material.Theme, btn *widget.Clickable, active bool, t
 	}
 }
 
-func themeTileFixedCustom(th *material.Theme, btn *widget.Clickable, delBtn *widget.Clickable, def themeDef, active bool, isCustom bool, tileW, tileH int) layout.Widget {
+func themeTileFixedCustom(th *material.Theme, btn *widget.Clickable, delBtn *widget.Clickable, def theme.Def, active bool, isCustom bool, tileW, tileH int) layout.Widget {
 	tileFn := themeTileFixed(th, btn, def, active, tileW, tileH)
 	if !isCustom || delBtn == nil {
 		return tileFn
@@ -2173,21 +2179,21 @@ func themeTileFixedCustom(th *material.Theme, btn *widget.Clickable, delBtn *wid
 					gtx.Constraints.Min = image.Pt(sz, sz)
 					gtx.Constraints.Max = gtx.Constraints.Min
 					return material.Clickable(gtx, delBtn, func(gtx layout.Context) layout.Dimensions {
-						bg := colorBgField
+						bg := theme.BgField
 						if delBtn.Hovered() {
-							bg = colorDanger
+							bg = theme.Danger
 						}
 						paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 3).Op(gtx.Ops))
-						paintBorder1px(gtx, gtx.Constraints.Min, colorBorder)
+						widgets.PaintBorder1px(gtx, gtx.Constraints.Min, theme.Border)
 						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							isz := gtx.Dp(unit.Dp(12))
 							gtx.Constraints.Min = image.Pt(isz, isz)
 							gtx.Constraints.Max = gtx.Constraints.Min
-							col := colorFgMuted
+							col := theme.FgMuted
 							if delBtn.Hovered() {
-								col = colorDangerFg
+								col = theme.DangerFg
 							}
-							return iconClose.Layout(gtx, col)
+							return widgets.IconClose.Layout(gtx, col)
 						})
 					})
 				})
@@ -2196,19 +2202,19 @@ func themeTileFixedCustom(th *material.Theme, btn *widget.Clickable, delBtn *wid
 	}
 }
 
-func themeTileFixed(th *material.Theme, btn *widget.Clickable, def themeDef, active bool, tileW, tileH int) layout.Widget {
+func themeTileFixed(th *material.Theme, btn *widget.Clickable, def theme.Def, active bool, tileW, tileH int) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		return material.Clickable(gtx, btn, func(gtx layout.Context) layout.Dimensions {
 			size := image.Pt(tileW, tileH)
 			gtx.Constraints.Min = size
 			gtx.Constraints.Max = size
-			borderC := colorBorder
+			borderC := theme.Border
 			borderW := gtx.Dp(unit.Dp(1))
 			if active {
-				borderC = colorAccent
+				borderC = theme.Accent
 				borderW = gtx.Dp(unit.Dp(2))
 			} else if btn.Hovered() {
-				borderC = colorBorderLight
+				borderC = theme.BorderLight
 			}
 			p := def.Palette
 			outer := clip.UniformRRect(image.Rectangle{Max: size}, 6)

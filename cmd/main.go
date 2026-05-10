@@ -1,16 +1,13 @@
 package main
 
 import (
-	"log"
-	_ "net/http/pprof"
 	"os"
-
 	"tracto/internal/ui"
 
 	"github.com/nanorele/gio/app"
 )
 
-const appTitle = "Rete 0.4.9"
+const appTitle = "Rete 0.5.0"
 const bugReportURL = "https://github.com/nanorele/rete/issues/new"
 
 func main() {
@@ -19,7 +16,7 @@ func main() {
 		uiApp.Title = appTitle
 		uiApp.BugReportURL = bugReportURL
 		if err := uiApp.Run(); err != nil {
-			log.Fatal(err)
+			os.Exit(1)
 		}
 		os.Exit(0)
 	}()

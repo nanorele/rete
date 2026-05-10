@@ -3,6 +3,11 @@ package ui
 import (
 	"image"
 	"strings"
+	"tracto/internal/model"
+	"tracto/internal/persist"
+	"tracto/internal/ui/environments"
+	"tracto/internal/ui/theme"
+	"tracto/internal/ui/widgets"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/io/pointer"
@@ -20,7 +25,7 @@ func (ui *AppUI) commitEditingEnv() {
 	}
 	env.Data.Name = env.NameEditor.Text()
 	hex := strings.TrimSpace(env.ColorEditor.Text())
-	if _, ok := parseHexColor(hex); ok {
+	if _, ok := theme.ParseHex(hex); ok {
 		env.Data.HighlightColor = hex
 	} else if hex == "" {
 		env.Data.HighlightColor = ""
@@ -32,13 +37,13 @@ func (ui *AppUI) commitEditingEnv() {
 		if k == "" && v == "" {
 			continue
 		}
-		env.Data.Vars = append(env.Data.Vars, EnvVar{
+		env.Data.Vars = append(env.Data.Vars, model.EnvVar{
 			Key:     k,
 			Value:   v,
 			Enabled: r.Enabled.Value,
 		})
 	}
-	_ = SaveEnvironment(env.Data)
+	_ = persist.SaveEnvironment(env.Data)
 	ui.activeEnvDirty = true
 }
 
@@ -52,7 +57,7 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 		return layout.Dimensions{}
 	}
 	for env.AddBtn.Clicked(gtx) {
-		r := &EnvVarRow{}
+		r := &environments.EnvVarRow{}
 		env.Rows = append(env.Rows, r)
 		ui.Window.Invalidate()
 	}
@@ -73,7 +78,7 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	// Anchor — env editor is full of TextField/widget.Editor instances
+	// Anchor — env editor is full of widgets.TextField/widget.Editor instances
 	// whose hit-area can extend past the visible bounds.
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	pointer.CursorDefault.Add(gtx.Ops)
@@ -84,9 +89,9 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return material.Clickable(gtx, &env.BackBtn, func(gtx layout.Context) layout.Dimensions {
-							bg := colorBorder
+							bg := theme.Border
 							if env.BackBtn.Hovered() {
-								bg = colorBorderLight
+								bg = theme.BorderLight
 							}
 							rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4)
 							paint.FillShape(gtx.Ops, bg, rect.Op(gtx.Ops))
@@ -94,7 +99,7 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 										gtx.Constraints.Min = image.Pt(gtx.Dp(16), gtx.Dp(16))
-										return iconBack.Layout(gtx, ui.Theme.Fg)
+										return widgets.IconBack.Layout(gtx, ui.Theme.Fg)
 									}),
 								)
 							})
@@ -102,24 +107,24 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						return TextField(gtx, ui.Theme, &env.NameEditor, "Environment Name", true, nil, 0, unit.Sp(12))
+						return widgets.TextField(gtx, ui.Theme, &env.NameEditor, "Environment Name", true, nil, 0, unit.Sp(12))
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						sw := gtx.Dp(unit.Dp(28))
 						gtx.Constraints.Min = image.Pt(sw, sw)
 						gtx.Constraints.Max = gtx.Constraints.Min
-						swatch := envHighlightColor(env.Data)
+						swatch := environments.HighlightColor(env.Data)
 						rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4)
 						paint.FillShape(gtx.Ops, swatch, rect.Op(gtx.Ops))
-						paintBorder1px(gtx, gtx.Constraints.Min, colorBorder)
+						widgets.PaintBorder1px(gtx, gtx.Constraints.Min, theme.Border)
 						return layout.Dimensions{Size: gtx.Constraints.Min}
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						gtx.Constraints.Max.X = gtx.Dp(unit.Dp(90))
 						gtx.Constraints.Min.X = gtx.Constraints.Max.X
-						return TextField(gtx, ui.Theme, &env.ColorEditor, "#hex", true, nil, 0, unit.Sp(12))
+						return widgets.TextField(gtx, ui.Theme, &env.ColorEditor, "#hex", true, nil, 0, unit.Sp(12))
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -127,16 +132,16 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 						gtx.Constraints.Min = image.Pt(sz, sz)
 						gtx.Constraints.Max = gtx.Constraints.Min
 						return material.Clickable(gtx, &env.ColorReset, func(gtx layout.Context) layout.Dimensions {
-							bg := colorBgField
+							bg := theme.BgField
 							if env.ColorReset.Hovered() {
-								bg = colorBgHover
+								bg = theme.BgHover
 							}
 							paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 3).Op(gtx.Ops))
 							return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 								isz := gtx.Dp(unit.Dp(14))
 								gtx.Constraints.Min = image.Pt(isz, isz)
 								gtx.Constraints.Max = gtx.Constraints.Min
-								return iconRefresh.Layout(gtx, colorFgMuted)
+								return widgets.IconRefresh.Layout(gtx, theme.FgMuted)
 							})
 						})
 					}),
@@ -149,12 +154,12 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 							rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4)
 							bg := ui.Theme.ContrastBg
 							if env.SaveBtn.Hovered() {
-								bg = colorAccentHover
+								bg = theme.AccentHover
 							}
 							paint.FillShape(gtx.Ops, bg, rect.Op(gtx.Ops))
 							return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 								gtx.Constraints.Min = image.Pt(gtx.Dp(18), gtx.Dp(18))
-								return iconSave.Layout(gtx, ui.Theme.ContrastFg)
+								return widgets.IconSave.Layout(gtx, ui.Theme.ContrastFg)
 							})
 						})
 					}),
@@ -166,14 +171,14 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 					layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
 						lbl := material.Label(ui.Theme, unit.Sp(12), "Key")
 						lbl.Font.Weight = font.Bold
-						lbl.Color = colorFgMuted
+						lbl.Color = theme.FgMuted
 						return lbl.Layout(gtx)
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 					layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
 						lbl := material.Label(ui.Theme, unit.Sp(12), "Value")
 						lbl.Font.Weight = font.Bold
-						lbl.Color = colorFgMuted
+						lbl.Color = theme.FgMuted
 						return lbl.Layout(gtx)
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
@@ -189,7 +194,7 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 					if i == len(env.Rows) {
 						return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							btn := material.Button(ui.Theme, &env.AddBtn, "+ Add Variable")
-							btn.Background = colorBorder
+							btn.Background = theme.Border
 							btn.Color = ui.Theme.Fg
 							btn.TextSize = unit.Sp(12)
 							btn.Inset = layout.UniformInset(unit.Dp(8))
@@ -201,11 +206,11 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 					return layout.Inset{Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 							layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
-								return TextField(gtx, ui.Theme, &r.KeyEditor, "Key", true, nil, 0, unit.Sp(12))
+								return widgets.TextField(gtx, ui.Theme, &r.KeyEditor, "Key", true, nil, 0, unit.Sp(12))
 							}),
 							layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 							layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
-								return TextField(gtx, ui.Theme, &r.ValEditor, "Value", true, nil, 0, unit.Sp(12))
+								return widgets.TextField(gtx, ui.Theme, &r.ValEditor, "Value", true, nil, 0, unit.Sp(12))
 							}),
 							layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -214,16 +219,16 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 								gtx.Constraints.Max = gtx.Constraints.Min
 								return material.Clickable(gtx, &r.DelBtn, func(gtx layout.Context) layout.Dimensions {
 									rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2)
-									bg := colorBorder
+									bg := theme.Border
 									iconColor := ui.Theme.Fg
 									if r.DelBtn.Hovered() {
-										bg = colorDanger
-										iconColor = colorDangerFg
+										bg = theme.Danger
+										iconColor = theme.DangerFg
 									}
 									paint.FillShape(gtx.Ops, bg, rect.Op(gtx.Ops))
 									return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										gtx.Constraints.Min = image.Pt(gtx.Dp(16), gtx.Dp(16))
-										return iconClose.Layout(gtx, iconColor)
+										return widgets.IconClose.Layout(gtx, iconColor)
 									})
 								})
 							}),
@@ -248,13 +253,13 @@ func (ui *AppUI) saveVarPopup() {
 					}
 				}
 				if !updated {
-					env.Data.Vars = append(env.Data.Vars, EnvVar{
+					env.Data.Vars = append(env.Data.Vars, model.EnvVar{
 						Key:     ui.VarPopupName,
 						Value:   ui.VarPopupEditor.Text(),
 						Enabled: true,
 					})
 				}
-				_ = SaveEnvironment(env.Data)
+				_ = persist.SaveEnvironment(env.Data)
 				ui.activeEnvDirty = true
 				break
 			}

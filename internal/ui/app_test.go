@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"tracto/internal/ui/workspace"
 	"encoding/json"
 	"image"
 	"os"
@@ -8,6 +9,11 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"tracto/internal/model"
+	"tracto/internal/persist"
+	"tracto/internal/ui/collections"
+	"tracto/internal/ui/environments"
+	"tracto/internal/ui/widgets"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"
@@ -24,7 +30,7 @@ func TestAppUILayouts(t *testing.T) {
 	ui.Window = win
 
 	ui.Tabs = nil
-	tab := NewRequestTab("Test")
+	tab := workspace.NewRequestTab("Test")
 	ui.Tabs = append(ui.Tabs, tab)
 	ui.ActiveIdx = 0
 
@@ -42,7 +48,7 @@ func TestAppUILayouts(t *testing.T) {
 	ui.closeTab(0)
 	ui.layoutContent(gtx)
 
-	ui.Tabs = append(ui.Tabs, NewRequestTab("T1"), NewRequestTab("T2"))
+	ui.Tabs = append(ui.Tabs, workspace.NewRequestTab("T1"), workspace.NewRequestTab("T2"))
 	ui.ActiveIdx = 0
 
 	keep := 0
@@ -62,8 +68,8 @@ func TestAppUIHelpers(t *testing.T) {
 	ui := NewAppUI()
 	ui.Window = win
 
-	env := &ParsedEnvironment{ID: "e1", Name: "E1", Vars: []EnvVar{{Key: "k", Value: "v", Enabled: true}}}
-	ui.Environments = append(ui.Environments, &EnvironmentUI{Data: env})
+	env := &model.ParsedEnvironment{ID: "e1", Name: "E1", Vars: []model.EnvVar{{Key: "k", Value: "v", Enabled: true}}}
+	ui.Environments = append(ui.Environments, &environments.EnvironmentUI{Data: env})
 	ui.ActiveEnvID = "e1"
 	ui.activeEnvDirty = true
 
@@ -73,12 +79,12 @@ func TestAppUIHelpers(t *testing.T) {
 	}
 
 	ui.Tabs = nil
-	req := &ParsedRequest{
+	req := &model.ParsedRequest{
 		Name: "Req",
 		URL:  "http://example.com",
 	}
-	col := &ParsedCollection{
-		Root: &CollectionNode{
+	col := &collections.ParsedCollection{
+		Root: &collections.CollectionNode{
 			Request: req,
 		},
 	}
@@ -101,7 +107,7 @@ func TestFlushSaves(t *testing.T) {
 	ui.saveNeeded = true
 	ui.flushSaveState()
 
-	col := &ParsedCollection{ID: "c1", Root: &CollectionNode{}}
+	col := &collections.ParsedCollection{ID: "c1", Root: &collections.CollectionNode{}}
 	ui.dirtyCollections["c1"] = &dirtyCollection{col: col}
 	ui.flushCollectionSavesSync()
 	if len(ui.dirtyCollections) != 0 {
@@ -141,12 +147,12 @@ func TestImportDroppedData(t *testing.T) {
 
 func TestRevealLinkedNode(t *testing.T) {
 	ui := NewAppUI()
-	col := &ParsedCollection{
+	col := &collections.ParsedCollection{
 		ID: "col1",
-		Root: &CollectionNode{
+		Root: &collections.CollectionNode{
 			IsFolder: true,
-			Children: []*CollectionNode{
-				{Name: "Target", Request: &ParsedRequest{}},
+			Children: []*collections.CollectionNode{
+				{Name: "Target", Request: &model.ParsedRequest{}},
 			},
 		},
 	}
@@ -154,7 +160,7 @@ func TestRevealLinkedNode(t *testing.T) {
 	col.Root.Children[0].Parent = col.Root
 	col.Root.Children[0].Collection = col
 
-	tab := NewRequestTab("test")
+	tab := workspace.NewRequestTab("test")
 	tab.LinkedNode = col.Root.Children[0]
 	ui.Tabs = append(ui.Tabs, tab)
 
@@ -167,15 +173,15 @@ func TestRevealLinkedNode(t *testing.T) {
 func TestRelinkTabs(t *testing.T) {
 	setupTestConfigDir(t)
 	ui := NewAppUI()
-	tab := NewRequestTab("test")
-	tab.pendingColID = "col1"
-	tab.pendingNodePath = []int{0}
+	tab := workspace.NewRequestTab("test")
+	tab.PendingColID = "col1"
+	tab.PendingNodePath = []int{0}
 	ui.Tabs = append(ui.Tabs, tab)
 
-	tab.LinkedNode = &CollectionNode{}
+	tab.LinkedNode = &collections.CollectionNode{}
 	ui.relinkTabs()
-	if tab.pendingColID != "col1" {
-		t.Errorf("expected pendingColID to be preserved")
+	if tab.PendingColID != "col1" {
+		t.Errorf("expected PendingColID to be preserved")
 	}
 	tab.LinkedNode = nil
 
@@ -184,40 +190,40 @@ func TestRelinkTabs(t *testing.T) {
 		t.Errorf("expected nil link")
 	}
 
-	col := &ParsedCollection{
+	col := &collections.ParsedCollection{
 		ID: "col1",
-		Root: &CollectionNode{
+		Root: &collections.CollectionNode{
 			IsFolder: true,
-			Children: []*CollectionNode{
-				{Name: "Target", Request: &ParsedRequest{}},
+			Children: []*collections.CollectionNode{
+				{Name: "Target", Request: &model.ParsedRequest{}},
 			},
 		},
 	}
 	col.Root.Collection = col
 	col.Root.Children[0].Parent = col.Root
 	col.Root.Children[0].Collection = col
-	ui.Collections = append(ui.Collections, &CollectionUI{Data: col})
+	ui.Collections = append(ui.Collections, &collections.CollectionUI{Data: col})
 
 	ui.relinkTabs()
 	if tab.LinkedNode == nil {
-		t.Errorf("tab not relinked, pendingColID was %s", tab.pendingColID)
+		t.Errorf("tab not relinked, PendingColID was %s", tab.PendingColID)
 	} else if tab.LinkedNode.Name != "Target" {
 		t.Errorf("relinked to wrong node: %s", tab.LinkedNode.Name)
 	}
 
-	tab2 := NewRequestTab("test2")
-	tab2.pendingColID = "col1"
-	tab2.pendingNodePath = []int{99}
+	tab2 := workspace.NewRequestTab("test2")
+	tab2.PendingColID = "col1"
+	tab2.PendingNodePath = []int{99}
 	ui.Tabs = append(ui.Tabs, tab2)
 	ui.relinkTabs()
 	if tab2.LinkedNode != nil {
 		t.Errorf("expected no link for invalid path")
 	}
 
-	ui.Collections = append(ui.Collections, &CollectionUI{Data: &ParsedCollection{ID: "col-nil-root"}})
-	tab3 := NewRequestTab("test3")
-	tab3.pendingColID = "col-nil-root"
-	tab3.pendingNodePath = []int{0}
+	ui.Collections = append(ui.Collections, &collections.CollectionUI{Data: &collections.ParsedCollection{ID: "col-nil-root"}})
+	tab3 := workspace.NewRequestTab("test3")
+	tab3.PendingColID = "col-nil-root"
+	tab3.PendingNodePath = []int{0}
 	ui.Tabs = append(ui.Tabs, tab3)
 	ui.relinkTabs()
 	if tab3.LinkedNode != nil {
@@ -227,7 +233,7 @@ func TestRelinkTabs(t *testing.T) {
 
 func TestScheduleCollectionFlush(t *testing.T) {
 	ui := NewAppUI()
-	col := &ParsedCollection{ID: "c1"}
+	col := &collections.ParsedCollection{ID: "c1"}
 	ui.markCollectionDirty(col)
 	if _, ok := ui.dirtyCollections["c1"]; !ok {
 		t.Errorf("collection not marked dirty")
@@ -236,18 +242,18 @@ func TestScheduleCollectionFlush(t *testing.T) {
 
 func TestBuildStateSnapshot(t *testing.T) {
 	ui := NewAppUI()
-	tab := NewRequestTab("test")
+	tab := workspace.NewRequestTab("test")
 	tab.Method = "POST"
 	tab.URLInput.SetText("http://example.com")
-	tab.addHeader("H1", "V1")
+	tab.AddHeader("H1", "V1")
 	tab.SplitRatio = 0.4
 	tab.SaveToFilePath = "some/path"
-	tab.LinkedNode = &CollectionNode{
+	tab.LinkedNode = &collections.CollectionNode{
 		Name:       "node1",
-		Collection: &ParsedCollection{ID: "col1"},
+		Collection: &collections.ParsedCollection{ID: "col1"},
 	}
 
-	root := &CollectionNode{Name: "root", IsFolder: true, Children: []*CollectionNode{tab.LinkedNode}}
+	root := &collections.CollectionNode{Name: "root", IsFolder: true, Children: []*collections.CollectionNode{tab.LinkedNode}}
 	tab.LinkedNode.Parent = root
 	tab.LinkedNode.Collection.Root = root
 
@@ -271,9 +277,9 @@ func TestBuildStateSnapshot(t *testing.T) {
 		t.Errorf("linked collection not captured")
 	}
 
-	tab2 := NewRequestTab("unlinked")
-	tab2.LinkedNode = &CollectionNode{
-		Collection: &ParsedCollection{ID: "col2"},
+	tab2 := workspace.NewRequestTab("unlinked")
+	tab2.LinkedNode = &collections.CollectionNode{
+		Collection: &collections.ParsedCollection{ID: "col2"},
 	}
 
 	ui.Tabs = append(ui.Tabs, tab2)
@@ -290,15 +296,15 @@ func TestBuildStateSnapshot(t *testing.T) {
 func TestAppUIStateLoad(t *testing.T) {
 	setupTestConfigDir(t)
 
-	state := AppState{
+	state := persist.AppState{
 		ActiveIdx: 0,
-		Tabs: []TabState{
+		Tabs: []persist.TabState{
 			{Title: "Saved Tab", Method: "GET", URL: "http://saved.com"},
 		},
 	}
 	data, _ := json.Marshal(state)
-	_ = os.MkdirAll(filepath.Dir(getStateFile()), 0755)
-	_ = os.WriteFile(getStateFile(), data, 0644)
+	_ = os.MkdirAll(filepath.Dir(persist.StateFilePath()), 0755)
+	_ = os.WriteFile(persist.StateFilePath(), data, 0644)
 
 	ui := NewAppUI()
 	if len(ui.Tabs) != 1 || ui.Tabs[0].Title != "Saved Tab" {
@@ -325,8 +331,8 @@ func TestAppUI_ExtraPaths(t *testing.T) {
 
 func TestAppUIStateLoad_Corrupted(t *testing.T) {
 	_ = setupTestConfigDir(t)
-	_ = os.MkdirAll(filepath.Dir(getStateFile()), 0755)
-	_ = os.WriteFile(getStateFile(), []byte("invalid json"), 0644)
+	_ = os.MkdirAll(filepath.Dir(persist.StateFilePath()), 0755)
+	_ = os.WriteFile(persist.StateFilePath(), []byte("invalid json"), 0644)
 
 	ui := NewAppUI()
 
@@ -337,9 +343,9 @@ func TestAppUIStateLoad_Corrupted(t *testing.T) {
 
 func TestAppUIStateLoad_LegacyMonoFontRewrites(t *testing.T) {
 	_ = setupTestConfigDir(t)
-	_ = os.MkdirAll(filepath.Dir(getStateFile()), 0755)
+	_ = os.MkdirAll(filepath.Dir(persist.StateFilePath()), 0755)
 	legacy := `{"tabs":[],"active_idx":0,"settings":{"theme":"dark","mono_font":"Ubuntu Mono","ui_text_size":14}}`
-	_ = os.WriteFile(getStateFile(), []byte(legacy), 0644)
+	_ = os.WriteFile(persist.StateFilePath(), []byte(legacy), 0644)
 
 	ui := NewAppUI()
 	if !ui.saveNeeded {
@@ -347,7 +353,7 @@ func TestAppUIStateLoad_LegacyMonoFontRewrites(t *testing.T) {
 	}
 
 	ui.saveStateSync()
-	rewritten, err := os.ReadFile(getStateFile())
+	rewritten, err := os.ReadFile(persist.StateFilePath())
 	if err != nil {
 		t.Fatalf("read after flush: %v", err)
 	}
@@ -358,14 +364,14 @@ func TestAppUIStateLoad_LegacyMonoFontRewrites(t *testing.T) {
 
 func TestAppUIStateLoad_NilWrap(t *testing.T) {
 	_ = setupTestConfigDir(t)
-	state := AppState{
-		Tabs: []TabState{
+	state := persist.AppState{
+		Tabs: []persist.TabState{
 			{Title: "Nil Wrap", ReqWrapEnabled: nil},
 		},
 	}
 	data, _ := json.Marshal(state)
-	_ = os.MkdirAll(filepath.Dir(getStateFile()), 0755)
-	_ = os.WriteFile(getStateFile(), data, 0644)
+	_ = os.MkdirAll(filepath.Dir(persist.StateFilePath()), 0755)
+	_ = os.WriteFile(persist.StateFilePath(), data, 0644)
 
 	ui := NewAppUI()
 	if !ui.Tabs[0].ReqWrapEnabled {
@@ -391,7 +397,7 @@ func TestAppUI_AllLayoutPaths(t *testing.T) {
 	ui.layoutApp(gtx)
 	ui.layoutContent(gtx)
 
-	GlobalVarHover = &VarHoverState{Name: "k", Pos: f32.Pt(10, 10)}
+	widgets.GlobalVarHover = &widgets.VarHoverState{Name: "k", Pos: f32.Pt(10, 10)}
 	ui.layoutApp(gtx)
 
 	ui.VarPopupName = "k"

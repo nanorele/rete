@@ -1,6 +1,7 @@
 package ui
 
 import (
+	"tracto/internal/ui/workspace"
 	"image"
 	"testing"
 	"time"
@@ -19,8 +20,8 @@ func TestTabBarLayout(t *testing.T) {
 	ui.Window = win
 
 	ui.Tabs = nil
-	ui.Tabs = append(ui.Tabs, NewRequestTab("T1"))
-	ui.Tabs = append(ui.Tabs, NewRequestTab("T2 long title for multi words test"))
+	ui.Tabs = append(ui.Tabs, workspace.NewRequestTab("T1"))
+	ui.Tabs = append(ui.Tabs, workspace.NewRequestTab("T2 long title for multi words test"))
 	ui.ActiveIdx = 0
 
 	gtx := layout.Context{
@@ -58,7 +59,7 @@ func TestTabBarLayout(t *testing.T) {
 func TestTabBar_Dragging(t *testing.T) {
 	setupTestConfigDir(t)
 	ui := NewAppUI()
-	ui.Tabs = append(ui.Tabs, NewRequestTab("T1"), NewRequestTab("T2"))
+	ui.Tabs = append(ui.Tabs, workspace.NewRequestTab("T1"), workspace.NewRequestTab("T2"))
 
 	gtx := layout.Context{
 		Ops:         new(op.Ops),
@@ -79,7 +80,7 @@ func TestTabBarWrapping(t *testing.T) {
 
 	ui.Tabs = nil
 	for i := 0; i < 20; i++ {
-		ui.Tabs = append(ui.Tabs, NewRequestTab("Tab"))
+		ui.Tabs = append(ui.Tabs, workspace.NewRequestTab("Tab"))
 	}
 
 	gtx := layout.Context{

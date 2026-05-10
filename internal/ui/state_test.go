@@ -6,27 +6,31 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"tracto/internal/model"
+	"tracto/internal/persist"
+	"tracto/internal/ui/collections"
+	"tracto/internal/ui/environments"
 )
 
 func TestPaths(t *testing.T) {
 	setupTestConfigDir(t)
 
-	cfgPath := getConfigPath()
+	cfgPath := persist.ConfigDir()
 	if !strings.HasSuffix(cfgPath, "tracto-test") {
 		t.Errorf("expected config path to end with tracto-test, got %s", cfgPath)
 	}
 
-	stateFile := getStateFile()
+	stateFile := persist.StateFilePath()
 	if !strings.HasSuffix(stateFile, "state.json") {
 		t.Errorf("expected state file to end with state.json, got %s", stateFile)
 	}
 
-	colDir := getCollectionsDir()
+	colDir := persist.CollectionsDir()
 	if !strings.HasSuffix(colDir, "collections") {
 		t.Errorf("expected collections dir to end with collections, got %s", colDir)
 	}
 
-	envDir := getEnvironmentsDir()
+	envDir := persist.EnvironmentsDir()
 	if !strings.HasSuffix(envDir, "environments") {
 		t.Errorf("expected environments dir to end with environments, got %s", envDir)
 	}
@@ -35,7 +39,7 @@ func TestPaths(t *testing.T) {
 func TestLoadStateEmpty(t *testing.T) {
 	setupTestConfigDir(t)
 
-	state := loadState()
+	state := persist.Load()
 	if len(state.Tabs) != 0 {
 		t.Errorf("expected empty state")
 	}
@@ -44,28 +48,28 @@ func TestLoadStateEmpty(t *testing.T) {
 func TestCollectionsRawAndLoad(t *testing.T) {
 	setupTestConfigDir(t)
 
-	cols := loadSavedCollections()
+	cols := collections.LoadAll()
 	if len(cols) != 0 {
 		t.Errorf("expected 0 collections initially")
 	}
 
-	_, err := saveCollectionRaw([]byte("invalid json"))
+	_, err := persist.SaveCollectionRaw([]byte("invalid json"))
 	if err != nil {
 		t.Errorf("unexpected error on save raw: %v", err)
 	}
 
-	cols = loadSavedCollections()
+	cols = collections.LoadAll()
 	if len(cols) != 0 {
 		t.Errorf("expected 0 collections after invalid save")
 	}
 
 	validJSON := `{"info": {"name": "Raw Col"}, "item": []}`
-	id, err := saveCollectionRaw([]byte(validJSON))
+	id, err := persist.SaveCollectionRaw([]byte(validJSON))
 	if err != nil || id == "" {
 		t.Errorf("failed to save raw")
 	}
 
-	cols = loadSavedCollections()
+	cols = collections.LoadAll()
 	if len(cols) != 1 {
 		t.Errorf("expected 1 collection, got %d", len(cols))
 	} else if cols[0].Name != "Raw Col" {
@@ -76,18 +80,18 @@ func TestCollectionsRawAndLoad(t *testing.T) {
 func TestEnvironmentRawAndLoad(t *testing.T) {
 	setupTestConfigDir(t)
 
-	envs := loadSavedEnvironments()
+	envs := environments.LoadAll()
 	if len(envs) != 0 {
 		t.Errorf("expected 0 envs initially")
 	}
 
 	validJSON := `{"name": "Raw Env", "values": []}`
-	id, err := saveEnvironmentRaw([]byte(validJSON))
+	id, err := persist.SaveEnvironmentRaw([]byte(validJSON))
 	if err != nil || id == "" {
 		t.Errorf("failed to save raw env")
 	}
 
-	envs = loadSavedEnvironments()
+	envs = environments.LoadAll()
 	if len(envs) != 1 {
 		t.Errorf("expected 1 env, got %d", len(envs))
 	} else if envs[0].Name != "Raw Env" {
@@ -98,33 +102,33 @@ func TestEnvironmentRawAndLoad(t *testing.T) {
 func TestSaveEnvironmentAndCollection(t *testing.T) {
 	setupTestConfigDir(t)
 
-	env := &ParsedEnvironment{
+	env := &model.ParsedEnvironment{
 		ID:   "env1",
 		Name: "Test Env",
-		Vars: []EnvVar{
+		Vars: []model.EnvVar{
 			{Key: "k1", Value: "v1", Enabled: true},
 		},
 	}
-	err := SaveEnvironment(env)
+	err := persist.SaveEnvironment(env)
 	if err != nil {
 		t.Errorf("failed to save environment: %v", err)
 	}
 
-	envs := loadSavedEnvironments()
+	envs := environments.LoadAll()
 	if len(envs) != 1 || envs[0].ID != "env1" || envs[0].Name != "Test Env" {
 		t.Errorf("failed to load saved environment")
 	}
 
-	col := &ParsedCollection{
+	col := &collections.ParsedCollection{
 		ID:   "col1",
 		Name: "Test Col",
-		Root: &CollectionNode{
+		Root: &collections.CollectionNode{
 			Name:     "Test Col",
 			IsFolder: true,
-			Children: []*CollectionNode{
+			Children: []*collections.CollectionNode{
 				{
 					Name: "Req1",
-					Request: &ParsedRequest{
+					Request: &model.ParsedRequest{
 						Method: "GET",
 						URL:    "http://example.com",
 					},
@@ -133,12 +137,12 @@ func TestSaveEnvironmentAndCollection(t *testing.T) {
 		},
 	}
 
-	err = SaveCollectionToFile(col)
+	err = collections.SaveToFile(col)
 	if err != nil {
 		t.Errorf("failed to save collection: %v", err)
 	}
 
-	cols := loadSavedCollections()
+	cols := collections.LoadAll()
 	if len(cols) != 1 || cols[0].ID != "col1" || cols[0].Name != "Test Col" {
 		t.Errorf("failed to load saved collection")
 	}
@@ -148,18 +152,18 @@ func TestSaveEnvironmentAndCollection(t *testing.T) {
 }
 
 func TestSnapshotCollection_EmptyNodes(t *testing.T) {
-	col := &ParsedCollection{
+	col := &collections.ParsedCollection{
 		ID:   "c1",
 		Name: "C1",
-		Root: &CollectionNode{
+		Root: &collections.CollectionNode{
 			Name: "Root",
-			Children: []*CollectionNode{
+			Children: []*collections.CollectionNode{
 				{Name: "Empty Folder", IsFolder: true},
 				{Name: "Nil Req", Request: nil},
 			},
 		},
 	}
-	id, data := snapshotCollection(col)
+	id, data := collections.Snapshot(col)
 	if id != "c1" || len(data) == 0 {
 		t.Errorf("snapshot returned empty data")
 	}
@@ -176,7 +180,7 @@ func TestSnapshotCollection_EmptyNodes(t *testing.T) {
 func TestWriteCollectionFile_Error(t *testing.T) {
 	setupTestConfigDir(t)
 
-	err := writeCollectionFile("id", nil)
+	err := persist.WriteCollectionFile("id", nil)
 	if err != nil {
 		t.Errorf("expected no error for nil ext")
 	}
@@ -185,19 +189,19 @@ func TestWriteCollectionFile_Error(t *testing.T) {
 func TestStateErrors(t *testing.T) {
 	tempDir := setupTestConfigDir(t)
 
-	loadSavedCollections()
-	loadSavedEnvironments()
+	collections.LoadAll()
+	environments.LoadAll()
 
 	_ = os.MkdirAll(filepath.Join(tempDir, "tracto"), 0755)
 	_ = os.WriteFile(filepath.Join(tempDir, "tracto", "state.json"), []byte("invalid"), 0644)
-	loadState()
+	persist.Load()
 
 	_ = os.MkdirAll(filepath.Join(tempDir, "tracto", "collections"), 0755)
 	_ = os.WriteFile(filepath.Join(tempDir, "tracto", "collections", "bad.json"), []byte("invalid"), 0644)
-	loadSavedCollections()
+	collections.LoadAll()
 
 	_ = os.MkdirAll(filepath.Join(tempDir, "tracto", "collections", "subdir"), 0755)
-	loadSavedCollections()
+	collections.LoadAll()
 }
 
 func TestGetConfigPath_Error(t *testing.T) {
@@ -206,27 +210,27 @@ func TestGetConfigPath_Error(t *testing.T) {
 	t.Setenv("HOME", "")
 	t.Setenv("XDG_CONFIG_HOME", "")
 
-	path := getConfigPath()
+	path := persist.ConfigDir()
 	if path == "" {
 		t.Errorf("expected at least a fallback path")
 	}
 }
 
 func TestSnapshotCollection(t *testing.T) {
-	col := &ParsedCollection{
+	col := &collections.ParsedCollection{
 		ID:   "test-col-id",
 		Name: "Test Col",
-		Root: &CollectionNode{
+		Root: &collections.CollectionNode{
 			Name:     "Test Col",
 			IsFolder: true,
-			Children: []*CollectionNode{
+			Children: []*collections.CollectionNode{
 				{
 					Name:     "Folder 1",
 					IsFolder: true,
-					Children: []*CollectionNode{
+					Children: []*collections.CollectionNode{
 						{
 							Name: "Request A",
-							Request: &ParsedRequest{
+							Request: &model.ParsedRequest{
 								Method: "POST",
 								URL:    "http://api.example.com",
 								Body:   "{\"foo\": \"bar\"}",
@@ -240,7 +244,7 @@ func TestSnapshotCollection(t *testing.T) {
 				},
 				{
 					Name: "Request B",
-					Request: &ParsedRequest{
+					Request: &model.ParsedRequest{
 						Method: "GET",
 						URL:    "http://api.example.com/b",
 					},
@@ -249,16 +253,16 @@ func TestSnapshotCollection(t *testing.T) {
 		},
 	}
 
-	id, data := snapshotCollection(col)
+	id, data := collections.Snapshot(col)
 	if id != "test-col-id" {
 		t.Errorf("expected id test-col-id, got %s", id)
 	}
 	if len(data) == 0 {
 		t.Fatalf("expected non-empty snapshot data")
 	}
-	var ext ExtCollection
+	var ext model.ExtCollection
 	if err := json.Unmarshal(data, &ext); err != nil {
-		t.Fatalf("snapshot output is not valid ExtCollection JSON: %v", err)
+		t.Fatalf("snapshot output is not valid model.ExtCollection JSON: %v", err)
 	}
 	if ext.Info.Name != "Test Col" {
 		t.Errorf("expected name Test Col, got %s", ext.Info.Name)
@@ -287,7 +291,7 @@ func TestSnapshotCollection(t *testing.T) {
 		t.Fatalf("expected request bytes")
 	}
 
-	var reqA ExtRequest
+	var reqA model.ExtRequest
 	if err := json.Unmarshal(reqAItem.Request, &reqA); err != nil {
 		t.Fatalf("failed to unmarshal request: %v", err)
 	}
@@ -311,17 +315,17 @@ func TestSnapshotCollection(t *testing.T) {
 }
 
 func TestSnapshotCollection_Nil(t *testing.T) {
-	id, ext := snapshotCollection(nil)
+	id, ext := collections.Snapshot(nil)
 	if id != "" || ext != nil {
 		t.Errorf("expected empty results for nil")
 	}
 
-	id, ext = snapshotCollection(&ParsedCollection{})
+	id, ext = collections.Snapshot(&collections.ParsedCollection{})
 	if id != "" || ext != nil {
 		t.Errorf("expected empty results for missing root")
 	}
 
-	id, ext = snapshotCollection(&ParsedCollection{Root: &CollectionNode{}})
+	id, ext = collections.Snapshot(&collections.ParsedCollection{Root: &collections.CollectionNode{}})
 	if id != "" || ext != nil {
 		t.Errorf("expected empty results for missing id")
 	}

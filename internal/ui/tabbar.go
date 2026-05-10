@@ -4,6 +4,8 @@ import (
 	"image"
 	"strings"
 	"time"
+	"tracto/internal/ui/theme"
+	"tracto/internal/ui/widgets"
 	"tracto/internal/utils"
 
 	"github.com/nanorele/gio/font"
@@ -25,13 +27,13 @@ func measureTabWidth(gtx layout.Context, th *material.Theme, cleanTitle string) 
 		if len(words) == 0 {
 			cleanTitle = "New request"
 		}
-		maxW = measureTextWidth(gtx, th, unit.Sp(12), font.Font{}, cleanTitle)
+		maxW = widgets.MeasureTextWidth(gtx, th, unit.Sp(12), font.Font{}, cleanTitle)
 	} else {
 		mid := (len(words) + 1) / 2
 		line1 := strings.Join(words[:mid], " ")
 		line2 := strings.Join(words[mid:], " ")
-		w1 := measureTextWidth(gtx, th, unit.Sp(12), font.Font{}, line1)
-		w2 := measureTextWidth(gtx, th, unit.Sp(12), font.Font{}, line2)
+		w1 := widgets.MeasureTextWidth(gtx, th, unit.Sp(12), font.Font{}, line1)
+		w2 := widgets.MeasureTextWidth(gtx, th, unit.Sp(12), font.Font{}, line2)
 		if w1 > w2 {
 			maxW = w1
 		} else {
@@ -52,20 +54,20 @@ func (ui *AppUI) closeTab(idx int) {
 		return
 	}
 	tab := ui.Tabs[idx]
-	tab.cancelRequest()
-	tab.markClosed()
-	ResetEditorHScroll(&tab.URLInput)
+	tab.CancelRequest()
+	tab.MarkClosed()
+	widgets.ResetEditorHScroll(&tab.URLInput)
 	for _, h := range tab.Headers {
-		ResetEditorHScroll(&h.Key)
-		ResetEditorHScroll(&h.Value)
+		widgets.ResetEditorHScroll(&h.Key)
+		widgets.ResetEditorHScroll(&h.Value)
 	}
 	for _, p := range tab.FormParts {
-		ResetEditorHScroll(&p.Key)
-		ResetEditorHScroll(&p.Value)
+		widgets.ResetEditorHScroll(&p.Key)
+		widgets.ResetEditorHScroll(&p.Value)
 	}
 	for _, ue := range tab.URLEncoded {
-		ResetEditorHScroll(&ue.Key)
-		ResetEditorHScroll(&ue.Value)
+		widgets.ResetEditorHScroll(&ue.Key)
+		widgets.ResetEditorHScroll(&ue.Value)
 	}
 	delete(ui.tabWidthCache, tab)
 	ui.Tabs = append(ui.Tabs[:idx], ui.Tabs[idx+1:]...)
@@ -103,7 +105,7 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 		for i, tab := range ui.Tabs {
 			cache, ok := ui.tabWidthCache[tab]
 			if !ok || cache.title != tab.Title || cache.ppdp != gtx.Metric.PxPerDp {
-				natW := measureTabWidth(gtx, ui.Theme, tab.getCleanTitle())
+				natW := measureTabWidth(gtx, ui.Theme, tab.GetCleanTitle())
 				ui.tabWidthCache[tab] = cachedTab{title: tab.Title, width: natW, ppdp: gtx.Metric.PxPerDp}
 				cache = ui.tabWidthCache[tab]
 			}
@@ -354,18 +356,18 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 								dragTabOX = int(ui.TabDragCurrentX - ui.TabDragOriginX)
 								dragTabOY = int(ui.TabDragCurrentY - ui.TabDragOriginY)
 								dragTabW = finalW
-								paint.FillShape(gtx.Ops, colorBgDark, clip.Rect{Max: image.Pt(finalW, tabHeight)}.Op())
+								paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: image.Pt(finalW, tabHeight)}.Op())
 								t := 1
 								if gtx.Dp(1) > 1 {
 									t = gtx.Dp(1)
 								}
-								paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(0, tabHeight-t), Max: image.Pt(finalW, tabHeight)}.Op())
-								paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(finalW-t, 0), Max: image.Pt(finalW, tabHeight)}.Op())
+								paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, tabHeight-t), Max: image.Pt(finalW, tabHeight)}.Op())
+								paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(finalW-t, 0), Max: image.Pt(finalW, tabHeight)}.Op())
 								if rIdx == 0 {
-									paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(finalW, t)}.Op())
+									paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(finalW, t)}.Op())
 								}
 								if j == 0 {
-									paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, tabHeight)}.Op())
+									paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, tabHeight)}.Op())
 								}
 								return layout.Dimensions{Size: image.Pt(finalW, tabHeight)}
 							}
@@ -379,18 +381,18 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 								}
 							}
 
-							bgColor := colorBgDark
-							fgColor := colorFgMuted
+							bgColor := theme.BgDark
+							fgColor := theme.FgMuted
 							if idx == ui.ActiveIdx {
-								bgColor = colorBg
-								fgColor = colorFg
+								bgColor = theme.Bg
+								fgColor = theme.Fg
 							}
 
 							return layout.Stack{}.Layout(gtx,
 								layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 									paint.FillShape(gtx.Ops, bgColor, clip.Rect{Max: gtx.Constraints.Min}.Op())
 									if idx == ui.ActiveIdx {
-										paint.FillShape(gtx.Ops, colorAccent, clip.Rect{Max: image.Point{X: gtx.Constraints.Min.X, Y: gtx.Dp(unit.Dp(2))}}.Op())
+										paint.FillShape(gtx.Ops, theme.Accent, clip.Rect{Max: image.Point{X: gtx.Constraints.Min.X, Y: gtx.Dp(unit.Dp(2))}}.Op())
 									}
 									return layout.Dimensions{Size: gtx.Constraints.Min}
 								}),
@@ -407,7 +409,7 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 														topPad, bottomPad = unit.Dp(3), unit.Dp(1)
 													}
 													return layout.Inset{Top: topPad, Bottom: bottomPad, Left: unit.Dp(10), Right: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-														cleanTitle := tab.getCleanTitle()
+														cleanTitle := tab.GetCleanTitle()
 														if tab.IsDirty {
 															cleanTitle = "● " + cleanTitle
 														}
@@ -430,7 +432,7 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 													size := gtx.Dp(unit.Dp(16))
 													gtx.Constraints.Min = image.Point{X: size, Y: size}
 													gtx.Constraints.Max = gtx.Constraints.Min
-													return iconClose.Layout(gtx, fgColor)
+													return widgets.IconClose.Layout(gtx, fgColor)
 												})
 											})
 										}),
@@ -443,13 +445,13 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 									if gtx.Dp(1) > 1 {
 										t = gtx.Dp(1)
 									}
-									paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(0, maxY-t), Max: image.Pt(maxX, maxY)}.Op())
-									paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(maxX-t, 0), Max: image.Pt(maxX, maxY)}.Op())
+									paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, maxY-t), Max: image.Pt(maxX, maxY)}.Op())
+									paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(maxX-t, 0), Max: image.Pt(maxX, maxY)}.Op())
 									if rIdx == 0 {
-										paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(maxX, t)}.Op())
+										paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(maxX, t)}.Op())
 									}
 									if j == 0 {
-										paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, maxY)}.Op())
+										paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, maxY)}.Op())
 									}
 									return layout.Dimensions{Size: gtx.Constraints.Min}
 								}),
@@ -464,12 +466,12 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 
 							return layout.Stack{}.Layout(gtx,
 								layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-									paint.FillShape(gtx.Ops, colorBgDark, clip.Rect{Max: gtx.Constraints.Min}.Op())
+									paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: gtx.Constraints.Min}.Op())
 									return layout.Dimensions{Size: gtx.Constraints.Min}
 								}),
 								layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 									btn := material.Button(ui.Theme, &ui.AddTabBtn, "+")
-									btn.Background = colorBgDark
+									btn.Background = theme.BgDark
 									btn.Color = ui.Theme.Fg
 									btn.TextSize = unit.Sp(16)
 									btn.CornerRadius = unit.Dp(0)
@@ -484,13 +486,13 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 									if gtx.Dp(1) > 1 {
 										t = gtx.Dp(1)
 									}
-									paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(0, maxY-t), Max: image.Pt(maxX, maxY)}.Op())
-									paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(maxX-t, 0), Max: image.Pt(maxX, maxY)}.Op())
+									paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, maxY-t), Max: image.Pt(maxX, maxY)}.Op())
+									paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(maxX-t, 0), Max: image.Pt(maxX, maxY)}.Op())
 									if rIdx == 0 {
-										paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(maxX, t)}.Op())
+										paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(maxX, t)}.Op())
 									}
 									if j == 0 {
-										paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, maxY)}.Op())
+										paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, maxY)}.Op())
 									}
 									return layout.Dimensions{Size: gtx.Constraints.Min}
 								}),
@@ -518,8 +520,8 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 			dGtx := gtx
 			dGtx.Constraints.Min = image.Pt(dW, tabHeight)
 			dGtx.Constraints.Max = dGtx.Constraints.Min
-			paint.FillShape(dGtx.Ops, colorBgDragGhost, clip.Rect{Max: dGtx.Constraints.Min}.Op())
-			paint.FillShape(dGtx.Ops, colorAccent, clip.Rect{Max: image.Point{X: dW, Y: dGtx.Dp(unit.Dp(2))}}.Op())
+			paint.FillShape(dGtx.Ops, theme.BgDragGhost, clip.Rect{Max: dGtx.Constraints.Min}.Op())
+			paint.FillShape(dGtx.Ops, theme.Accent, clip.Rect{Max: image.Point{X: dW, Y: dGtx.Dp(unit.Dp(2))}}.Op())
 			layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(1), Left: unit.Dp(10), Right: unit.Dp(6)}.Layout(dGtx, func(gtx layout.Context) layout.Dimensions {
 				t := utils.SanitizeText(dTab.Title)
 				t = strings.ReplaceAll(t, "\n", " ")
@@ -530,7 +532,7 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 					t = "● " + t
 				}
 				lbl := material.Label(ui.Theme, unit.Sp(12), t)
-				lbl.Color = colorFg
+				lbl.Color = theme.Fg
 				lbl.MaxLines = 2
 				lbl.Truncator = "..."
 				return lbl.Layout(gtx)

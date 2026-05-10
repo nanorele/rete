@@ -1,9 +1,10 @@
-package ui
+package workspace
 
 import (
 	"path/filepath"
 	"runtime"
 	"testing"
+
 	"tracto/internal/persist"
 )
 
