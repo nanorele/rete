@@ -138,10 +138,10 @@ func TestFormatJSON_DeepNesting(t *testing.T) {
 func TestLoadPreviewFromFile(t *testing.T) {
 	tmp, _ := os.CreateTemp("", "preview")
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	content := `{"a": 1}`
-	os.WriteFile(tmpPath, []byte(content), 0644)
+	_ = os.WriteFile(tmpPath, []byte(content), 0644)
 
 	result, n, isJSON := loadPreviewFromFile(tmpPath, int64(len(content)), &JSONFormatterState{})
 
@@ -159,7 +159,7 @@ func TestLoadPreviewFromFile(t *testing.T) {
 func TestLoadPreviewFromFile_LargeJSONStaysFormatted(t *testing.T) {
 	tmp, _ := os.CreateTemp("", "preview-large")
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	var sb strings.Builder
 	sb.WriteString(`{"items":[`)
@@ -177,7 +177,7 @@ func TestLoadPreviewFromFile_LargeJSONStaysFormatted(t *testing.T) {
 	if len(content) <= 1024*1024 {
 		t.Fatalf("test setup: payload %d B is not above the old 1 MB cap", len(content))
 	}
-	os.WriteFile(tmpPath, []byte(content), 0644)
+	_ = os.WriteFile(tmpPath, []byte(content), 0644)
 
 	result, _, isJSON := loadPreviewFromFile(tmpPath, int64(len(content)), &JSONFormatterState{})
 	if !isJSON {
@@ -216,10 +216,10 @@ func TestEditorInsertWorks(t *testing.T) {
 func TestLoadMorePreview(t *testing.T) {
 	tmp, _ := os.CreateTemp("", "preview")
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	content := "line1\nline2\n"
-	os.WriteFile(tmpPath, []byte(content), 0644)
+	_ = os.WriteFile(tmpPath, []byte(content), 0644)
 
 	tab := NewRequestTab("test")
 	tab.window = new(app.Window)

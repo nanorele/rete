@@ -43,7 +43,7 @@ func TokenizeXML(src []byte) []Token {
 			continue
 		}
 
-		if i+8 < len(src) && hasASCII(src, i+1, "![CDATA[") {
+		if i+8 < len(src) && hasBytes(src, i+1, "![CDATA[") {
 			start := i
 			i += 9
 			for i+2 < len(src) {
@@ -98,7 +98,7 @@ func TokenizeXML(src []byte) []Token {
 			emit(nameStart, i, TokKeyword, 0)
 		}
 
-		for i < len(src) && src[i] != '>' && !(src[i] == '/' && i+1 < len(src) && src[i+1] == '>') {
+		for i < len(src) && src[i] != '>' && (src[i] != '/' || i+1 >= len(src) || src[i+1] != '>') {
 			b := src[i]
 			if b == ' ' || b == '\t' || b == '\n' || b == '\r' {
 				i++

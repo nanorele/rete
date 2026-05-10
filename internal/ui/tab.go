@@ -183,22 +183,16 @@ type RequestTab struct {
 	dirtyCheckNeeded  bool
 	visibleHeadersBuf []*HeaderItem
 
-	appendChan        chan string
-	window            *app.Window
-	pendingRespWidth  int
-	pendingReqWidth   int
-	reqWidthChange    time.Time
-	respWidthChange   time.Time
-	reqHeightChange   time.Time
-	respHeightChange  time.Time
-	reqWidthTimer     *time.Timer
-	respWidthTimer    *time.Timer
-	LastReqHeight     int
-	LastRespHeight    int
-	pendingReqHeight  int
-	pendingRespHeight int
-	reqHeightTimer    *time.Timer
-	respHeightTimer   *time.Timer
+	appendChan       chan string
+	window           *app.Window
+	pendingRespWidth int
+	pendingReqWidth  int
+	reqWidthTimer    *time.Timer
+	respWidthTimer   *time.Timer
+	LastReqHeight    int
+	LastRespHeight   int
+	reqHeightTimer   *time.Timer
+	respHeightTimer  *time.Timer
 
 	cleanTitle    string
 	cleanTitleSrc string
@@ -645,6 +639,28 @@ func (t *RequestTab) invalidateSearchCache() {
 	t.searchCacheDirty = true
 }
 
+func asciiToLower(s string) string {
+	hasUpper := false
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 'A' && s[i] <= 'Z' {
+			hasUpper = true
+			break
+		}
+	}
+	if !hasUpper {
+		return s
+	}
+	b := make([]byte, len(s))
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		b[i] = c
+	}
+	return string(b)
+}
+
 func (t *RequestTab) performSearch() {
 	query := t.SearchEditor.Text()
 	t.searchQuery = query
@@ -654,10 +670,10 @@ func (t *RequestTab) performSearch() {
 		return
 	}
 	if t.searchCacheDirty || t.searchCache == "" {
-		t.searchCache = strings.ToLower(t.RespEditor.Text())
+		t.searchCache = asciiToLower(t.RespEditor.Text())
 		t.searchCacheDirty = false
 	}
-	q := strings.ToLower(query)
+	q := asciiToLower(query)
 	qLen := len(q)
 	text := t.searchCache
 	offset := 0
@@ -731,8 +747,8 @@ func (t *RequestTab) updateSystemHeaders() {
 	default:
 		autoCT := "text/plain"
 		if t.ReqEditor.Len() > 0 {
-			body := t.ReqEditor.Text()
-			if body[0] == '{' || body[0] == '[' {
+			body := strings.TrimLeft(t.ReqEditor.Text(), "\ufeff \t\r\n")
+			if len(body) > 0 && (body[0] == '{' || body[0] == '[') {
 				autoCT = "application/json"
 			}
 		}
@@ -943,11 +959,11 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 
 	if t.CopyBtn.Clicked(gtx) {
 		var reader io.ReadCloser
-		if sel := t.RespEditor.SelectedText(); sel != "" {
-			reader = io.NopCloser(strings.NewReader(sel))
-		} else if t.respFile != "" {
-			if f, err := os.Open(t.respFile); err == nil {
-				reader = f
+		if t.respFile != "" {
+			if fi, err := os.Stat(t.respFile); err == nil && fi.Size() > 0 {
+				if f, ferr := os.Open(t.respFile); ferr == nil {
+					reader = f
+				}
 			}
 		}
 		if reader == nil {
@@ -1225,7 +1241,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 						}
 						iconColor := colorFgDisabled
 						if t.IsDirty {
-							iconColor = th.Palette.ContrastBg
+							iconColor = th.ContrastBg
 						}
 						gtx.Constraints.Min = image.Point{X: btnH, Y: btnH}
 						gtx.Constraints.Max = gtx.Constraints.Min
@@ -1268,7 +1284,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 								return material.Clickable(gtx, &t.SendBtn, func(gtx layout.Context) layout.Dimensions {
 									return layout.Inset{Top: unit.Dp(7), Bottom: unit.Dp(6), Left: unit.Dp(16), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										lbl := material.Label(th, unit.Sp(12), "SEND")
-										lbl.Color = th.Palette.Fg
+										lbl.Color = th.Fg
 										return lbl.Layout(gtx)
 									})
 								})
@@ -1285,7 +1301,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 										is := gtx.Dp(unit.Dp(20))
 										gtx.Constraints.Min = image.Point{X: is, Y: is}
 										gtx.Constraints.Max = gtx.Constraints.Min
-										return iconDropDown.Layout(gtx, th.Palette.Fg)
+										return iconDropDown.Layout(gtx, th.Fg)
 									})
 								})
 							}),
@@ -1374,7 +1390,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 														btn := monoButton(th, &t.AddHeaderBtn, "Add")
 														btn.TextSize = unit.Sp(12)
 														btn.Background = colorBgField
-														btn.Color = th.Palette.Fg
+														btn.Color = th.Fg
 														btn.Inset = layout.UniformInset(unit.Dp(6))
 														return btn.Layout(gtx)
 													})
@@ -1390,7 +1406,7 @@ func (t *RequestTab) layout(gtx layout.Context, th *material.Theme, win *app.Win
 														btn := monoButton(th, &t.ViewGeneratedBtn, btnText)
 														btn.TextSize = unit.Sp(12)
 														btn.Background = colorBgField
-														btn.Color = th.Palette.Fg
+														btn.Color = th.Fg
 														btn.Inset = layout.UniformInset(unit.Dp(6))
 														return btn.Layout(gtx)
 													})
@@ -1870,7 +1886,7 @@ func (t *RequestTab) layoutOversizeBanner(gtx layout.Context, th *material.Theme
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					btn := material.Button(th, &t.DismissOversizeBtn, "Dismiss")
 					btn.Background = colorBorder
-					btn.Color = th.Palette.Fg
+					btn.Color = th.Fg
 					btn.TextSize = unit.Sp(11)
 					btn.Inset = layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(8)}
 					return btn.Layout(gtx)

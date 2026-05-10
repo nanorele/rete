@@ -15,7 +15,7 @@ type ExtEnvironment struct {
 	Values []struct {
 		Key     string `json:"key"`
 		Value   string `json:"value"`
-		Enabled bool   `json:"enabled"`
+		Enabled *bool  `json:"enabled,omitempty"`
 	} `json:"values"`
 	HighlightColor string `json:"highlight_color,omitempty"`
 }
@@ -117,10 +117,14 @@ func ParseEnvironment(r io.Reader, id string) (*ParsedEnvironment, error) {
 
 	var vars []EnvVar
 	for _, v := range ext.Values {
+		enabled := true
+		if v.Enabled != nil {
+			enabled = *v.Enabled
+		}
 		vars = append(vars, EnvVar{
 			Key:     v.Key,
 			Value:   v.Value,
-			Enabled: v.Enabled,
+			Enabled: enabled,
 		})
 	}
 

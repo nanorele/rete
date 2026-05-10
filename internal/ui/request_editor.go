@@ -154,6 +154,9 @@ func (v *RequestEditor) SetText(s string) bool {
 	v.text = append(v.text[:0], s...)
 	v.rebuildLineStartsFrom(0)
 	v.invalidateChunkHeights()
+	v.padChunkHeights()
+	v.lastTotalH = 0
+	v.imeSentSnippet = key.Snippet{}
 	v.scrollY = 0
 	v.scrollX = 0
 	v.maxLineWidth = 0
@@ -238,15 +241,39 @@ func (v *RequestEditor) SelectedText() string {
 	return string(v.text[s:e])
 }
 
-func (v *RequestEditor) Append(s string) {
+func (v *RequestEditor) Append(s string) bool {
+	if s == "" {
+		return true
+	}
+	if len(v.text)+len(s) > RequestBodyMaxBytes {
+		v.oversizeMsg = "Append rejected: would exceed 100 MB. Load from file instead."
+		return false
+	}
 	startIdx := len(v.text)
 	v.text = append(v.text, s...)
+	if last := len(v.chunkHeights) - 1; last >= 0 {
+		v.chunkHeights[last] = 0
+	}
 	v.appendLineStartsFrom(startIdx)
 	v.padChunkHeights()
+	v.lastTotalH = 0
+	return true
 }
 
 func (v *RequestEditor) invalidateChunkHeights() {
 	v.chunkHeights = v.chunkHeights[:0]
+}
+
+func (v *RequestEditor) invalidateChunkHeightsFrom(pos int) {
+	idx := sort.Search(len(v.lineStarts), func(i int) bool {
+		return v.lineStarts[i] > pos
+	}) - 1
+	if idx < 0 {
+		idx = 0
+	}
+	if idx < len(v.chunkHeights) {
+		v.chunkHeights = v.chunkHeights[:idx]
+	}
 }
 
 func (v *RequestEditor) padChunkHeights() {
@@ -278,9 +305,11 @@ func (v *RequestEditor) Insert(pos int, s string) {
 	shift := len(s)
 	v.shiftRanges(pos, shift)
 
+	v.invalidateChunkHeightsFrom(pos)
 	v.rebuildLineStartsFrom(pos)
 	v.maxLineWidth = 0
 	v.padChunkHeights()
+	v.lastTotalH = 0
 	v.recordEdit(editOp{
 		pos:       pos,
 		deleted:   nil,
@@ -311,9 +340,11 @@ func (v *RequestEditor) DeleteRange(start, end int) {
 
 	v.shiftRanges(end, -(end - start))
 
+	v.invalidateChunkHeightsFrom(start)
 	v.rebuildLineStartsFrom(start)
 	v.maxLineWidth = 0
 	v.padChunkHeights()
+	v.lastTotalH = 0
 	v.recordEdit(editOp{
 		pos:       start,
 		deleted:   deletedCopy,
@@ -324,7 +355,7 @@ func (v *RequestEditor) DeleteRange(start, end int) {
 	})
 }
 
-func (v *RequestEditor) Replace(start, end int, s string) {
+func (v *RequestEditor) Replace(start, end int, s string) bool {
 	if start > end {
 		start, end = end, start
 	}
@@ -334,6 +365,10 @@ func (v *RequestEditor) Replace(start, end int, s string) {
 	if end > len(v.text) {
 		end = len(v.text)
 	}
+	if len(v.text)-(end-start)+len(s) > RequestBodyMaxBytes {
+		v.oversizeMsg = "Paste rejected: would exceed 100 MB. Load from file instead."
+		return false
+	}
 	selBefore, endBefore := v.selStart, v.selEnd
 	var deletedCopy []byte
 	if end > start {
@@ -341,11 +376,13 @@ func (v *RequestEditor) Replace(start, end int, s string) {
 		copy(deletedCopy, v.text[start:end])
 	}
 	v.suppressHistory = true
-	v.DeleteRange(start, end)
-	v.Insert(start, s)
-	v.suppressHistory = false
+	func() {
+		defer func() { v.suppressHistory = false }()
+		v.DeleteRange(start, end)
+		v.Insert(start, s)
+	}()
 	if len(deletedCopy) == 0 && s == "" {
-		return
+		return true
 	}
 	v.recordEdit(editOp{
 		pos:       start,
@@ -355,6 +392,7 @@ func (v *RequestEditor) Replace(start, end int, s string) {
 		endBefore: endBefore,
 		selAfter:  start + len(s),
 	})
+	return true
 }
 
 func (v *RequestEditor) recordEdit(op editOp) {
@@ -437,13 +475,15 @@ func (v *RequestEditor) Undo() bool {
 	op := v.undoStack[len(v.undoStack)-1]
 	v.undoStack = v.undoStack[:len(v.undoStack)-1]
 	v.suppressHistory = true
-	if len(op.inserted) > 0 {
-		v.DeleteRange(op.pos, op.pos+len(op.inserted))
-	}
-	if len(op.deleted) > 0 {
-		v.Insert(op.pos, string(op.deleted))
-	}
-	v.suppressHistory = false
+	func() {
+		defer func() { v.suppressHistory = false }()
+		if len(op.inserted) > 0 {
+			v.DeleteRange(op.pos, op.pos+len(op.inserted))
+		}
+		if len(op.deleted) > 0 {
+			v.Insert(op.pos, string(op.deleted))
+		}
+	}()
 	v.selStart = op.selBefore
 	v.selEnd = op.endBefore
 	v.redoStack = append(v.redoStack, op)
@@ -457,13 +497,15 @@ func (v *RequestEditor) Redo() bool {
 	op := v.redoStack[len(v.redoStack)-1]
 	v.redoStack = v.redoStack[:len(v.redoStack)-1]
 	v.suppressHistory = true
-	if len(op.deleted) > 0 {
-		v.DeleteRange(op.pos, op.pos+len(op.deleted))
-	}
-	if len(op.inserted) > 0 {
-		v.Insert(op.pos, string(op.inserted))
-	}
-	v.suppressHistory = false
+	func() {
+		defer func() { v.suppressHistory = false }()
+		if len(op.deleted) > 0 {
+			v.DeleteRange(op.pos, op.pos+len(op.deleted))
+		}
+		if len(op.inserted) > 0 {
+			v.Insert(op.pos, string(op.inserted))
+		}
+	}()
 	caret := op.selAfter
 	v.selStart = caret
 	v.selEnd = caret
@@ -592,7 +634,10 @@ func (v *RequestEditor) GetScrollBounds() image.Rectangle {
 	if v.lastLineHeight == 0 {
 		return image.Rectangle{}
 	}
-	totalH := len(v.lineStarts) * v.lastLineHeight
+	totalH := v.lastTotalH
+	if totalH <= 0 {
+		totalH = len(v.lineStarts) * v.lastLineHeight
+	}
 	return image.Rectangle{Max: image.Point{Y: totalH}}
 }
 
@@ -654,11 +699,7 @@ func (v *RequestEditor) appendLineStartsFrom(startIdx int) {
 	if len(v.lineStarts) == 0 {
 		v.lineStarts = append(v.lineStarts, 0)
 	}
-	last := v.lineStarts[len(v.lineStarts)-1]
-	if last > startIdx {
-		last = startIdx
-	}
-	for len(v.lineStarts) > 1 && v.lineStarts[len(v.lineStarts)-1] >= startIdx {
+	for len(v.lineStarts) > 1 && v.lineStarts[len(v.lineStarts)-1] > startIdx {
 		v.lineStarts = v.lineStarts[:len(v.lineStarts)-1]
 	}
 	v.scanChunks(v.lineStarts[len(v.lineStarts)-1])
@@ -679,6 +720,12 @@ func (v *RequestEditor) scanChunks(from int) {
 			}
 			if breakAt == lastBreak {
 				breakAt = i
+				for breakAt < len(v.text) && (v.text[breakAt]&0xC0) == 0x80 {
+					breakAt++
+				}
+				if breakAt >= len(v.text) {
+					return
+				}
 			}
 			v.lineStarts = append(v.lineStarts, breakAt)
 			lastBreak = breakAt
@@ -710,6 +757,7 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 
 	size := gtx.Constraints.Max
 	if size.X <= 0 || size.Y <= 0 {
+		event.Op(gtx.Ops, v)
 		return layout.Dimensions{Size: size}
 	}
 
@@ -918,16 +966,18 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 				v.pushIMEState(gtx)
 			} else {
 				v.imeStart, v.imeEnd = 0, 0
+				v.imeSentSnippet = key.Snippet{}
 			}
 		case key.EditEvent:
 			start, end := v.normSel()
-			v.Replace(start, end, ke.Text)
-			caret := start + len(ke.Text)
-			v.selStart = caret
-			v.selEnd = caret
-			v.imeStart, v.imeEnd = 0, 0
-			v.ensureCaretVisible()
-			v.pushIMEState(gtx)
+			if v.Replace(start, end, ke.Text) {
+				caret := start + len(ke.Text)
+				v.selStart = caret
+				v.selEnd = caret
+				v.imeStart, v.imeEnd = 0, 0
+				v.ensureCaretVisible()
+				v.pushIMEState(gtx)
+			}
 		case key.SnippetEvent:
 			v.imeStart = runeIdxToByte(v.text, ke.Start)
 			v.imeEnd = runeIdxToByte(v.text, ke.End)
@@ -940,15 +990,16 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		case transfer.DataEvent:
 			rd := ke.Open()
 			data, err := io.ReadAll(rd)
-			rd.Close()
+			_ = rd.Close()
 			if err == nil && len(data) > 0 {
 				start, end := v.normSel()
-				v.Replace(start, end, string(data))
-				caret := start + len(data)
-				v.selStart = caret
-				v.selEnd = caret
-				v.ensureCaretVisible()
-				v.pushIMEState(gtx)
+				if v.Replace(start, end, string(data)) {
+					caret := start + len(data)
+					v.selStart = caret
+					v.selEnd = caret
+					v.ensureCaretVisible()
+					v.pushIMEState(gtx)
+				}
 			}
 		case key.Event:
 			if ke.State != key.Press {
@@ -983,20 +1034,22 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 				v.pushIMEState(gtx)
 			case key.NameReturn, key.NameEnter:
 				start, end := v.normSel()
-				v.Replace(start, end, "\n")
-				caret := start + 1
-				v.selStart = caret
-				v.selEnd = caret
-				v.ensureCaretVisible()
-				v.pushIMEState(gtx)
+				if v.Replace(start, end, "\n") {
+					caret := start + 1
+					v.selStart = caret
+					v.selEnd = caret
+					v.ensureCaretVisible()
+					v.pushIMEState(gtx)
+				}
 			case key.NameTab:
 				start, end := v.normSel()
-				v.Replace(start, end, "\t")
-				caret := start + 1
-				v.selStart = caret
-				v.selEnd = caret
-				v.ensureCaretVisible()
-				v.pushIMEState(gtx)
+				if v.Replace(start, end, "\t") {
+					caret := start + 1
+					v.selStart = caret
+					v.selEnd = caret
+					v.ensureCaretVisible()
+					v.pushIMEState(gtx)
+				}
 			case "V":
 				gtx.Execute(clipboard.ReadCmd{Tag: v})
 			case "X":
@@ -1600,12 +1653,15 @@ func (v *RequestEditor) lineUp(off, col int) int {
 
 func (v *RequestEditor) lineDown(off, col int) int {
 	_, lineEnd := v.sourceLineBoundsAt(off)
-	if lineEnd >= len(v.text) {
-		return len(v.text)
+	nextLineStart := lineEnd
+	if nextLineStart < len(v.text) && v.text[nextLineStart] == '\r' {
+		nextLineStart++
 	}
-	nextLineStart := lineEnd + 1
-	if nextLineStart > len(v.text) {
-		nextLineStart = len(v.text)
+	if nextLineStart < len(v.text) && v.text[nextLineStart] == '\n' {
+		nextLineStart++
+	}
+	if nextLineStart >= len(v.text) {
+		return len(v.text)
 	}
 	return v.offsetAtColumn(nextLineStart, col)
 }
@@ -1661,11 +1717,22 @@ func (v *RequestEditor) ensureCaretVisible() {
 		return
 	}
 	line := v.lineForByteOffset(v.selEnd)
-	caretY := line * v.lastLineHeight
+	caretY := 0
+	for i := 0; i < line; i++ {
+		if i < len(v.chunkHeights) && v.chunkHeights[i] > 0 {
+			caretY += v.chunkHeights[i]
+		} else {
+			caretY += v.lastLineHeight
+		}
+	}
+	chunkH := v.lastLineHeight
+	if line < len(v.chunkHeights) && v.chunkHeights[line] > 0 {
+		chunkH = v.chunkHeights[line]
+	}
 	if caretY < v.scrollY {
 		v.scrollY = caretY
-	} else if v.lastViewportH > 0 && caretY+v.lastLineHeight > v.scrollY+v.lastViewportH {
-		v.scrollY = caretY + v.lastLineHeight - v.lastViewportH
+	} else if v.lastViewportH > 0 && caretY+chunkH > v.scrollY+v.lastViewportH {
+		v.scrollY = caretY + chunkH - v.lastViewportH
 	}
 	v.clampScroll()
 }

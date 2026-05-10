@@ -34,7 +34,7 @@ func TestCancelRequest(t *testing.T) {
 func TestCleanupRespFile(t *testing.T) {
 	tab := &RequestTab{}
 	tmp, _ := os.CreateTemp("", "test")
-	tmp.Close()
+	_ = tmp.Close()
 
 	tab.respFile = tmp.Name()
 
@@ -99,7 +99,7 @@ func TestPrepareRequest(t *testing.T) {
 func TestPrepareRequest_EmptyURL(t *testing.T) {
 	tab := NewRequestTab("test")
 	tab.URLInput.SetText("   ")
-	_, _, _, err := tab.prepareRequest(nil, nil)
+	_, _, _, err := tab.prepareRequest(context.Background(), nil)
 	if err == nil {
 		t.Errorf("expected error for empty URL")
 	}
@@ -109,7 +109,7 @@ func TestExecuteRequest(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`{"status": "ok"}`))
+		_, _ = w.Write([]byte(`{"status": "ok"}`))
 	}))
 	defer srv.Close()
 
@@ -134,7 +134,7 @@ func TestExecuteRequest(t *testing.T) {
 func TestExecuteRequestToFile(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte(`file content`))
+		_, _ = w.Write([]byte(`file content`))
 	}))
 	defer srv.Close()
 
@@ -145,7 +145,7 @@ func TestExecuteRequestToFile(t *testing.T) {
 
 	tmp, _ := os.CreateTemp("", "save-target")
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 
 	tab.SaveToFilePath = tmpPath
 	tab.beginRequest()
@@ -268,10 +268,10 @@ func TestStreamResponse_Cancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	pr, pw := io.Pipe()
 	go func() {
-		pw.Write([]byte("start"))
+		_, _ = pw.Write([]byte("start"))
 		time.Sleep(100 * time.Millisecond)
 		cancel()
-		pw.Close()
+		_ = pw.Close()
 	}()
 	var dest bytes.Buffer
 	_, err := tab.streamResponse(ctx, pr, &dest, new(app.Window), true)
@@ -284,9 +284,9 @@ func TestLoadPreviewForSavedFile(t *testing.T) {
 	setupTestConfigDir(t)
 	tmp, _ := os.CreateTemp("", "resp")
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath)
+	defer func() { _ = os.Remove(tmpPath) }()
 	content := `{"foo": "bar"}`
-	os.WriteFile(tmpPath, []byte(content), 0644)
+	_ = os.WriteFile(tmpPath, []byte(content), 0644)
 
 	tab := NewRequestTab("test")
 	tab.respFile = tmpPath

@@ -372,7 +372,7 @@ func addRowButton(th *material.Theme, btn *widget.Clickable, label string) layou
 		return bordered1px(gtx, unit.Dp(4), colorBorder, func(gtx layout.Context) layout.Dimensions {
 			b := material.Button(th, btn, label)
 			b.Background = colorBgField
-			b.Color = th.Palette.Fg
+			b.Color = th.Fg
 			b.TextSize = unit.Sp(11)
 			b.Inset = layout.UniformInset(unit.Dp(6))
 			return b.Layout(gtx)
@@ -405,7 +405,7 @@ func pickFileForFormPart(exp *explorer.Explorer, p *FormDataPart, ch chan formPa
 			size = fi.Size()
 		}
 	}
-	rc.Close()
+	_ = rc.Close()
 	if path == "" {
 		return
 	}
@@ -431,7 +431,7 @@ func pickFileForBinary(exp *explorer.Explorer, ch chan binaryFileResult, win *ap
 			size = fi.Size()
 		}
 	}
-	rc.Close()
+	_ = rc.Close()
 	if path == "" {
 		return
 	}

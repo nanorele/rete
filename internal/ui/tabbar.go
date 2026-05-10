@@ -53,16 +53,33 @@ func (ui *AppUI) closeTab(idx int) {
 	}
 	tab := ui.Tabs[idx]
 	tab.cancelRequest()
-	tab.cleanupRespFile()
+	tab.markClosed()
+	ResetEditorHScroll(&tab.URLInput)
+	for _, h := range tab.Headers {
+		ResetEditorHScroll(&h.Key)
+		ResetEditorHScroll(&h.Value)
+	}
+	for _, p := range tab.FormParts {
+		ResetEditorHScroll(&p.Key)
+		ResetEditorHScroll(&p.Value)
+	}
+	for _, ue := range tab.URLEncoded {
+		ResetEditorHScroll(&ue.Key)
+		ResetEditorHScroll(&ue.Value)
+	}
 	delete(ui.tabWidthCache, tab)
 	ui.Tabs = append(ui.Tabs[:idx], ui.Tabs[idx+1:]...)
-	if ui.ActiveIdx >= idx && ui.ActiveIdx > 0 {
-		ui.ActiveIdx--
-	} else if ui.ActiveIdx >= len(ui.Tabs) {
-		ui.ActiveIdx = len(ui.Tabs) - 1
-	}
-	if ui.ActiveIdx < 0 {
-		ui.ActiveIdx = 0
+	if len(ui.Tabs) == 0 {
+		ui.ActiveIdx = -1
+	} else {
+		if ui.ActiveIdx >= idx && ui.ActiveIdx > 0 {
+			ui.ActiveIdx--
+		} else if ui.ActiveIdx >= len(ui.Tabs) {
+			ui.ActiveIdx = len(ui.Tabs) - 1
+		}
+		if ui.ActiveIdx < 0 {
+			ui.ActiveIdx = 0
+		}
 	}
 	ui.saveState()
 }
@@ -112,7 +129,6 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 		if currentX > 0 && currentX+addBtnW > maxWidth {
 			rows = append(rows, currentRow)
 			currentRow = nil
-			currentX = 0
 		}
 		currentRow = append(currentRow, -1)
 		rows = append(rows, currentRow)
@@ -232,9 +248,10 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 		swapTabs := func(a, b int) {
 			ui.Tabs[a], ui.Tabs[b] = ui.Tabs[b], ui.Tabs[a]
 			tabs[a], tabs[b] = tabs[b], tabs[a]
-			if ui.ActiveIdx == a {
+			switch ui.ActiveIdx {
+			case a:
 				ui.ActiveIdx = b
-			} else if ui.ActiveIdx == b {
+			case b:
 				ui.ActiveIdx = a
 			}
 		}
@@ -337,7 +354,19 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 								dragTabOX = int(ui.TabDragCurrentX - ui.TabDragOriginX)
 								dragTabOY = int(ui.TabDragCurrentY - ui.TabDragOriginY)
 								dragTabW = finalW
-								paint.FillShape(gtx.Ops, colorBgDragHolder, clip.Rect{Max: image.Pt(finalW, tabHeight)}.Op())
+								paint.FillShape(gtx.Ops, colorBgDark, clip.Rect{Max: image.Pt(finalW, tabHeight)}.Op())
+								t := 1
+								if gtx.Dp(1) > 1 {
+									t = gtx.Dp(1)
+								}
+								paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(0, tabHeight-t), Max: image.Pt(finalW, tabHeight)}.Op())
+								paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(finalW-t, 0), Max: image.Pt(finalW, tabHeight)}.Op())
+								if rIdx == 0 {
+									paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(finalW, t)}.Op())
+								}
+								if j == 0 {
+									paint.FillShape(gtx.Ops, colorBorder, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, tabHeight)}.Op())
+								}
 								return layout.Dimensions{Size: image.Pt(finalW, tabHeight)}
 							}
 
@@ -441,7 +470,7 @@ func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
 								layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 									btn := material.Button(ui.Theme, &ui.AddTabBtn, "+")
 									btn.Background = colorBgDark
-									btn.Color = ui.Theme.Palette.Fg
+									btn.Color = ui.Theme.Fg
 									btn.TextSize = unit.Sp(16)
 									btn.CornerRadius = unit.Dp(0)
 									btn.Inset = layout.Inset{}

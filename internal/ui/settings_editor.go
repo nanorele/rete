@@ -8,6 +8,7 @@ import (
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"
+	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op/clip"
 	"github.com/nanorele/gio/op/paint"
@@ -17,6 +18,19 @@ import (
 )
 
 var settingsCategories = []string{"Appearance", "Sizes", "HTTP", "Advanced"}
+
+var acceptEncodingOptions = []struct {
+	Value string
+	Label string
+}{
+	{"", "off"},
+	{"identity", "identity"},
+	{"gzip", "gzip"},
+	{"deflate", "deflate"},
+	{"br", "br"},
+	{"gzip, deflate", "gzip+deflate"},
+	{"gzip, deflate, br", "all"},
+}
 
 type SettingsEditorState struct {
 	Draft AppSettings
@@ -49,26 +63,43 @@ type SettingsEditorState struct {
 	StackBpInc        widget.Clickable
 	StackBpEditor     widget.Editor
 
-	HideTabBar  widget.Bool
-	HideSidebar widget.Bool
+	HideTabBar           widget.Bool
+	HideSidebar          widget.Bool
+	RestoreTabsOnStartup widget.Bool
 
-	TimeoutDec          widget.Clickable
-	TimeoutInc          widget.Clickable
-	TimeoutEditor       widget.Editor
-	MaxRedirectsDec     widget.Clickable
-	MaxRedirectsInc     widget.Clickable
-	MaxRedirectsEditor  widget.Editor
-	MaxConnsDec         widget.Clickable
-	MaxConnsInc         widget.Clickable
-	MaxConnsEditor      widget.Editor
-	FollowRedirects  widget.Bool
-	VerifySSL        widget.Bool
-	KeepAlive        widget.Bool
-	DisableHTTP2     widget.Bool
-	UserAgentEditor  widget.Editor
-	ProxyEditor      widget.Editor
-	DefaultHdrEdit   widget.Editor
-	DefaultMethodBtn []widget.Clickable
+	SidebarWidthDec    widget.Clickable
+	SidebarWidthInc    widget.Clickable
+	SidebarWidthEditor widget.Editor
+
+	TimeoutDec               widget.Clickable
+	TimeoutInc               widget.Clickable
+	TimeoutEditor            widget.Editor
+	ConnectTimeoutDec        widget.Clickable
+	ConnectTimeoutInc        widget.Clickable
+	ConnectTimeoutEditor     widget.Editor
+	TLSTimeoutDec            widget.Clickable
+	TLSTimeoutInc            widget.Clickable
+	TLSTimeoutEditor         widget.Editor
+	IdleTimeoutDec           widget.Clickable
+	IdleTimeoutInc           widget.Clickable
+	IdleTimeoutEditor        widget.Editor
+	MaxRedirectsDec          widget.Clickable
+	MaxRedirectsInc          widget.Clickable
+	MaxRedirectsEditor       widget.Editor
+	MaxConnsDec              widget.Clickable
+	MaxConnsInc              widget.Clickable
+	MaxConnsEditor           widget.Editor
+	FollowRedirects          widget.Bool
+	VerifySSL                widget.Bool
+	KeepAlive                widget.Bool
+	DisableHTTP2             widget.Bool
+	CookieJar                widget.Bool
+	SendConnClose            widget.Bool
+	UserAgentEditor          widget.Editor
+	ProxyEditor              widget.Editor
+	DefaultHdrEdit           widget.Editor
+	DefaultMethodBtn         []widget.Clickable
+	AcceptEncodingBtn        []widget.Clickable
 
 	JSONIndentDec           widget.Clickable
 	JSONIndentInc           widget.Clickable
@@ -78,7 +109,9 @@ type SettingsEditorState struct {
 	PreviewMaxEditor        widget.Editor
 	WrapLines               widget.Bool
 	AutoFormatJSON          widget.Bool
+	AutoFormatJSONRequest   widget.Bool
 	StripJSONComments       widget.Bool
+	TrimTrailingWS          widget.Bool
 	BracketPairColorization widget.Bool
 
 	SyntaxOverrideEditors []widget.Editor
@@ -124,6 +157,7 @@ func newSettingsEditorState(current AppSettings) *SettingsEditorState {
 		CategoryBtn:           make([]widget.Clickable, len(settingsCategories)),
 		ThemeBtns:             make([]widget.Clickable, len(themeRegistry)),
 		DefaultMethodBtn:      make([]widget.Clickable, len(methods)),
+		AcceptEncodingBtn:     make([]widget.Clickable, len(acceptEncodingOptions)),
 		SyntaxOverrideEditors: make([]widget.Editor, len(tokenColorTable)),
 		SyntaxResetBtns:       make([]widget.Clickable, len(tokenColorTable)),
 		SyntaxSwatchBtns:      make([]widget.Clickable, len(tokenColorTable)),
@@ -155,13 +189,18 @@ func newSettingsEditorState(current AppSettings) *SettingsEditorState {
 
 	s.HideTabBar.Value = current.HideTabBar
 	s.HideSidebar.Value = current.HideSidebar
+	s.RestoreTabsOnStartup.Value = current.RestoreTabsOnStartup
 	s.FollowRedirects.Value = current.FollowRedirects
 	s.VerifySSL.Value = current.VerifySSL
 	s.KeepAlive.Value = current.KeepAlive
 	s.DisableHTTP2.Value = current.DisableHTTP2
+	s.CookieJar.Value = current.CookieJarEnabled
+	s.SendConnClose.Value = current.SendConnectionClose
 	s.WrapLines.Value = current.WrapLinesDefault
 	s.AutoFormatJSON.Value = current.AutoFormatJSON
+	s.AutoFormatJSONRequest.Value = current.AutoFormatJSONRequest
 	s.StripJSONComments.Value = current.StripJSONComments
+	s.TrimTrailingWS.Value = current.TrimTrailingWhitespace
 	s.BracketPairColorization.Value = current.BracketPairColorization
 
 	s.initialized = true
@@ -216,6 +255,7 @@ func (ui *AppUI) applyDraftSettings() {
 	st := ui.SettingsState
 	st.Draft.HideTabBar = st.HideTabBar.Value
 	st.Draft.HideSidebar = st.HideSidebar.Value
+	st.Draft.RestoreTabsOnStartup = st.RestoreTabsOnStartup.Value
 
 	st.Draft.UserAgent = strings.TrimSpace(st.UserAgentEditor.Text())
 	st.Draft.Proxy = strings.TrimSpace(st.ProxyEditor.Text())
@@ -223,10 +263,14 @@ func (ui *AppUI) applyDraftSettings() {
 	st.Draft.VerifySSL = st.VerifySSL.Value
 	st.Draft.KeepAlive = st.KeepAlive.Value
 	st.Draft.DisableHTTP2 = st.DisableHTTP2.Value
+	st.Draft.CookieJarEnabled = st.CookieJar.Value
+	st.Draft.SendConnectionClose = st.SendConnClose.Value
 	st.Draft.DefaultHeaders = textToHeaders(st.DefaultHdrEdit.Text())
 	st.Draft.WrapLinesDefault = st.WrapLines.Value
 	st.Draft.AutoFormatJSON = st.AutoFormatJSON.Value
+	st.Draft.AutoFormatJSONRequest = st.AutoFormatJSONRequest.Value
 	st.Draft.StripJSONComments = st.StripJSONComments.Value
+	st.Draft.TrimTrailingWhitespace = st.TrimTrailingWS.Value
 	st.Draft.BracketPairColorization = st.BracketPairColorization.Value
 
 	st.Draft = st.Draft.sanitized()
@@ -311,6 +355,7 @@ func (ui *AppUI) resetSettings() {
 	st.Draft = def
 	st.HideTabBar.Value = def.HideTabBar
 	st.HideSidebar.Value = def.HideSidebar
+	st.RestoreTabsOnStartup.Value = def.RestoreTabsOnStartup
 
 	st.UserAgentEditor.SetText(def.UserAgent)
 	st.ProxyEditor.SetText(def.Proxy)
@@ -318,10 +363,14 @@ func (ui *AppUI) resetSettings() {
 	st.VerifySSL.Value = def.VerifySSL
 	st.KeepAlive.Value = def.KeepAlive
 	st.DisableHTTP2.Value = def.DisableHTTP2
+	st.CookieJar.Value = def.CookieJarEnabled
+	st.SendConnClose.Value = def.SendConnectionClose
 	st.DefaultHdrEdit.SetText(headersToText(def.DefaultHeaders))
 	st.WrapLines.Value = def.WrapLinesDefault
 	st.AutoFormatJSON.Value = def.AutoFormatJSON
+	st.AutoFormatJSONRequest.Value = def.AutoFormatJSONRequest
 	st.StripJSONComments.Value = def.StripJSONComments
+	st.TrimTrailingWS.Value = def.TrimTrailingWhitespace
 	st.BracketPairColorization.Value = def.BracketPairColorization
 }
 
@@ -579,6 +628,76 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 			changed = true
 		}
 	}
+	for st.ConnectTimeoutDec.Clicked(gtx) {
+		if st.Draft.ConnectTimeoutSec > 0 {
+			st.Draft.ConnectTimeoutSec--
+			changed = true
+		}
+	}
+	for st.ConnectTimeoutInc.Clicked(gtx) {
+		if st.Draft.ConnectTimeoutSec < 600 {
+			st.Draft.ConnectTimeoutSec++
+			changed = true
+		}
+	}
+	for st.TLSTimeoutDec.Clicked(gtx) {
+		if st.Draft.TLSHandshakeTimeoutSec > 0 {
+			st.Draft.TLSHandshakeTimeoutSec--
+			changed = true
+		}
+	}
+	for st.TLSTimeoutInc.Clicked(gtx) {
+		if st.Draft.TLSHandshakeTimeoutSec < 600 {
+			st.Draft.TLSHandshakeTimeoutSec++
+			changed = true
+		}
+	}
+	for st.IdleTimeoutDec.Clicked(gtx) {
+		step := timeoutStep(st.Draft.IdleConnTimeoutSec)
+		if st.Draft.IdleConnTimeoutSec > 0 {
+			st.Draft.IdleConnTimeoutSec -= step
+			if st.Draft.IdleConnTimeoutSec < 0 {
+				st.Draft.IdleConnTimeoutSec = 0
+			}
+			changed = true
+		}
+	}
+	for st.IdleTimeoutInc.Clicked(gtx) {
+		step := timeoutStep(st.Draft.IdleConnTimeoutSec)
+		if st.Draft.IdleConnTimeoutSec < 3600 {
+			st.Draft.IdleConnTimeoutSec += step
+			if st.Draft.IdleConnTimeoutSec > 3600 {
+				st.Draft.IdleConnTimeoutSec = 3600
+			}
+			changed = true
+		}
+	}
+	for st.SidebarWidthDec.Clicked(gtx) {
+		if st.Draft.DefaultSidebarWidthPx > 160 {
+			st.Draft.DefaultSidebarWidthPx -= 10
+			if st.Draft.DefaultSidebarWidthPx < 160 {
+				st.Draft.DefaultSidebarWidthPx = 160
+			}
+			changed = true
+		}
+	}
+	for st.SidebarWidthInc.Clicked(gtx) {
+		if st.Draft.DefaultSidebarWidthPx < 1000 {
+			st.Draft.DefaultSidebarWidthPx += 10
+			if st.Draft.DefaultSidebarWidthPx > 1000 {
+				st.Draft.DefaultSidebarWidthPx = 1000
+			}
+			changed = true
+		}
+	}
+	for i := range st.AcceptEncodingBtn {
+		for st.AcceptEncodingBtn[i].Clicked(gtx) {
+			if st.Draft.DefaultAcceptEncoding != acceptEncodingOptions[i].Value {
+				st.Draft.DefaultAcceptEncoding = acceptEncodingOptions[i].Value
+				changed = true
+			}
+		}
+	}
 	for st.MaxRedirectsDec.Clicked(gtx) {
 		if st.Draft.MaxRedirects > 0 {
 			st.Draft.MaxRedirects--
@@ -647,12 +766,28 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 		st.Draft.RequestTimeoutSec = v
 		changed = true
 	}
+	if v, ok := intStepperUpdate(gtx, &st.ConnectTimeoutEditor, st.Draft.ConnectTimeoutSec, 0, 600); ok {
+		st.Draft.ConnectTimeoutSec = v
+		changed = true
+	}
+	if v, ok := intStepperUpdate(gtx, &st.TLSTimeoutEditor, st.Draft.TLSHandshakeTimeoutSec, 0, 600); ok {
+		st.Draft.TLSHandshakeTimeoutSec = v
+		changed = true
+	}
+	if v, ok := intStepperUpdate(gtx, &st.IdleTimeoutEditor, st.Draft.IdleConnTimeoutSec, 0, 3600); ok {
+		st.Draft.IdleConnTimeoutSec = v
+		changed = true
+	}
 	if v, ok := intStepperUpdate(gtx, &st.MaxRedirectsEditor, st.Draft.MaxRedirects, 0, 50); ok {
 		st.Draft.MaxRedirects = v
 		changed = true
 	}
 	if v, ok := intStepperUpdate(gtx, &st.MaxConnsEditor, st.Draft.MaxConnsPerHost, 0, 10000); ok {
 		st.Draft.MaxConnsPerHost = v
+		changed = true
+	}
+	if v, ok := intStepperUpdate(gtx, &st.SidebarWidthEditor, st.Draft.DefaultSidebarWidthPx, 160, 1000); ok {
+		st.Draft.DefaultSidebarWidthPx = v
 		changed = true
 	}
 	if v, ok := intStepperUpdate(gtx, &st.JSONIndentEditor, st.Draft.JSONIndentSpaces, 0, 8); ok {
@@ -820,6 +955,9 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 	if st.HideSidebar.Update(gtx) {
 		changed = true
 	}
+	if st.RestoreTabsOnStartup.Update(gtx) {
+		changed = true
+	}
 	if st.FollowRedirects.Update(gtx) {
 		changed = true
 	}
@@ -832,13 +970,25 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 	if st.DisableHTTP2.Update(gtx) {
 		changed = true
 	}
+	if st.CookieJar.Update(gtx) {
+		changed = true
+	}
+	if st.SendConnClose.Update(gtx) {
+		changed = true
+	}
 	if st.WrapLines.Update(gtx) {
 		changed = true
 	}
 	if st.AutoFormatJSON.Update(gtx) {
 		changed = true
 	}
+	if st.AutoFormatJSONRequest.Update(gtx) {
+		changed = true
+	}
 	if st.StripJSONComments.Update(gtx) {
+		changed = true
+	}
+	if st.TrimTrailingWS.Update(gtx) {
 		changed = true
 	}
 	if st.BracketPairColorization.Update(gtx) {
@@ -849,6 +999,16 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 		ui.applyDraftSettings()
 		ui.saveState()
 	}
+
+	// Anchor the whole settings screen to CursorDefault. The settings
+	// content is full of widget.Editor instances (Text Fields) whose
+	// hit-area can extend past their visible bounds via hint-inflated
+	// gtx.Constraints.Min in material.EditorStyle.Layout. Without this
+	// anchor, those areas leak CursorText into adjacent widgets that
+	// don't set a cursor of their own (header buttons, category list,
+	// the divider, etc.).
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+	pointer.CursorDefault.Add(gtx.Ops)
 
 	return layout.UniformInset(unit.Dp(16)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
@@ -946,6 +1106,47 @@ func methodGrid(th *material.Theme, st *SettingsEditorState, gtx layout.Context)
 	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
 }
 
+func acceptEncodingGrid(th *material.Theme, st *SettingsEditorState, gtx layout.Context) layout.Dimensions {
+	height := gtx.Dp(unit.Dp(28))
+	gap := gtx.Dp(unit.Dp(4))
+	children := make([]layout.FlexChild, 0, len(acceptEncodingOptions)*2)
+	for i, opt := range acceptEncodingOptions {
+		i, opt := i, opt
+		children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			return material.Clickable(gtx, &st.AcceptEncodingBtn[i], func(gtx layout.Context) layout.Dimensions {
+				size := image.Pt(gtx.Constraints.Max.X, height)
+				gtx.Constraints.Min = size
+				gtx.Constraints.Max = size
+				borderC := colorBorder
+				borderW := gtx.Dp(unit.Dp(1))
+				active := st.Draft.DefaultAcceptEncoding == opt.Value
+				if active {
+					borderC = colorAccent
+					borderW = gtx.Dp(unit.Dp(2))
+				} else if st.AcceptEncodingBtn[i].Hovered() {
+					borderC = colorBorderLight
+				}
+				outer := clip.UniformRRect(image.Rectangle{Max: size}, 4)
+				paint.FillShape(gtx.Ops, borderC, outer.Op(gtx.Ops))
+				inner := image.Rect(borderW, borderW, size.X-borderW, size.Y-borderW)
+				paint.FillShape(gtx.Ops, colorBgField, clip.UniformRRect(inner, 3).Op(gtx.Ops))
+				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					lbl := material.Label(th, unit.Sp(11), opt.Label)
+					lbl.Color = colorFg
+					if active {
+						lbl.Font.Weight = font.Bold
+					}
+					return lbl.Layout(gtx)
+				})
+			})
+		}))
+		if i < len(acceptEncodingOptions)-1 {
+			children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(float32(gap) / gtx.Metric.PxPerDp)}.Layout))
+		}
+	}
+	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
+}
+
 func (ui *AppUI) layoutSettingsHeader(gtx layout.Context) layout.Dimensions {
 	st := ui.SettingsState
 	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
@@ -961,7 +1162,7 @@ func (ui *AppUI) layoutSettingsHeader(gtx layout.Context) layout.Dimensions {
 				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min = image.Pt(gtx.Dp(16), gtx.Dp(16))
-					return iconBack.Layout(gtx, ui.Theme.Palette.Fg)
+					return iconBack.Layout(gtx, ui.Theme.Fg)
 				})
 			})
 		}),
@@ -986,7 +1187,7 @@ func (ui *AppUI) layoutSettingsHeader(gtx layout.Context) layout.Dimensions {
 				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(ui.Theme, unit.Sp(13), "Reset to defaults")
-					lbl.Color = ui.Theme.Palette.Fg
+					lbl.Color = ui.Theme.Fg
 					lbl.Font.Weight = font.Bold
 					return lbl.Layout(gtx)
 				})
@@ -1008,7 +1209,7 @@ func (ui *AppUI) layoutSettingsCategories(gtx layout.Context) layout.Dimensions 
 					fg := colorFgMuted
 					if st.Category == i {
 						bg = colorBgHover
-						fg = ui.Theme.Palette.Fg
+						fg = ui.Theme.Fg
 					} else if st.CategoryBtn[i].Hovered() {
 						bg = colorBgSecondary
 					}
@@ -1058,6 +1259,7 @@ func (ui *AppUI) sectionsAppearance() []layout.Widget {
 	}
 	tabHint := "Hide the row of request tabs above the editor. " + defaultShownHidden(def.HideTabBar)
 	sideHint := "Hide the collections/environments sidebar. " + defaultShownHidden(def.HideSidebar)
+	restoreHint := "Reopen previously open tabs when the app starts. " + defaultOnOff(def.RestoreTabsOnStartup)
 	activeThemeName := defName
 	for _, t := range themeRegistry {
 		if t.ID == st.Draft.Theme {
@@ -1082,6 +1284,13 @@ func (ui *AppUI) sectionsAppearance() []layout.Widget {
 		func(gtx layout.Context) layout.Dimensions {
 			sw := styledSwitch(ui.Theme, &st.HideSidebar)
 			return settingsSwitchRow(ui.Theme, "Hide sidebar", sideHint, sw.Layout)(gtx)
+		},
+		spacerH(20),
+		settingsSectionTitle(ui.Theme, "Startup"),
+		spacerH(8),
+		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(ui.Theme, &st.RestoreTabsOnStartup)
+			return settingsSwitchRow(ui.Theme, "Restore tabs on startup", restoreHint, sw.Layout)(gtx)
 		},
 		spacerH(20),
 		settingsSectionTitle(ui.Theme, "Color theme"),
@@ -1344,14 +1553,13 @@ func (ui *AppUI) sectionsSizes() []layout.Widget {
 		settingsHint(ui.Theme, fmt.Sprintf("Stack request and response panes vertically when the tab content area is narrower than this width. Set to 0 to always keep them side-by-side. Default: %d dp.", def.StackBreakpointDp)),
 		spacerH(8),
 		stepperEditableRow(ui.Theme, &st.StackBpDec, &st.StackBpInc, &st.StackBpEditor, "dp"),
+		spacerH(20),
+		settingsSectionTitle(ui.Theme, "Default sidebar width"),
+		spacerH(4),
+		settingsHint(ui.Theme, fmt.Sprintf("Initial width of the collections/environments sidebar on first launch. Existing windows keep their dragged width. Default: %d px.", def.DefaultSidebarWidthPx)),
+		spacerH(8),
+		stepperEditableRow(ui.Theme, &st.SidebarWidthDec, &st.SidebarWidthInc, &st.SidebarWidthEditor, "px"),
 	}
-}
-
-func stackBreakpointLabel(v int) string {
-	if v <= 0 {
-		return "off"
-	}
-	return fmt.Sprintf("%d dp", v)
 }
 
 func (ui *AppUI) sectionsHTTP() []layout.Widget {
@@ -1361,12 +1569,35 @@ func (ui *AppUI) sectionsHTTP() []layout.Widget {
 	verifyHint := "Verify TLS certificates for HTTPS requests. Disable only for local dev against self-signed certs. " + defaultOnOff(def.VerifySSL)
 	keepAliveHint := "Reuse TCP connections across requests to the same host. " + defaultOnOff(def.KeepAlive)
 	http2Hint := "Force HTTP/1.1 only — disables HTTP/2 ALPN negotiation on TLS connections. " + defaultOnOff(def.DisableHTTP2)
+	cookieHint := "Persist cookies set by the server and resend them on subsequent requests to the same host (in-memory only, cleared on app exit). " + defaultOnOff(def.CookieJarEnabled)
+	connCloseHint := "Send Connection: close on every request and tear down the TCP connection after the response. Useful for debugging. " + defaultOnOff(def.SendConnectionClose)
 	return []layout.Widget{
 		settingsSectionTitle(ui.Theme, "Request timeout"),
 		spacerH(4),
 		settingsHint(ui.Theme, fmt.Sprintf("Cancel a request if no response arrives in this many seconds. 0 = no timeout. Default: %d s.", def.RequestTimeoutSec)),
 		spacerH(8),
 		stepperEditableRow(ui.Theme, &st.TimeoutDec, &st.TimeoutInc, &st.TimeoutEditor, "s"),
+		spacerH(20),
+
+		settingsSectionTitle(ui.Theme, "Connect timeout"),
+		spacerH(4),
+		settingsHint(ui.Theme, fmt.Sprintf("Maximum time to establish a TCP connection. 0 = system default. Default: %d s.", def.ConnectTimeoutSec)),
+		spacerH(8),
+		stepperEditableRow(ui.Theme, &st.ConnectTimeoutDec, &st.ConnectTimeoutInc, &st.ConnectTimeoutEditor, "s"),
+		spacerH(20),
+
+		settingsSectionTitle(ui.Theme, "TLS handshake timeout"),
+		spacerH(4),
+		settingsHint(ui.Theme, fmt.Sprintf("Maximum time waiting for the TLS handshake. 0 = system default. Default: %d s.", def.TLSHandshakeTimeoutSec)),
+		spacerH(8),
+		stepperEditableRow(ui.Theme, &st.TLSTimeoutDec, &st.TLSTimeoutInc, &st.TLSTimeoutEditor, "s"),
+		spacerH(20),
+
+		settingsSectionTitle(ui.Theme, "Idle connection timeout"),
+		spacerH(4),
+		settingsHint(ui.Theme, fmt.Sprintf("Close idle keep-alive connections after this many seconds. 0 = never. Default: %d s.", def.IdleConnTimeoutSec)),
+		spacerH(8),
+		stepperEditableRow(ui.Theme, &st.IdleTimeoutDec, &st.IdleTimeoutInc, &st.IdleTimeoutEditor, "s"),
 		spacerH(20),
 
 		settingsSectionTitle(ui.Theme, "Default request method"),
@@ -1419,9 +1650,28 @@ func (ui *AppUI) sectionsHTTP() []layout.Widget {
 			return settingsSwitchRow(ui.Theme, "Disable HTTP/2", http2Hint, sw.Layout)(gtx)
 		},
 		spacerH(12),
+		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(ui.Theme, &st.SendConnClose)
+			return settingsSwitchRow(ui.Theme, "Send Connection: close", connCloseHint, sw.Layout)(gtx)
+		},
+		spacerH(12),
+		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(ui.Theme, &st.CookieJar)
+			return settingsSwitchRow(ui.Theme, "Cookie jar", cookieHint, sw.Layout)(gtx)
+		},
+		spacerH(12),
 		settingsHint(ui.Theme, fmt.Sprintf("Maximum concurrent connections per host. 0 = unlimited. Default: %d.", def.MaxConnsPerHost)),
 		spacerH(8),
 		stepperEditableRow(ui.Theme, &st.MaxConnsDec, &st.MaxConnsInc, &st.MaxConnsEditor, ""),
+		spacerH(20),
+
+		settingsSectionTitle(ui.Theme, "Default Accept-Encoding"),
+		spacerH(4),
+		settingsHint(ui.Theme, fmt.Sprintf("Sent on every request unless overridden by a per-request header. \"off\" omits the header (Go will then add gzip automatically and transparently decode it). Default: %q.", def.DefaultAcceptEncoding)),
+		spacerH(8),
+		func(gtx layout.Context) layout.Dimensions {
+			return acceptEncodingGrid(ui.Theme, st, gtx)
+		},
 		spacerH(20),
 
 		settingsSectionTitle(ui.Theme, "HTTP proxy"),
@@ -1451,7 +1701,9 @@ func (ui *AppUI) sectionsAdvanced() []layout.Widget {
 	def := defaultSettings()
 	wrapHint := "Wrap long lines by default in new editors. " + defaultOnOff(def.WrapLinesDefault)
 	autoFmtHint := "Pretty-print JSON responses in the preview viewer. Disable to display raw bytes as received. " + defaultOnOff(def.AutoFormatJSON)
+	autoFmtReqHint := "Pretty-print the JSON request body before sending if it parses as valid JSON. Uses the JSON indent setting. " + defaultOnOff(def.AutoFormatJSONRequest)
 	stripHint := "Remove // line comments from JSON request bodies before sending if the result is valid JSON. " + defaultOnOff(def.StripJSONComments)
+	trimHint := "Strip trailing spaces and tabs from each line of the request body before sending. " + defaultOnOff(def.TrimTrailingWhitespace)
 	bracketHint := "Color matched brackets in nested JSON by depth, like VS Code. " + defaultOnOff(def.BracketPairColorization)
 	return []layout.Widget{
 		settingsSectionTitle(ui.Theme, "JSON indent"),
@@ -1484,8 +1736,21 @@ func (ui *AppUI) sectionsAdvanced() []layout.Widget {
 		},
 		spacerH(12),
 		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(ui.Theme, &st.AutoFormatJSONRequest)
+			return settingsSwitchRow(ui.Theme, "Auto-format JSON request before send", autoFmtReqHint, sw.Layout)(gtx)
+		},
+		spacerH(12),
+		func(gtx layout.Context) layout.Dimensions {
 			sw := styledSwitch(ui.Theme, &st.StripJSONComments)
 			return settingsSwitchRow(ui.Theme, "Strip // comments before send", stripHint, sw.Layout)(gtx)
+		},
+		spacerH(20),
+
+		settingsSectionTitle(ui.Theme, "Body editor"),
+		spacerH(8),
+		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(ui.Theme, &st.TrimTrailingWS)
+			return settingsSwitchRow(ui.Theme, "Trim trailing whitespace before send", trimHint, sw.Layout)(gtx)
 		},
 		spacerH(20),
 
@@ -1529,24 +1794,6 @@ func settingsSectionTitle(th *material.Theme, text string) layout.Widget {
 		lbl := material.Label(th, unit.Sp(13), text)
 		lbl.Font.Weight = font.Bold
 		return lbl.Layout(gtx)
-	}
-}
-
-func stepperRow(th *material.Theme, dec, inc *widget.Clickable, value string) layout.Widget {
-	return func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(stepperBtn(th, dec, "-")),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Min.X = gtx.Dp(unit.Dp(100))
-				return layout.Inset{Left: unit.Dp(12), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						lbl := material.Label(th, unit.Sp(13), value)
-						return lbl.Layout(gtx)
-					})
-				})
-			}),
-			layout.Rigid(stepperBtn(th, inc, "+")),
-		)
 	}
 }
 
@@ -1752,7 +1999,7 @@ func (ui *AppUI) layoutNewThemeRow(gtx layout.Context, st *SettingsEditorState) 
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 							btn := material.Button(ui.Theme, &st.NewThemeCancelBtn, "Cancel")
 							btn.Background = colorBorder
-							btn.Color = ui.Theme.Palette.Fg
+							btn.Color = ui.Theme.Fg
 							btn.TextSize = unit.Sp(12)
 							btn.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(14), Right: unit.Dp(14)}
 							return btn.Layout(gtx)
@@ -1790,10 +2037,8 @@ func (ui *AppUI) layoutBaseThemePicker(gtx layout.Context, st *SettingsEditorSta
 						gtx.Constraints.Max = gtx.Constraints.Min
 						bg := t.Palette.Bg
 						paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
-						bw := 1
 						if st.NewThemeBaseID == t.ID {
-							bw = 2
-							paint.FillShape(gtx.Ops, colorAccent, clip.Stroke{Path: clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Path(gtx.Ops), Width: float32(bw)}.Op())
+							paint.FillShape(gtx.Ops, colorAccent, clip.Stroke{Path: clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Path(gtx.Ops), Width: 2}.Op())
 						} else {
 							paintBorder1px(gtx, gtx.Constraints.Min, colorBorderLight)
 						}

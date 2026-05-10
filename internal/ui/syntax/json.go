@@ -185,3 +185,15 @@ func hasASCII(src []byte, start int, want string) bool {
 	}
 	return true
 }
+
+func hasBytes(src []byte, start int, want string) bool {
+	if start+len(want) > len(src) {
+		return false
+	}
+	for i := 0; i < len(want); i++ {
+		if src[start+i] != want[i] {
+			return false
+		}
+	}
+	return true
+}

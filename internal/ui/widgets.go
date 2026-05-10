@@ -84,12 +84,6 @@ func monoButton(th *material.Theme, btn *widget.Clickable, txt string) material.
 	return b
 }
 
-func monoEditor(th *material.Theme, ed *widget.Editor, hint string) material.EditorStyle {
-	e := material.Editor(th, ed, hint)
-	e.Font.Typeface = jetbrainsMonoTypeface
-	return e
-}
-
 type cachedMetrics struct {
 	pxPerEm int
 	height  int
@@ -165,6 +159,75 @@ type VarHoverState struct {
 type varClickTag struct {
 	ed    *widget.Editor
 	start int
+}
+
+type fieldFallbackClickTag struct {
+	ed *widget.Editor
+}
+
+func caretIndexAtX(gtx layout.Context, th *material.Theme, textSize unit.Sp, s string, x int) int {
+	if x <= 0 || s == "" {
+		return 0
+	}
+	runes := []rune(s)
+	lo, hi := 0, len(runes)
+	for lo < hi {
+		mid := (lo + hi + 1) / 2
+		w := measureTextWidthCached(gtx, th, textSize, monoFont, string(runes[:mid]))
+		if w <= x {
+			lo = mid
+		} else {
+			hi = mid - 1
+		}
+	}
+	if lo >= len(runes) {
+		return len(runes)
+	}
+	wLo := measureTextWidthCached(gtx, th, textSize, monoFont, string(runes[:lo]))
+	wLoNext := measureTextWidthCached(gtx, th, textSize, monoFont, string(runes[:lo+1]))
+	if x-wLo > wLoNext-x {
+		lo++
+	}
+	return lo
+}
+
+func handleFieldFallbackClick(gtx layout.Context, th *material.Theme, ed *widget.Editor,
+	finalSize image.Point, editorRect image.Rectangle, scrollX int, textSize unit.Sp) {
+	tag := fieldFallbackClickTag{ed: ed}
+	pass := pointer.PassOp{}.Push(gtx.Ops)
+	stack := clip.Rect{Max: finalSize}.Push(gtx.Ops)
+	event.Op(gtx.Ops, tag)
+	stack.Pop()
+	pass.Pop()
+
+	for {
+		ev, ok := gtx.Event(pointer.Filter{
+			Target: tag,
+			Kinds:  pointer.Press,
+		})
+		if !ok {
+			break
+		}
+		pe, ok := ev.(pointer.Event)
+		if !ok || pe.Kind != pointer.Press {
+			continue
+		}
+		if !pe.Buttons.Contain(pointer.ButtonPrimary) {
+			continue
+		}
+		x, y := int(pe.Position.X), int(pe.Position.Y)
+		if x >= editorRect.Min.X && x < editorRect.Max.X &&
+			y >= editorRect.Min.Y && y < editorRect.Max.Y {
+			continue
+		}
+		textX := x - editorRect.Min.X + scrollX
+		if textX < 0 {
+			textX = 0
+		}
+		caretPos := caretIndexAtX(gtx, th, textSize, ed.Text(), textX)
+		ed.SetCaret(caretPos, caretPos)
+		gtx.Execute(key.FocusCmd{Tag: ed})
+	}
 }
 
 var GlobalVarClick *VarHoverState
@@ -261,9 +324,7 @@ func updateHScroll(gtx layout.Context, ed *widget.Editor, viewW, contentW int) (
 
 	scrollX = s.scrollX
 	addGesture = func() {
-		if maxScroll > 0 {
-			s.scroller.Add(gtx.Ops)
-		}
+		s.scroller.Add(gtx.Ops)
 	}
 	return scrollX, maxScroll, addGesture
 }
@@ -290,7 +351,7 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 	viewW := max(textWidth-(pX*2), 0)
 
 	edGtx := gtx
-	edGtx.Constraints.Min.X = 0
+	edGtx.Constraints.Min.X = viewW
 	edGtx.Constraints.Max.X = 1 << 24
 	edGtx.Constraints.Min.Y = max(gtx.Constraints.Min.Y-(pY*2), 0)
 
@@ -419,6 +480,9 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 
 	drawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, pX, 1)
 
+	editorRect := image.Rect(pX, pY+extraY, pX+viewW, pY+extraY+dims.Size.Y)
+	handleFieldFallbackClick(gtx, th, ed, finalSize, editorRect, scrollX, textSize)
+
 	if len(varRects) > 0 {
 		macroClick := op.Record(gtx.Ops)
 		op.Offset(image.Point{X: pX, Y: pY}).Add(gtx.Ops)
@@ -500,7 +564,7 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 	viewW := max(textWidth-(p*2), 0)
 
 	edGtx := gtx
-	edGtx.Constraints.Min.X = 0
+	edGtx.Constraints.Min.X = viewW
 	edGtx.Constraints.Max.X = 1 << 24
 	edGtx.Constraints.Min.Y = max(gtx.Constraints.Min.Y-(p*2), 0)
 
@@ -623,6 +687,9 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 	textClip.Pop()
 
 	drawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, p, 1)
+
+	editorRect := image.Rect(p, p, p+viewW, p+dims.Size.Y)
+	handleFieldFallbackClick(gtx, th, ed, finalSize, editorRect, scrollX, textSize)
 
 	if len(varRects) > 0 {
 		macroClick := op.Record(gtx.Ops)
@@ -760,7 +827,7 @@ func InlineRenameField(gtx layout.Context, th *material.Theme, ed *widget.Editor
 	}
 
 	edGtx := gtx
-	edGtx.Constraints.Min.X = 0
+	edGtx.Constraints.Min.X = viewW
 	edGtx.Constraints.Max.X = 1 << 24
 
 	macro := op.Record(gtx.Ops)
@@ -793,6 +860,9 @@ func InlineRenameField(gtx layout.Context, th *material.Theme, ed *widget.Editor
 	textClip.Pop()
 
 	drawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, pad, 1)
+
+	editorRect := image.Rect(pad, 0, pad+viewW, dims.Size.Y)
+	handleFieldFallbackClick(gtx, th, ed, finalSize, editorRect, scrollX, unit.Sp(12))
 
 	return layout.Dimensions{Size: finalSize, Baseline: dims.Baseline}
 }
@@ -901,13 +971,13 @@ func squareBtnSized(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, 
 
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{X: gtx.Dp(unit.Dp(float32(dpIcon))), Y: gtx.Dp(unit.Dp(float32(dpIcon)))}
-			return ic.Layout(gtx, th.Palette.Fg)
+			return ic.Layout(gtx, th.Fg)
 		})
 	})
 }
 
 func menuOption(gtx layout.Context, th *material.Theme, clk *widget.Clickable, title string, icon *widget.Icon) layout.Dimensions {
-	return menuOptionStyled(gtx, th, clk, title, icon, th.Palette.Fg, th.Palette.Fg, false)
+	return menuOptionStyled(gtx, th, clk, title, icon, th.Fg, th.Fg, false)
 }
 
 func menuOptionDanger(gtx layout.Context, th *material.Theme, clk *widget.Clickable, title string, icon *widget.Icon) layout.Dimensions {

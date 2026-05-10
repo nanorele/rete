@@ -38,7 +38,6 @@ import (
 
 var (
 	iconClose    *widget.Icon
-	iconCheck    *widget.Icon
 	iconSettings *widget.Icon
 	iconSave     *widget.Icon
 	iconBack     *widget.Icon
@@ -47,7 +46,6 @@ var (
 	iconRename   *widget.Icon
 	iconDup      *widget.Icon
 	iconDel      *widget.Icon
-	iconMenu     *widget.Icon
 	iconSearch   *widget.Icon
 	iconBug      *widget.Icon
 	iconDropDown *widget.Icon
@@ -59,7 +57,6 @@ var (
 
 func init() {
 	iconClose, _ = widget.NewIcon(icons.NavigationClose)
-	iconCheck, _ = widget.NewIcon(icons.ActionCheckCircle)
 	iconSettings, _ = widget.NewIcon(icons.ActionSettings)
 	iconSave, _ = widget.NewIcon(icons.ContentSave)
 	iconBack, _ = widget.NewIcon(icons.NavigationArrowBack)
@@ -68,7 +65,6 @@ func init() {
 	iconRename, _ = widget.NewIcon(icons.EditorModeEdit)
 	iconDup, _ = widget.NewIcon(icons.ContentContentCopy)
 	iconDel, _ = widget.NewIcon(icons.ActionDelete)
-	iconMenu, _ = widget.NewIcon(icons.NavigationMoreVert)
 	iconSearch, _ = widget.NewIcon(icons.ActionSearch)
 	iconBug, _ = widget.NewIcon(icons.ActionBugReport)
 	iconDropDown, _ = widget.NewIcon(icons.NavigationArrowDropDown)
@@ -201,6 +197,7 @@ type AppUI struct {
 	activeEnvDirty          bool
 	saveNeeded              bool
 	stateSaveMu             sync.Mutex
+	stateSaveWG             sync.WaitGroup
 	dirtyCollections        map[string]*dirtyCollection
 	collectionFlushTimerSet bool
 	rootCtx                 context.Context
@@ -217,7 +214,12 @@ type AppUI struct {
 var ttfFS embed.FS
 
 func loadEmbeddedTTF(name string) ([]byte, error) {
-	return ttfFS.ReadFile("assets/fonts/ttf/" + name)
+	f, err := ttfFS.Open("assets/fonts/ttf/" + name)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = f.Close() }()
+	return io.ReadAll(f)
 }
 
 const jetbrainsMonoTypeface font.Typeface = "JetBrains Mono"
@@ -243,8 +245,6 @@ func NewAppUI() *AppUI {
 	}
 	interLoaded := addUIFace("Inter-Regular.ttf")
 	addUIFace("Inter-Bold.ttf")
-	addUIFace("Inter-Italic.ttf")
-	addUIFace("Inter-BoldItalic.ttf")
 	if !interLoaded {
 		fonts = gofont.Collection()
 	}
@@ -283,10 +283,10 @@ func NewAppUI() *AppUI {
 
 	th.Shaper = text.NewShaper(text.WithCollection(fonts))
 
-	th.Palette.Bg = colorBg
-	th.Palette.Fg = colorFg
-	th.Palette.ContrastBg = colorAccent
-	th.Palette.ContrastFg = colorAccentFg
+	th.Bg = colorBg
+	th.Fg = colorFg
+	th.ContrastBg = colorAccent
+	th.ContrastFg = colorAccentFg
 	th.TextSize = unit.Sp(14)
 	applyAppSettings(th, defaultSettings())
 
@@ -297,10 +297,15 @@ func NewAppUI() *AppUI {
 		app.Size(unit.Dp(1280), unit.Dp(720)),
 	)
 
+	defs := defaultSettings()
+	defaultSidebar := defs.DefaultSidebarWidthPx
+	if defaultSidebar <= 0 {
+		defaultSidebar = 250
+	}
 	ui := &AppUI{
 		Theme:            th,
 		Window:           win,
-		SidebarWidth:     250,
+		SidebarWidth:     defaultSidebar,
 		SidebarEnvHeight: 300,
 		ColLoadedChan:    make(chan *CollectionUI, 5),
 		EnvLoadedChan:    make(chan *EnvironmentUI, 5),
@@ -312,6 +317,7 @@ func NewAppUI() *AppUI {
 		Settings:         defaultSettings(),
 	}
 	ui.rootCtx, ui.rootCancel = context.WithCancel(context.Background())
+	go cleanupOrphanRespTmp()
 	ui.Explorer = explorer.NewExplorer(ui.Window)
 	ui.TabsList.Axis = layout.Vertical
 	ui.ColList.Axis = layout.Vertical
@@ -393,7 +399,9 @@ func (ui *AppUI) refreshActiveEnv() {
 		if e.Data.ID == ui.ActiveEnvID {
 			ui.activeEnvVars = make(map[string]string)
 			for _, v := range e.Data.Vars {
-
+				if !v.Enabled {
+					continue
+				}
 				if v.Value != "" {
 					ui.activeEnvVars[v.Key] = v.Value
 				}
@@ -444,7 +452,7 @@ func (ui *AppUI) deleteEnvironment(env *EnvironmentUI) {
 		ui.EditingEnv = nil
 	}
 	if env.Data.ID != "" {
-		os.Remove(filepath.Join(getEnvironmentsDir(), env.Data.ID+".json"))
+		_ = os.Remove(filepath.Join(getEnvironmentsDir(), env.Data.ID+".json"))
 	}
 	ui.saveState()
 	ui.Window.Invalidate()
@@ -457,7 +465,7 @@ func (ui *AppUI) addNewEnvironment() {
 		Name: "New Environment",
 	}
 	envUI := &EnvironmentUI{Data: env}
-	SaveEnvironment(env)
+	_ = SaveEnvironment(env)
 	ui.Environments = append(ui.Environments, envUI)
 	ui.EnvsExpanded = true
 	ui.EditingEnv = envUI
@@ -536,7 +544,7 @@ func (ui *AppUI) duplicateEnvironment(src *EnvironmentUI) {
 	}
 	dup.Vars = append(dup.Vars, src.Data.Vars...)
 	envUI := &EnvironmentUI{Data: dup}
-	SaveEnvironment(dup)
+	_ = SaveEnvironment(dup)
 	ui.Environments = append(ui.Environments, envUI)
 	ui.EnvsExpanded = true
 	ui.saveState()
@@ -895,22 +903,25 @@ func (ui *AppUI) commitNodeDrop(src *CollectionNode, metric unit.Metric) {
 }
 
 func (ui *AppUI) importDroppedData(data []byte) {
+	go func() {
+		id := newRandomID()
+		if col, err := ParseCollection(bytes.NewReader(data), id); err == nil && col != nil && col.Name != "" {
+			if werr := atomicWriteFile(filepath.Join(getCollectionsDir(), id+".json"), data); werr == nil {
+				ui.ColLoadedChan <- &CollectionUI{Data: col}
+				ui.Window.Invalidate()
+			}
+			return
+		}
 
-	id, _ := saveCollectionRaw(data)
-	col, err := ParseCollection(bytes.NewReader(data), id)
-	if err == nil && col != nil && col.Name != "" {
-		ui.ColLoadedChan <- &CollectionUI{Data: col}
-		ui.Window.Invalidate()
-		return
-	}
-
-	envID, _ := saveEnvironmentRaw(data)
-	env, err := ParseEnvironment(bytes.NewReader(data), envID)
-	if err == nil && env != nil && env.Name != "" {
-		ui.EnvLoadedChan <- &EnvironmentUI{Data: env}
-		ui.Window.Invalidate()
-		return
-	}
+		envID := newRandomID()
+		if env, err := ParseEnvironment(bytes.NewReader(data), envID); err == nil && env != nil && env.Name != "" {
+			if werr := atomicWriteFile(filepath.Join(getEnvironmentsDir(), envID+".json"), data); werr == nil {
+				ui.EnvLoadedChan <- &EnvironmentUI{Data: env}
+				ui.Window.Invalidate()
+			}
+			return
+		}
+	}()
 }
 
 func (ui *AppUI) Run() error {
@@ -929,13 +940,15 @@ func (ui *AppUI) Run() error {
 			}
 			for _, tab := range ui.Tabs {
 				tab.cancelRequest()
-				tab.cleanupRespFile()
+				tab.markClosed()
 			}
+			ui.stateSaveWG.Wait()
 			ui.flushCollectionSavesSync()
 			ui.saveStateSync()
 			return e.Err
 		case app.ConfigEvent:
 			ui.IsMaximized = e.Config.Mode == app.Maximized || e.Config.Mode == app.Fullscreen
+			ui.Window.Invalidate()
 		case app.FrameEvent:
 
 			for {
@@ -947,8 +960,10 @@ func (ui *AppUI) Run() error {
 					ui.Window.Invalidate()
 				case env := <-ui.EnvLoadedChan:
 					ui.Environments = append(ui.Environments, env)
-					ui.ActiveEnvID = env.Data.ID
-					ui.activeEnvDirty = true
+					if ui.ActiveEnvID == "" {
+						ui.ActiveEnvID = env.Data.ID
+						ui.activeEnvDirty = true
+					}
 					ui.saveState()
 					ui.Window.Invalidate()
 				default:
@@ -992,6 +1007,9 @@ func (ui *AppUI) loadState() {
 		ui.Settings = defaultSettings()
 	}
 	applyAppSettings(ui.Theme, ui.Settings)
+	if !ui.Settings.RestoreTabsOnStartup {
+		state.Tabs = nil
+	}
 	for _, ts := range state.Tabs {
 		tab := NewRequestTab(ts.Title)
 		if tab.Title == "" {
@@ -1058,6 +1076,8 @@ func (ui *AppUI) loadState() {
 
 	if state.SidebarWidthPx > 0 {
 		ui.SidebarWidth = state.SidebarWidthPx
+	} else if ui.Settings.DefaultSidebarWidthPx > 0 {
+		ui.SidebarWidth = ui.Settings.DefaultSidebarWidthPx
 	}
 	if state.SidebarEnvHeightPx > 0 {
 		ui.SidebarEnvHeight = state.SidebarEnvHeightPx
@@ -1166,7 +1186,7 @@ func (ui *AppUI) saveStateSync() {
 	}
 	ui.stateSaveMu.Lock()
 	defer ui.stateSaveMu.Unlock()
-	atomicWriteFile(getStateFile(), data)
+	_ = atomicWriteFile(getStateFile(), data)
 }
 
 func (ui *AppUI) saveState() {
@@ -1179,14 +1199,16 @@ func (ui *AppUI) flushSaveState() {
 	}
 	ui.saveNeeded = false
 	state := ui.buildStateSnapshot()
+	data, err := json.MarshalIndent(state, "", "  ")
+	if err != nil {
+		return
+	}
+	ui.stateSaveWG.Add(1)
 	go func() {
-		data, err := json.MarshalIndent(state, "", "  ")
-		if err != nil {
-			return
-		}
+		defer ui.stateSaveWG.Done()
 		ui.stateSaveMu.Lock()
 		defer ui.stateSaveMu.Unlock()
-		atomicWriteFile(getStateFile(), data)
+		_ = atomicWriteFile(getStateFile(), data)
 	}()
 }
 
@@ -1254,14 +1276,14 @@ func (ui *AppUI) flushCollectionSaves() {
 	}
 	go func() {
 		for _, s := range snaps {
-			writeCollectionFile(s.id, s.data)
+			_ = writeCollectionFile(s.id, s.data)
 		}
 	}()
 }
 
 func (ui *AppUI) flushCollectionSavesSync() {
 	for _, e := range ui.dirtyCollections {
-		SaveCollectionToFile(e.col)
+		_ = SaveCollectionToFile(e.col)
 	}
 	for k := range ui.dirtyCollections {
 		delete(ui.dirtyCollections, k)
@@ -1372,7 +1394,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		}),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			if ui.SettingsOpen {
-				paint.FillShape(gtx.Ops, ui.Theme.Palette.Bg, clip.Rect{Max: gtx.Constraints.Max}.Op())
+				paint.FillShape(gtx.Ops, ui.Theme.Bg, clip.Rect{Max: gtx.Constraints.Max}.Op())
 				return ui.layoutSettings(gtx)
 			}
 			return ui.layoutContent(gtx)
@@ -1503,7 +1525,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 	if GlobalVarClick != nil {
 		var val string
 		if ui.activeEnvVars != nil {
-			val, _ = ui.activeEnvVars[GlobalVarClick.Name]
+			val = ui.activeEnvVars[GlobalVarClick.Name]
 		}
 		ui.VarPopupOpen = true
 		ui.VarPopupName = GlobalVarClick.Name
@@ -1536,7 +1558,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 			for _, e := range ui.Environments {
 				if e.Data != nil && e.Data.ID == ui.EnvColorEnvID {
 					e.Data.HighlightColor = hexFromColor(ui.EnvColorPicker.currentColor())
-					SaveEnvironment(e.Data)
+					_ = SaveEnvironment(e.Data)
 					break
 				}
 			}
@@ -1911,7 +1933,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 				if err != nil || rc == nil {
 					return
 				}
-				defer rc.Close()
+				defer func() { _ = rc.Close() }()
 				_ = tab.ReqEditor.LoadFromReader(rc)
 				ui.Window.Invalidate()
 			}(tab)
@@ -1964,7 +1986,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 		ui.ActiveIdx = 0
 	}
 
-	paint.FillShape(gtx.Ops, ui.Theme.Palette.Bg, clip.Rect{Max: gtx.Constraints.Max}.Op())
+	paint.FillShape(gtx.Ops, ui.Theme.Bg, clip.Rect{Max: gtx.Constraints.Max}.Op())
 
 	ui.refreshActiveEnv()
 
@@ -2112,7 +2134,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 										tab.fileSaveMu.Lock()
 										if tab.closed.Load() {
 											tab.fileSaveMu.Unlock()
-											w.Close()
+											_ = w.Close()
 											return
 										}
 										select {
@@ -2121,7 +2143,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 											ui.Window.Invalidate()
 										default:
 											tab.fileSaveMu.Unlock()
-											w.Close()
+											_ = w.Close()
 										}
 									}()
 								}
@@ -2168,7 +2190,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 										}
 										btn := material.Button(ui.Theme, &ui.AddTabBtn, "Create Request")
 										btn.Background = colorAccent
-										btn.Color = ui.Theme.Palette.ContrastFg
+										btn.Color = ui.Theme.ContrastFg
 										btn.TextSize = unit.Sp(14)
 										btn.Inset = layout.Inset{Top: unit.Dp(10), Bottom: unit.Dp(10), Left: unit.Dp(16), Right: unit.Dp(16)}
 										return btn.Layout(gtx)

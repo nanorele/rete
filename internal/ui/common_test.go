@@ -4,25 +4,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
-
-	"github.com/nanorele/gio/io/event"
-	"github.com/nanorele/gio/io/input"
 )
-
-type mockSource struct {
-	events []event.Event
-}
-
-func (m *mockSource) Event(filters ...event.Filter) (event.Event, bool) {
-	if len(m.events) > 0 {
-		e := m.events[0]
-		m.events = m.events[1:]
-		return e, true
-	}
-	return nil, false
-}
-
-func (m *mockSource) Execute(cmd input.Command) {}
 
 func setupTestConfigDir(t *testing.T) string {
 	tempDir := t.TempDir()
@@ -34,11 +16,12 @@ func setupTestConfigDir(t *testing.T) string {
 		configPathOverride = ""
 	})
 
-	if runtime.GOOS == "windows" {
+	switch runtime.GOOS {
+	case "windows":
 		t.Setenv("AppData", tempDir)
-	} else if runtime.GOOS == "darwin" {
+	case "darwin":
 		t.Setenv("HOME", tempDir)
-	} else {
+	default:
 		t.Setenv("XDG_CONFIG_HOME", tempDir)
 	}
 

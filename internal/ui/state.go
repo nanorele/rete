@@ -25,15 +25,15 @@ func atomicWriteFile(path string, data []byte) error {
 	cleanup := true
 	defer func() {
 		if cleanup {
-			os.Remove(tmpPath)
+			_ = os.Remove(tmpPath)
 		}
 	}()
 	if _, err := f.Write(data); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	if err := f.Sync(); err != nil {
-		f.Close()
+		_ = f.Close()
 		return err
 	}
 	if err := f.Close(); err != nil {
@@ -104,7 +104,7 @@ func getConfigPath() string {
 		configDir = "."
 	}
 	appDir := filepath.Join(configDir, "tracto")
-	os.MkdirAll(appDir, 0755)
+	_ = os.MkdirAll(appDir, 0755)
 	return appDir
 }
 
@@ -114,13 +114,13 @@ func getStateFile() string {
 
 func getCollectionsDir() string {
 	colDir := filepath.Join(getConfigPath(), "collections")
-	os.MkdirAll(colDir, 0755)
+	_ = os.MkdirAll(colDir, 0755)
 	return colDir
 }
 
 func getEnvironmentsDir() string {
 	envDir := filepath.Join(getConfigPath(), "environments")
-	os.MkdirAll(envDir, 0755)
+	_ = os.MkdirAll(envDir, 0755)
 	return envDir
 }
 
@@ -140,31 +140,60 @@ func loadStateWithRaw() (AppState, []byte) {
 	}
 	if err := json.Unmarshal(data, &state); err != nil {
 		backup := getStateFile() + ".broken-" + time.Now().Format("20060102-150405")
-		os.Rename(getStateFile(), backup)
+		_ = os.Rename(getStateFile(), backup)
 		return AppState{}, nil
 	}
 
 	if state.Settings != nil {
-		if !bytes.Contains(data, []byte(`"keep_alive"`)) {
+		var top map[string]json.RawMessage
+		var settingsKeys map[string]json.RawMessage
+		if json.Unmarshal(data, &top) == nil {
+			if raw, ok := top["settings"]; ok {
+				_ = json.Unmarshal(raw, &settingsKeys)
+			}
+		}
+		hasKey := func(k string) bool {
+			_, ok := settingsKeys[k]
+			return ok
+		}
+		if !hasKey("keep_alive") {
 			state.Settings.KeepAlive = true
 		}
-		if !bytes.Contains(data, []byte(`"auto_format_json"`)) {
+		if !hasKey("auto_format_json") {
 			state.Settings.AutoFormatJSON = true
 		}
-		if !bytes.Contains(data, []byte(`"strip_json_comments"`)) {
+		if !hasKey("strip_json_comments") {
 			state.Settings.StripJSONComments = true
 		}
-		if !bytes.Contains(data, []byte(`"default_method"`)) {
+		if !hasKey("default_method") {
 			state.Settings.DefaultMethod = "GET"
 		}
-		if !bytes.Contains(data, []byte(`"default_split_ratio"`)) {
+		if !hasKey("default_split_ratio") {
 			state.Settings.DefaultSplitRatio = 0.5
 		}
-		if !bytes.Contains(data, []byte(`"bracket_pair_colorization"`)) {
+		if !hasKey("bracket_pair_colorization") {
 			state.Settings.BracketPairColorization = true
 		}
-		if !bytes.Contains(data, []byte(`"stack_breakpoint_dp"`)) {
+		if !hasKey("stack_breakpoint_dp") {
 			state.Settings.StackBreakpointDp = 700
+		}
+		if !hasKey("connect_timeout_sec") {
+			state.Settings.ConnectTimeoutSec = 10
+		}
+		if !hasKey("tls_handshake_timeout_sec") {
+			state.Settings.TLSHandshakeTimeoutSec = 10
+		}
+		if !hasKey("idle_conn_timeout_sec") {
+			state.Settings.IdleConnTimeoutSec = 90
+		}
+		if !hasKey("default_accept_encoding") {
+			state.Settings.DefaultAcceptEncoding = "gzip"
+		}
+		if !hasKey("default_sidebar_width_px") {
+			state.Settings.DefaultSidebarWidthPx = 250
+		}
+		if !hasKey("restore_tabs_on_startup") {
+			state.Settings.RestoreTabsOnStartup = true
 		}
 	}
 	return state, data
@@ -198,7 +227,7 @@ func loadSavedCollections() []*ParsedCollection {
 				if err == nil && col != nil {
 					collections = append(collections, col)
 				}
-				file.Close()
+				_ = file.Close()
 			}
 		}
 	}
@@ -221,14 +250,15 @@ func SaveEnvironment(env *ParsedEnvironment) error {
 		HighlightColor: env.HighlightColor,
 	}
 	for _, v := range env.Vars {
+		enabled := v.Enabled
 		ext.Values = append(ext.Values, struct {
 			Key     string `json:"key"`
 			Value   string `json:"value"`
-			Enabled bool   `json:"enabled"`
+			Enabled *bool  `json:"enabled,omitempty"`
 		}{
 			Key:     v.Key,
 			Value:   v.Value,
-			Enabled: v.Enabled,
+			Enabled: &enabled,
 		})
 	}
 	data, err := json.MarshalIndent(ext, "", "  ")
@@ -257,74 +287,11 @@ func loadSavedEnvironments() []*ParsedEnvironment {
 				if err == nil && env != nil {
 					envs = append(envs, env)
 				}
-				file.Close()
+				_ = file.Close()
 			}
 		}
 	}
 	return envs
-}
-
-func buildExtItems(nodes []*CollectionNode) []ExtItem {
-	var items []ExtItem
-	for _, n := range nodes {
-		item := ExtItem{Name: n.Name}
-		if n.IsFolder {
-			item.Item = buildExtItems(n.Children)
-		} else if n.Request != nil {
-			req := ExtRequest{Method: n.Request.Method, URL: n.Request.URL}
-			req.Body.Mode = n.Request.BodyType.PostmanMode()
-			switch n.Request.BodyType {
-			case BodyRaw:
-				if n.Request.Body != "" {
-					req.Body.Raw = n.Request.Body
-				}
-			case BodyURLEncoded:
-				for _, kv := range n.Request.URLEncoded {
-					if kv.Key == "" {
-						continue
-					}
-					req.Body.URLEncoded = append(req.Body.URLEncoded, ExtKVPart{
-						Key: kv.Key, Value: kv.Value,
-					})
-				}
-			case BodyFormData:
-				for _, fp := range n.Request.FormParts {
-					if fp.Key == "" {
-						continue
-					}
-					part := ExtFormPart{Key: fp.Key, Type: "text", Value: fp.Value}
-					if fp.Kind == FormPartFile {
-						part.Type = "file"
-						part.Value = ""
-						if fp.FilePath != "" {
-							part.Src = fp.FilePath
-						}
-					}
-					req.Body.FormData = append(req.Body.FormData, part)
-				}
-			case BodyBinary:
-				if n.Request.BinaryPath != "" {
-					req.Body.File = &ExtBodyFile{Src: n.Request.BinaryPath}
-				}
-			}
-			if len(n.Request.Headers) > 0 {
-				keys := make([]string, 0, len(n.Request.Headers))
-				for k := range n.Request.Headers {
-					keys = append(keys, k)
-				}
-				sort.Strings(keys)
-				headers := make([]map[string]interface{}, 0, len(keys))
-				for _, k := range keys {
-					headers = append(headers, map[string]interface{}{"key": k, "value": n.Request.Headers[k]})
-				}
-				req.Header = headers
-			}
-			reqBytes, _ := json.Marshal(req)
-			item.Request = reqBytes
-		}
-		items = append(items, item)
-	}
-	return items
 }
 
 func marshalCollection(col *ParsedCollection) []byte {

@@ -1,10 +1,13 @@
 package ui
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"image/color"
+	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/url"
 	"strings"
 	"time"
@@ -26,17 +29,23 @@ type AppSettings struct {
 	HideSidebar  bool    `json:"hide_sidebar"`
 	UIScale      float32 `json:"ui_scale"`
 
-	RequestTimeoutSec int             `json:"request_timeout_sec"`
-	UserAgent         string          `json:"user_agent"`
-	DefaultMethod     string          `json:"default_method"`
-	FollowRedirects   bool            `json:"follow_redirects"`
-	MaxRedirects      int             `json:"max_redirects"`
-	VerifySSL         bool            `json:"verify_ssl"`
-	KeepAlive         bool            `json:"keep_alive"`
-	DisableHTTP2      bool            `json:"disable_http2"`
-	MaxConnsPerHost   int             `json:"max_conns_per_host"`
-	Proxy             string          `json:"proxy"`
-	DefaultHeaders    []DefaultHeader `json:"default_headers"`
+	RequestTimeoutSec     int             `json:"request_timeout_sec"`
+	ConnectTimeoutSec     int             `json:"connect_timeout_sec"`
+	TLSHandshakeTimeoutSec int            `json:"tls_handshake_timeout_sec"`
+	IdleConnTimeoutSec    int             `json:"idle_conn_timeout_sec"`
+	UserAgent             string          `json:"user_agent"`
+	DefaultMethod         string          `json:"default_method"`
+	FollowRedirects       bool            `json:"follow_redirects"`
+	MaxRedirects          int             `json:"max_redirects"`
+	VerifySSL             bool            `json:"verify_ssl"`
+	KeepAlive             bool            `json:"keep_alive"`
+	DisableHTTP2          bool            `json:"disable_http2"`
+	CookieJarEnabled      bool            `json:"cookie_jar_enabled"`
+	SendConnectionClose   bool            `json:"send_connection_close"`
+	DefaultAcceptEncoding string          `json:"default_accept_encoding"`
+	MaxConnsPerHost       int             `json:"max_conns_per_host"`
+	Proxy                 string          `json:"proxy"`
+	DefaultHeaders        []DefaultHeader `json:"default_headers"`
 
 	JSONIndentSpaces        int     `json:"json_indent_spaces"`
 	WrapLinesDefault        bool    `json:"wrap_lines_default"`
@@ -44,9 +53,13 @@ type AppSettings struct {
 	ResponseBodyPadding     int     `json:"response_body_padding"`
 	DefaultSplitRatio       float32 `json:"default_split_ratio"`
 	AutoFormatJSON          bool    `json:"auto_format_json"`
+	AutoFormatJSONRequest   bool    `json:"auto_format_json_request"`
 	StripJSONComments       bool    `json:"strip_json_comments"`
+	TrimTrailingWhitespace  bool    `json:"trim_trailing_whitespace"`
 	BracketPairColorization bool    `json:"bracket_pair_colorization"`
 	StackBreakpointDp       int     `json:"stack_breakpoint_dp,omitempty"`
+	DefaultSidebarWidthPx   int     `json:"default_sidebar_width_px,omitempty"`
+	RestoreTabsOnStartup    bool    `json:"restore_tabs_on_startup"`
 
 	SyntaxOverrides map[string]ThemeSyntaxOverride `json:"syntax_overrides,omitempty"`
 
@@ -122,17 +135,23 @@ func defaultSettings() AppSettings {
 		HideSidebar:  false,
 		UIScale:      1.0,
 
-		RequestTimeoutSec: 30,
-		UserAgent:         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
-		DefaultMethod:     "GET",
-		FollowRedirects:   true,
-		MaxRedirects:      10,
-		VerifySSL:         true,
-		KeepAlive:         true,
-		DisableHTTP2:      false,
-		MaxConnsPerHost:   0,
-		Proxy:             "",
-		DefaultHeaders:    nil,
+		RequestTimeoutSec:     30,
+		ConnectTimeoutSec:     10,
+		TLSHandshakeTimeoutSec: 10,
+		IdleConnTimeoutSec:    90,
+		UserAgent:             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36",
+		DefaultMethod:         "GET",
+		FollowRedirects:       true,
+		MaxRedirects:          10,
+		VerifySSL:             true,
+		KeepAlive:             true,
+		DisableHTTP2:          false,
+		CookieJarEnabled:      false,
+		SendConnectionClose:   false,
+		DefaultAcceptEncoding: "gzip",
+		MaxConnsPerHost:       0,
+		Proxy:                 "",
+		DefaultHeaders:        nil,
 
 		JSONIndentSpaces:        2,
 		WrapLinesDefault:        false,
@@ -140,9 +159,13 @@ func defaultSettings() AppSettings {
 		ResponseBodyPadding:     4,
 		DefaultSplitRatio:       0.5,
 		AutoFormatJSON:          true,
+		AutoFormatJSONRequest:   false,
 		StripJSONComments:       true,
+		TrimTrailingWhitespace:  false,
 		BracketPairColorization: true,
 		StackBreakpointDp:       700,
+		DefaultSidebarWidthPx:   250,
+		RestoreTabsOnStartup:    true,
 	}
 }
 
@@ -502,15 +525,6 @@ func isValidThemeID(id string, customs []CustomTheme) bool {
 	return false
 }
 
-func findCustomTheme(customs []CustomTheme, id string) (int, bool) {
-	for i, c := range customs {
-		if c.ID == id {
-			return i, true
-		}
-	}
-	return -1, false
-}
-
 func paletteToOverride(p palette) ThemeColorOverride {
 	return ThemeColorOverride{
 		Bg: hexFromColor(p.Bg), BgDark: hexFromColor(p.BgDark), BgField: hexFromColor(p.BgField),
@@ -559,7 +573,6 @@ func applyPalette(p palette) {
 	colorBgHover = p.BgHover
 	colorBgSecondary = p.BgSecondary
 	colorBgLoadMore = p.BgLoadMore
-	colorBgDragHolder = p.BgDragHolder
 	colorBgDragGhost = p.BgDragGhost
 	colorBorder = p.Border
 	colorBorderLight = p.BorderLight
@@ -626,6 +639,29 @@ func (s AppSettings) sanitized() AppSettings {
 	if s.RequestTimeoutSec > 3600 {
 		s.RequestTimeoutSec = 3600
 	}
+	if s.ConnectTimeoutSec < 0 {
+		s.ConnectTimeoutSec = 0
+	}
+	if s.ConnectTimeoutSec > 600 {
+		s.ConnectTimeoutSec = 600
+	}
+	if s.TLSHandshakeTimeoutSec < 0 {
+		s.TLSHandshakeTimeoutSec = 0
+	}
+	if s.TLSHandshakeTimeoutSec > 600 {
+		s.TLSHandshakeTimeoutSec = 600
+	}
+	if s.IdleConnTimeoutSec < 0 {
+		s.IdleConnTimeoutSec = 0
+	}
+	if s.IdleConnTimeoutSec > 3600 {
+		s.IdleConnTimeoutSec = 3600
+	}
+	switch s.DefaultAcceptEncoding {
+	case "", "identity", "gzip", "deflate", "br", "gzip, deflate", "gzip, deflate, br":
+	default:
+		s.DefaultAcceptEncoding = "gzip"
+	}
 	if s.UserAgent == "" {
 		s.UserAgent = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 	}
@@ -688,23 +724,37 @@ func (s AppSettings) sanitized() AppSettings {
 		s.StackBreakpointDp = 2000
 	}
 
+	if s.DefaultSidebarWidthPx < 0 {
+		s.DefaultSidebarWidthPx = 0
+	}
+	if s.DefaultSidebarWidthPx > 0 && s.DefaultSidebarWidthPx < 160 {
+		s.DefaultSidebarWidthPx = 160
+	}
+	if s.DefaultSidebarWidthPx > 1000 {
+		s.DefaultSidebarWidthPx = 1000
+	}
+
 	return s
 }
 
 var bodyTextSize = unit.Sp(13)
 
 var (
-	currentUserAgent           = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
-	currentDefaultHeaders      []DefaultHeader
-	currentJSONIndent          = 2
-	currentPreviewMaxMB        = 100
-	currentRespBodyPad         = unit.Dp(4)
-	currentDefaultMethod       = "GET"
-	currentDefaultSplitRatio   = float32(0.5)
-	currentAutoFormatJSON      = true
-	currentStripJSONComments   = true
-	currentBracketColorization = true
-	currentStackBreakpointDp   = 700
+	currentUserAgent             = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
+	currentDefaultHeaders        []DefaultHeader
+	currentJSONIndent            = 2
+	currentPreviewMaxMB          = 100
+	currentRespBodyPad           = unit.Dp(4)
+	currentDefaultMethod         = "GET"
+	currentDefaultSplitRatio     = float32(0.5)
+	currentAutoFormatJSON        = true
+	currentAutoFormatJSONRequest = false
+	currentStripJSONComments     = true
+	currentTrimTrailingWS        = false
+	currentSendConnClose         = false
+	currentAcceptEncoding        = "gzip"
+	currentBracketColorization   = true
+	currentStackBreakpointDp     = 700
 )
 
 func applyAppSettings(th *material.Theme, s AppSettings) {
@@ -740,15 +790,19 @@ func applyAppSettings(th *material.Theme, s AppSettings) {
 		currentDefaultSplitRatio = 0.5
 	}
 	currentAutoFormatJSON = s.AutoFormatJSON
+	currentAutoFormatJSONRequest = s.AutoFormatJSONRequest
 	currentStripJSONComments = s.StripJSONComments
+	currentTrimTrailingWS = s.TrimTrailingWhitespace
+	currentSendConnClose = s.SendConnectionClose
+	currentAcceptEncoding = s.DefaultAcceptEncoding
 	currentBracketColorization = s.BracketPairColorization
 	currentStackBreakpointDp = s.StackBreakpointDp
 	httpClient = buildHTTPClient(s)
 	if th != nil {
-		th.Palette.Bg = colorBg
-		th.Palette.Fg = colorFg
-		th.Palette.ContrastBg = colorAccent
-		th.Palette.ContrastFg = colorAccentFg
+		th.Bg = colorBg
+		th.Fg = colorFg
+		th.ContrastBg = colorAccent
+		th.ContrastFg = colorAccentFg
 		th.TextSize = unit.Sp(float32(s.UITextSize))
 	}
 }
@@ -779,6 +833,21 @@ func buildHTTPClient(s AppSettings) *http.Client {
 		tr.ForceAttemptHTTP2 = true
 		tr.TLSNextProto = nil
 	}
+	if s.ConnectTimeoutSec > 0 {
+		dialer := &net.Dialer{
+			Timeout:   time.Duration(s.ConnectTimeoutSec) * time.Second,
+			KeepAlive: 30 * time.Second,
+		}
+		tr.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return dialer.DialContext(ctx, network, addr)
+		}
+	}
+	if s.TLSHandshakeTimeoutSec > 0 {
+		tr.TLSHandshakeTimeout = time.Duration(s.TLSHandshakeTimeoutSec) * time.Second
+	}
+	if s.IdleConnTimeoutSec > 0 {
+		tr.IdleConnTimeout = time.Duration(s.IdleConnTimeoutSec) * time.Second
+	}
 	if strings.TrimSpace(s.Proxy) != "" {
 		if u, err := url.Parse(strings.TrimSpace(s.Proxy)); err == nil && u.Host != "" {
 			tr.Proxy = http.ProxyURL(u)
@@ -787,6 +856,11 @@ func buildHTTPClient(s AppSettings) *http.Client {
 	c := &http.Client{Transport: tr}
 	if s.RequestTimeoutSec > 0 {
 		c.Timeout = time.Duration(s.RequestTimeoutSec) * time.Second
+	}
+	if s.CookieJarEnabled {
+		if jar, err := cookiejar.New(nil); err == nil {
+			c.Jar = jar
+		}
 	}
 	switch {
 	case !s.FollowRedirects:

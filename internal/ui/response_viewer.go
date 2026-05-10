@@ -145,6 +145,8 @@ func (v *ResponseViewer) SetText(s string) {
 	v.text = append(v.text[:0], s...)
 	v.rebuildLineStartsFrom(0)
 	v.invalidateChunkHeights()
+	v.padChunkHeights()
+	v.lastTotalH = 0
 	v.scrollY = 0
 	v.scrollX = 0
 	v.maxLineWidth = 0
@@ -173,10 +175,17 @@ func (v *ResponseViewer) SelectedText() string {
 }
 
 func (v *ResponseViewer) Append(s string) {
+	if s == "" {
+		return
+	}
 	startIdx := len(v.text)
 	v.text = append(v.text, s...)
+	if last := len(v.chunkHeights) - 1; last >= 0 {
+		v.chunkHeights[last] = 0
+	}
 	v.appendLineStartsFrom(startIdx)
 	v.padChunkHeights()
+	v.lastTotalH = 0
 }
 
 func (v *ResponseViewer) invalidateChunkHeights() {
@@ -244,7 +253,10 @@ func (v *ResponseViewer) GetScrollBounds() image.Rectangle {
 	if v.lastLineHeight == 0 {
 		return image.Rectangle{}
 	}
-	totalH := len(v.lineStarts) * v.lastLineHeight
+	totalH := v.lastTotalH
+	if totalH <= 0 {
+		totalH = len(v.lineStarts) * v.lastLineHeight
+	}
 	return image.Rectangle{Max: image.Point{Y: totalH}}
 }
 
@@ -308,11 +320,7 @@ func (v *ResponseViewer) appendLineStartsFrom(startIdx int) {
 	if len(v.lineStarts) == 0 {
 		v.lineStarts = append(v.lineStarts, 0)
 	}
-	last := v.lineStarts[len(v.lineStarts)-1]
-	if last > startIdx {
-		last = startIdx
-	}
-	for len(v.lineStarts) > 1 && v.lineStarts[len(v.lineStarts)-1] >= startIdx {
+	for len(v.lineStarts) > 1 && v.lineStarts[len(v.lineStarts)-1] > startIdx {
 		v.lineStarts = v.lineStarts[:len(v.lineStarts)-1]
 	}
 	v.scanChunks(v.lineStarts[len(v.lineStarts)-1])
@@ -333,6 +341,12 @@ func (v *ResponseViewer) scanChunks(from int) {
 			}
 			if breakAt == lastBreak {
 				breakAt = i
+				for breakAt < len(v.text) && (v.text[breakAt]&0xC0) == 0x80 {
+					breakAt++
+				}
+				if breakAt >= len(v.text) {
+					return
+				}
 			}
 			v.lineStarts = append(v.lineStarts, breakAt)
 			lastBreak = breakAt
@@ -362,6 +376,7 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 
 	size := gtx.Constraints.Max
 	if size.X <= 0 || size.Y <= 0 {
+		event.Op(gtx.Ops, v)
 		return layout.Dimensions{Size: size}
 	}
 
@@ -1094,12 +1109,15 @@ func (v *ResponseViewer) lineUp(off, col int) int {
 
 func (v *ResponseViewer) lineDown(off, col int) int {
 	_, lineEnd := v.sourceLineBoundsAt(off)
-	if lineEnd >= len(v.text) {
-		return len(v.text)
+	nextLineStart := lineEnd
+	if nextLineStart < len(v.text) && v.text[nextLineStart] == '\r' {
+		nextLineStart++
 	}
-	nextLineStart := lineEnd + 1
-	if nextLineStart > len(v.text) {
-		nextLineStart = len(v.text)
+	if nextLineStart < len(v.text) && v.text[nextLineStart] == '\n' {
+		nextLineStart++
+	}
+	if nextLineStart >= len(v.text) {
+		return len(v.text)
 	}
 	return v.offsetAtColumn(nextLineStart, col)
 }

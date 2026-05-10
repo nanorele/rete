@@ -29,7 +29,14 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 	paint.FillShape(gtx.Ops, colorBgDark, clip.Rect{Max: size}.Op())
 	gtx.Constraints.Min = size
 
-	bgClip := clip.Rect{Max: size}.Push(gtx.Ops)
+	// Anchor the sidebar to a CursorDefault so children that don't set
+	// a cursor of their own (material.Clickable / material.Button) don't
+	// inherit one from a deeper hit-node — e.g. a widget.Editor whose
+	// hit-area extends past its visible bounds via gtx.Constraints.Min
+	// inflated by hint dimensions in material.EditorStyle.Layout.
+	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+	pointer.CursorDefault.Add(gtx.Ops)
+
 	event.Op(gtx.Ops, transfer.TargetFilter{Target: &ui.SidebarDropTag, Type: "text/plain"})
 	event.Op(gtx.Ops, transfer.TargetFilter{Target: &ui.SidebarDropTag, Type: "application/json"})
 	event.Op(gtx.Ops, &ui.ColList)
@@ -45,7 +52,6 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 			gtx.Execute(key.FocusCmd{Tag: nil})
 		}
 	}
-	bgClip.Pop()
 
 	var moved bool
 	var finalY float32
@@ -114,13 +120,15 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				file, err := ui.Explorer.ChooseFile("json")
 				if err == nil && file != nil {
 					data, err := io.ReadAll(file)
-					file.Close()
+					_ = file.Close()
 					if err == nil {
-						id, _ := saveCollectionRaw(data)
+						id := newRandomID()
 						col, err := ParseCollection(bytes.NewReader(data), id)
 						if err == nil && col != nil {
-							ui.ColLoadedChan <- &CollectionUI{Data: col}
-							ui.Window.Invalidate()
+							if werr := atomicWriteFile(filepath.Join(getCollectionsDir(), id+".json"), data); werr == nil {
+								ui.ColLoadedChan <- &CollectionUI{Data: col}
+								ui.Window.Invalidate()
+							}
 						}
 					}
 				}
@@ -156,7 +164,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					btn := material.Button(ui.Theme, &ui.AddColBtn, "+")
 					btn.Background = colorBorder
-					btn.Color = ui.Theme.Palette.Fg
+					btn.Color = ui.Theme.Fg
 					btn.TextSize = unit.Sp(11)
 					btn.CornerRadius = unit.Dp(0)
 					btn.Inset = layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(5), Right: unit.Dp(5)}
@@ -177,6 +185,13 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 	}
 
 	colsBody := func(gtx layout.Context) layout.Dimensions {
+		// Anchor the collections list. A row in rename mode hosts a
+		// widget.Editor whose hit-area can extend past the visible
+		// row, leaking CursorText to neighbour rows that have no
+		// cursor of their own (drag/hover hit-nodes don't set one).
+		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+		pointer.CursorDefault.Add(gtx.Ops)
+
 		if len(ui.Collections) == 0 {
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				lbl := material.Label(ui.Theme, unit.Sp(12), "No collections loaded")
@@ -193,6 +208,9 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 			n.Name = n.NameEditor.Text()
 			if n.Request != nil {
 				n.Request.Name = n.Name
+			}
+			if n.Parent == nil && n.Collection != nil {
+				n.Collection.Name = n.Name
 			}
 			n.IsRenaming = false
 			n.RenamingFocused = false
@@ -273,7 +291,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 		}
 
 		var draggingNode bool
-		var draggedNodeVisibleIdx int = -1
+		draggedNodeVisibleIdx := -1
 		if ui.DraggedNode != nil && ui.DragNodeActive {
 			for i, n := range ui.VisibleCols {
 				if n == ui.DraggedNode {
@@ -416,6 +434,8 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 						Collection: node.Collection,
 						IsRenaming: true,
 					}
+					newNode.NameEditor.SingleLine = true
+					newNode.NameEditor.Submit = true
 					newNode.NameEditor.SetText("New Request")
 					node.Children = append(node.Children, newNode)
 					node.Expanded = true
@@ -434,6 +454,8 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 						Collection: node.Collection,
 						IsRenaming: true,
 					}
+					newNode.NameEditor.SingleLine = true
+					newNode.NameEditor.Submit = true
 					newNode.NameEditor.SetText("New Folder")
 					node.Children = append(node.Children, newNode)
 					node.Expanded = true
@@ -461,6 +483,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				}
 
 				for node.DelBtn.Clicked(gtx) {
+					removed := collectSubtree(node)
 					if node.Parent != nil {
 						for idx, c := range node.Parent.Children {
 							if c == node {
@@ -476,10 +499,11 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 								break
 							}
 						}
-						os.Remove(filepath.Join(getCollectionsDir(), node.Collection.ID+".json"))
+						delete(ui.dirtyCollections, node.Collection.ID)
+						_ = os.Remove(filepath.Join(getCollectionsDir(), node.Collection.ID+".json"))
 					}
 					for _, tab := range ui.Tabs {
-						if tab.LinkedNode == node {
+						if _, ok := removed[tab.LinkedNode]; ok {
 							tab.LinkedNode = nil
 						}
 					}
@@ -573,7 +597,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								btn := material.Button(ui.Theme, &node.MenuBtn, "⋮")
 								btn.Background = colorTransparent
-								btn.Color = ui.Theme.Palette.Fg
+								btn.Color = ui.Theme.Fg
 								btn.Inset = layout.UniformInset(unit.Dp(2))
 								btn.TextSize = unit.Sp(14)
 								dims := btn.Layout(gtx)
@@ -781,13 +805,15 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				file, err := ui.Explorer.ChooseFile("json")
 				if err == nil && file != nil {
 					data, err := io.ReadAll(file)
-					file.Close()
+					_ = file.Close()
 					if err == nil {
-						id, _ := saveEnvironmentRaw(data)
+						id := newRandomID()
 						env, err := ParseEnvironment(bytes.NewReader(data), id)
 						if err == nil && env != nil {
-							ui.EnvLoadedChan <- &EnvironmentUI{Data: env}
-							ui.Window.Invalidate()
+							if werr := atomicWriteFile(filepath.Join(getEnvironmentsDir(), id+".json"), data); werr == nil {
+								ui.EnvLoadedChan <- &EnvironmentUI{Data: env}
+								ui.Window.Invalidate()
+							}
 						}
 					}
 				}
@@ -823,7 +849,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					btn := material.Button(ui.Theme, &ui.AddEnvBtn, "+")
 					btn.Background = colorBorder
-					btn.Color = ui.Theme.Palette.Fg
+					btn.Color = ui.Theme.Fg
 					btn.TextSize = unit.Sp(11)
 					btn.CornerRadius = unit.Dp(0)
 					btn.Inset = layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(5), Right: unit.Dp(5)}
@@ -844,6 +870,10 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 	}
 
 	envsBody := func(gtx layout.Context) layout.Dimensions {
+		// Same reason as colsBody — env rename uses widget.Editor.
+		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+		pointer.CursorDefault.Add(gtx.Ops)
+
 		if len(ui.Environments) == 0 {
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				lbl := material.Label(ui.Theme, unit.Sp(12), "No environments loaded")
@@ -920,7 +950,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 		envSnapshot := ui.Environments
 
 		var draggingEnv bool
-		var draggedSrcIdx int = -1
+		draggedSrcIdx := -1
 		if ui.DraggedEnv != nil && ui.DragEnvActive {
 			for i, e := range ui.Environments {
 				if e == ui.DraggedEnv {
@@ -999,7 +1029,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 					name := e.InlineNameEd.Text()
 					if name != "" {
 						e.Data.Name = name
-						SaveEnvironment(e.Data)
+						_ = SaveEnvironment(e.Data)
 					}
 					e.IsRenaming = false
 					e.RenamingFocused = false
@@ -1158,7 +1188,7 @@ func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
 										gtx.Constraints.Max = gtx.Constraints.Min
 										iconCol := colorFgMuted
 										if env.MenuBtn.Hovered() {
-											iconCol = ui.Theme.Palette.Fg
+											iconCol = ui.Theme.Fg
 										}
 										return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 											lbl := material.Label(ui.Theme, unit.Sp(14), "⋮")

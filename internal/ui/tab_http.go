@@ -25,20 +25,50 @@ func (t *RequestTab) cancelRequest() {
 	}
 }
 
+func cleanupOrphanRespTmp() {
+	dir := os.TempDir()
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return
+	}
+	cutoff := time.Now().Add(-24 * time.Hour)
+	for _, e := range entries {
+		name := e.Name()
+		if !strings.HasPrefix(name, "tracto-resp-") || !strings.HasSuffix(name, ".tmp") {
+			continue
+		}
+		full := filepath.Join(dir, name)
+		fi, err := e.Info()
+		if err != nil {
+			continue
+		}
+		if fi.ModTime().Before(cutoff) {
+			_ = os.Remove(full)
+		}
+	}
+}
+
 func (t *RequestTab) cleanupRespFile() {
 	t.fileSaveMu.Lock()
-	t.closed.Store(true)
 	select {
 	case w := <-t.FileSaveChan:
 		if w != nil {
-			w.Close()
+			_ = w.Close()
 		}
 	default:
 	}
 	t.fileSaveMu.Unlock()
 
+	select {
+	case resp := <-t.responseChan:
+		if resp.respFile != "" {
+			_ = os.Remove(resp.respFile)
+		}
+	default:
+	}
+
 	if t.respFile != "" {
-		os.Remove(t.respFile)
+		_ = os.Remove(t.respFile)
 		t.respFile = ""
 	}
 	if t.reqWidthTimer != nil {
@@ -59,6 +89,13 @@ func (t *RequestTab) cleanupRespFile() {
 	}
 }
 
+func (t *RequestTab) markClosed() {
+	t.fileSaveMu.Lock()
+	t.closed.Store(true)
+	t.fileSaveMu.Unlock()
+	t.cleanupRespFile()
+}
+
 func (t *RequestTab) buildBody(ctx context.Context, env map[string]string) (io.Reader, string, error) {
 	switch t.BodyType {
 	case BodyNone:
@@ -77,6 +114,21 @@ func (t *RequestTab) buildBody(ctx context.Context, env map[string]string) (io.R
 		return strings.NewReader(vals.Encode()), "application/x-www-form-urlencoded", nil
 
 	case BodyFormData:
+		type formSnap struct {
+			kind     FormPartKind
+			key      string
+			value    string
+			filePath string
+		}
+		snap := make([]formSnap, 0, len(t.FormParts))
+		for _, p := range t.FormParts {
+			snap = append(snap, formSnap{
+				kind:     p.Kind,
+				key:      strings.TrimSpace(p.Key.Text()),
+				value:    processTemplate(p.Value.Text(), env),
+				filePath: p.FilePath,
+			})
+		}
 		pr, pw := io.Pipe()
 		mw := multipart.NewWriter(pw)
 		go func() {
@@ -85,43 +137,42 @@ func (t *RequestTab) buildBody(ctx context.Context, env map[string]string) (io.R
 					pw.CloseWithError(err)
 					return
 				}
-				pw.Close()
+				_ = pw.Close()
 			}()
-			for _, p := range t.FormParts {
+			for _, p := range snap {
 				select {
 				case <-ctx.Done():
 					pw.CloseWithError(ctx.Err())
 					return
 				default:
 				}
-				key := strings.TrimSpace(p.Key.Text())
-				if key == "" {
+				if p.key == "" {
 					continue
 				}
-				if p.Kind == FormPartFile {
-					if p.FilePath == "" {
+				if p.kind == FormPartFile {
+					if p.filePath == "" {
 						continue
 					}
-					f, err := os.Open(p.FilePath)
+					f, err := os.Open(p.filePath)
 					if err != nil {
 						pw.CloseWithError(err)
 						return
 					}
-					w, err := mw.CreateFormFile(key, filepath.Base(p.FilePath))
+					w, err := mw.CreateFormFile(p.key, filepath.Base(p.filePath))
 					if err != nil {
-						f.Close()
+						_ = f.Close()
 						pw.CloseWithError(err)
 						return
 					}
 					if _, err := io.Copy(w, f); err != nil {
-						f.Close()
+						_ = f.Close()
 						pw.CloseWithError(err)
 						return
 					}
-					f.Close()
+					_ = f.Close()
 					continue
 				}
-				if err := mw.WriteField(key, processTemplate(p.Value.Text(), env)); err != nil {
+				if err := mw.WriteField(p.key, p.value); err != nil {
 					pw.CloseWithError(err)
 					return
 				}
@@ -146,27 +197,58 @@ func (t *RequestTab) buildBody(ctx context.Context, env map[string]string) (io.R
 
 	reqBody := bodyReplacer.Replace(t.ReqEditor.Text())
 	reqBody = processTemplate(reqBody, env)
+	if currentTrimTrailingWS {
+		reqBody = trimTrailingWhitespace(reqBody)
+	}
 	if currentStripJSONComments {
 		strippedBody := utils.StripJSONComments(reqBody)
 		if json.Valid([]byte(strippedBody)) {
 			reqBody = strippedBody
 		}
 	}
+	if currentAutoFormatJSONRequest && json.Valid([]byte(reqBody)) {
+		var v interface{}
+		if err := json.Unmarshal([]byte(reqBody), &v); err == nil {
+			indent := currentJSONIndent
+			if indent < 0 {
+				indent = 2
+			}
+			pad := strings.Repeat(" ", indent)
+			if formatted, err := json.MarshalIndent(v, "", pad); err == nil {
+				reqBody = string(formatted)
+			}
+		}
+	}
 	return strings.NewReader(reqBody), "", nil
+}
+
+func trimTrailingWhitespace(s string) string {
+	if s == "" {
+		return s
+	}
+	lines := strings.Split(s, "\n")
+	for i, ln := range lines {
+		lines[i] = strings.TrimRight(ln, " \t\r")
+	}
+	return strings.Join(lines, "\n")
 }
 
 func (t *RequestTab) prepareRequest(parent context.Context, env map[string]string) (*http.Request, context.Context, context.CancelFunc, error) {
 	urlRaw := strings.ReplaceAll(t.URLInput.Text(), "\n", "")
 	urlRaw = strings.TrimSpace(utils.SanitizeText(urlRaw))
-	url := processTemplate(urlRaw, env)
+	rawURL := processTemplate(urlRaw, env)
 
-	if url == "" {
+	if rawURL == "" {
 		return nil, nil, nil, errors.New("empty URL")
 	}
-	if !strings.HasPrefix(url, "http://") && !strings.HasPrefix(url, "https://") {
-		url = "http://" + url
+	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
+		rawURL = "http://" + rawURL
 	}
-	url = strings.ReplaceAll(url, " ", "%20")
+	rawURL = strings.ReplaceAll(rawURL, " ", "%20")
+	if parsed, perr := url.Parse(rawURL); perr == nil {
+		parsed.RawQuery = parsed.Query().Encode()
+		rawURL = parsed.String()
+	}
 
 	if parent == nil {
 		parent = context.Background()
@@ -178,7 +260,7 @@ func (t *RequestTab) prepareRequest(parent context.Context, env map[string]strin
 		cancel()
 		return nil, nil, nil, buildErr
 	}
-	req, err := http.NewRequestWithContext(ctx, t.Method, url, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, t.Method, rawURL, bodyReader)
 	if err != nil {
 		cancel()
 		return nil, nil, nil, err
@@ -201,6 +283,15 @@ func (t *RequestTab) prepareRequest(parent context.Context, env map[string]strin
 	}
 	if explicitContentType != "" {
 		req.Header.Set("Content-Type", explicitContentType)
+	}
+	if ae := strings.TrimSpace(currentAcceptEncoding); ae != "" && req.Header.Get("Accept-Encoding") == "" {
+		req.Header.Set("Accept-Encoding", ae)
+	}
+	if currentSendConnClose {
+		req.Close = true
+		if req.Header.Get("Connection") == "" {
+			req.Header.Set("Connection", "close")
+		}
 	}
 	return req, ctx, cancel, nil
 }
@@ -253,8 +344,14 @@ func (t *RequestTab) sendResponse(_ context.Context, resp tabResponse) bool {
 	if resp.requestID != t.requestID.Load() {
 		return false
 	}
+	if t.closed.Load() {
+		return false
+	}
 	select {
-	case <-t.responseChan:
+	case prev := <-t.responseChan:
+		if prev.respFile != "" && prev.respFile != resp.respFile {
+			_ = os.Remove(prev.respFile)
+		}
 	default:
 	}
 	select {
@@ -334,7 +431,7 @@ func (t *RequestTab) executeRequest(parent context.Context, win *app.Window, env
 		cleanup := true
 		defer func() {
 			if cleanup && tmpPath != "" {
-				os.Remove(tmpPath)
+				_ = os.Remove(tmpPath)
 			}
 			win.Invalidate()
 		}()
@@ -349,7 +446,7 @@ func (t *RequestTab) executeRequest(parent context.Context, win *app.Window, env
 			t.sendResponse(ctx, tabResponse{requestID: reqID, status: status})
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		tmpFile, err := os.CreateTemp("", "tracto-resp-*.tmp")
 		if err != nil {
@@ -359,7 +456,7 @@ func (t *RequestTab) executeRequest(parent context.Context, win *app.Window, env
 		tmpPath = tmpFile.Name()
 
 		total, sErr := t.streamResponse(ctx, resp.Body, tmpFile, win, true)
-		tmpFile.Close()
+		_ = tmpFile.Close()
 
 		if sErr != nil {
 			status := "Error: " + sErr.Error()
@@ -396,7 +493,7 @@ func (t *RequestTab) executeRequestToFile(parent context.Context, win *app.Windo
 	if err != nil {
 		t.Status = "Error: " + err.Error()
 		t.isRequesting = false
-		dest.Close()
+		_ = dest.Close()
 		win.Invalidate()
 		return
 	}
@@ -408,9 +505,9 @@ func (t *RequestTab) executeRequestToFile(parent context.Context, win *app.Windo
 		cleanup := true
 		defer func() {
 			if cleanup && tmpPath != "" {
-				os.Remove(tmpPath)
+				_ = os.Remove(tmpPath)
 			}
-			dest.Close()
+			_ = dest.Close()
 			win.Invalidate()
 		}()
 
@@ -424,7 +521,7 @@ func (t *RequestTab) executeRequestToFile(parent context.Context, win *app.Windo
 			t.sendResponse(ctx, tabResponse{requestID: reqID, status: status})
 			return
 		}
-		defer resp.Body.Close()
+		defer func() { _ = resp.Body.Close() }()
 
 		tmpFile, tmpErr := os.CreateTemp("", "tracto-resp-*.tmp")
 		var writer io.Writer = dest
@@ -435,11 +532,11 @@ func (t *RequestTab) executeRequestToFile(parent context.Context, win *app.Windo
 		total, sErr := t.streamResponse(ctx, resp.Body, writer, win, false)
 
 		if tmpFile != nil {
-			tmpFile.Close()
+			_ = tmpFile.Close()
 			if sErr == nil {
 				tmpPath = tmpFile.Name()
 			} else {
-				os.Remove(tmpFile.Name())
+				_ = os.Remove(tmpFile.Name())
 			}
 		}
 

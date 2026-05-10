@@ -120,13 +120,14 @@ func sanitizeString(s string) string {
 }
 
 func StripJSONComments(data string) string {
-	if !strings.Contains(data, "//") {
+	if !strings.Contains(data, "//") && !strings.Contains(data, "/*") {
 		return data
 	}
 	var result strings.Builder
 	result.Grow(len(data))
 	inString := false
 	inLineComment := false
+	inBlockComment := false
 
 	for i := 0; i < len(data); i++ {
 		b := data[i]
@@ -139,10 +140,25 @@ func StripJSONComments(data string) string {
 			continue
 		}
 
-		if !inString && b == '/' && i+1 < len(data) && data[i+1] == '/' {
-			inLineComment = true
-			i++
+		if inBlockComment {
+			if b == '*' && i+1 < len(data) && data[i+1] == '/' {
+				inBlockComment = false
+				i++
+			}
 			continue
+		}
+
+		if !inString && b == '/' && i+1 < len(data) {
+			if data[i+1] == '/' {
+				inLineComment = true
+				i++
+				continue
+			}
+			if data[i+1] == '*' {
+				inBlockComment = true
+				i++
+				continue
+			}
 		}
 
 		if b == '"' {

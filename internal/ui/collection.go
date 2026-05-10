@@ -248,6 +248,20 @@ func cloneNode(node *CollectionNode, parent *CollectionNode) *CollectionNode {
 	dup.NameEditor.SingleLine = true
 	dup.NameEditor.Submit = true
 
+	if len(node.Extras) > 0 {
+		dup.Extras = make(map[string]json.RawMessage, len(node.Extras))
+		for k, v := range node.Extras {
+			cp := append(json.RawMessage(nil), v...)
+			dup.Extras[k] = cp
+		}
+	}
+	if len(node.skippedItems) > 0 {
+		dup.skippedItems = make([]json.RawMessage, len(node.skippedItems))
+		for i, it := range node.skippedItems {
+			dup.skippedItems[i] = append(json.RawMessage(nil), it...)
+		}
+	}
+
 	if node.Request != nil {
 		dup.Request = &ParsedRequest{
 			Name:       dup.Name,
@@ -267,12 +281,49 @@ func cloneNode(node *CollectionNode, parent *CollectionNode) *CollectionNode {
 		if len(node.Request.URLEncoded) > 0 {
 			dup.Request.URLEncoded = append([]ParsedKV(nil), node.Request.URLEncoded...)
 		}
+		if len(node.Request.RawURL) > 0 {
+			dup.Request.RawURL = append(json.RawMessage(nil), node.Request.RawURL...)
+		}
+		if len(node.Request.RawHeaders) > 0 {
+			dup.Request.RawHeaders = append(json.RawMessage(nil), node.Request.RawHeaders...)
+		}
+		if len(node.Request.Extras) > 0 {
+			dup.Request.Extras = make(map[string]json.RawMessage, len(node.Request.Extras))
+			for k, v := range node.Request.Extras {
+				dup.Request.Extras[k] = append(json.RawMessage(nil), v...)
+			}
+		}
+		if len(node.Request.BodyExtras) > 0 {
+			dup.Request.BodyExtras = make(map[string]json.RawMessage, len(node.Request.BodyExtras))
+			for k, v := range node.Request.BodyExtras {
+				dup.Request.BodyExtras[k] = append(json.RawMessage(nil), v...)
+			}
+		}
 	}
 
 	for _, child := range node.Children {
 		dup.Children = append(dup.Children, cloneNode(child, dup))
 	}
 	return dup
+}
+
+func collectSubtree(node *CollectionNode) map[*CollectionNode]struct{} {
+	seen := make(map[*CollectionNode]struct{})
+	var walk func(*CollectionNode)
+	walk = func(n *CollectionNode) {
+		if n == nil {
+			return
+		}
+		if _, ok := seen[n]; ok {
+			return
+		}
+		seen[n] = struct{}{}
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	walk(node)
+	return seen
 }
 
 func assignParents(node *CollectionNode, parent *CollectionNode, col *ParsedCollection) {

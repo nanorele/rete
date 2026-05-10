@@ -121,26 +121,21 @@ func TestImportDroppedData(t *testing.T) {
 		if c.Data.Name != "Dropped Col" {
 			t.Errorf("expected Dropped Col, got %s", c.Data.Name)
 		}
-	default:
-		t.Errorf("collection not imported")
+	case <-time.After(2 * time.Second):
+		t.Errorf("collection not imported: timeout")
 	}
 
 	envJSON := `{"name": "Dropped Env", "values": [{"key":"k","value":"v"}]}`
 	ui.importDroppedData([]byte(envJSON))
-
 	select {
 	case e := <-ui.EnvLoadedChan:
 		if e.Data.Name != "Dropped Env" {
 			t.Errorf("expected Dropped Env, got %s", e.Data.Name)
 		}
-	default:
-
-		select {
-		case c := <-ui.ColLoadedChan:
-			t.Errorf("misparsed as collection: %s", c.Data.Name)
-		default:
-			t.Errorf("environment not imported")
-		}
+	case c := <-ui.ColLoadedChan:
+		t.Errorf("misparsed as collection: %s", c.Data.Name)
+	case <-time.After(2 * time.Second):
+		t.Errorf("environment not imported: timeout")
 	}
 }
 
@@ -302,8 +297,8 @@ func TestAppUIStateLoad(t *testing.T) {
 		},
 	}
 	data, _ := json.Marshal(state)
-	os.MkdirAll(filepath.Dir(getStateFile()), 0755)
-	os.WriteFile(getStateFile(), data, 0644)
+	_ = os.MkdirAll(filepath.Dir(getStateFile()), 0755)
+	_ = os.WriteFile(getStateFile(), data, 0644)
 
 	ui := NewAppUI()
 	if len(ui.Tabs) != 1 || ui.Tabs[0].Title != "Saved Tab" {
@@ -330,8 +325,8 @@ func TestAppUI_ExtraPaths(t *testing.T) {
 
 func TestAppUIStateLoad_Corrupted(t *testing.T) {
 	_ = setupTestConfigDir(t)
-	os.MkdirAll(filepath.Dir(getStateFile()), 0755)
-	os.WriteFile(getStateFile(), []byte("invalid json"), 0644)
+	_ = os.MkdirAll(filepath.Dir(getStateFile()), 0755)
+	_ = os.WriteFile(getStateFile(), []byte("invalid json"), 0644)
 
 	ui := NewAppUI()
 
@@ -342,9 +337,9 @@ func TestAppUIStateLoad_Corrupted(t *testing.T) {
 
 func TestAppUIStateLoad_LegacyMonoFontRewrites(t *testing.T) {
 	_ = setupTestConfigDir(t)
-	os.MkdirAll(filepath.Dir(getStateFile()), 0755)
+	_ = os.MkdirAll(filepath.Dir(getStateFile()), 0755)
 	legacy := `{"tabs":[],"active_idx":0,"settings":{"theme":"dark","mono_font":"Ubuntu Mono","ui_text_size":14}}`
-	os.WriteFile(getStateFile(), []byte(legacy), 0644)
+	_ = os.WriteFile(getStateFile(), []byte(legacy), 0644)
 
 	ui := NewAppUI()
 	if !ui.saveNeeded {
@@ -369,8 +364,8 @@ func TestAppUIStateLoad_NilWrap(t *testing.T) {
 		},
 	}
 	data, _ := json.Marshal(state)
-	os.MkdirAll(filepath.Dir(getStateFile()), 0755)
-	os.WriteFile(getStateFile(), data, 0644)
+	_ = os.MkdirAll(filepath.Dir(getStateFile()), 0755)
+	_ = os.WriteFile(getStateFile(), data, 0644)
 
 	ui := NewAppUI()
 	if !ui.Tabs[0].ReqWrapEnabled {

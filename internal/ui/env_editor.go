@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/nanorele/gio/font"
+	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op/clip"
 	"github.com/nanorele/gio/op/paint"
@@ -27,16 +28,17 @@ func (ui *AppUI) commitEditingEnv() {
 	env.Data.Vars = nil
 	for _, r := range env.Rows {
 		k := r.KeyEditor.Text()
-		if k == "" {
+		v := r.ValEditor.Text()
+		if k == "" && v == "" {
 			continue
 		}
 		env.Data.Vars = append(env.Data.Vars, EnvVar{
 			Key:     k,
-			Value:   r.ValEditor.Text(),
-			Enabled: true,
+			Value:   v,
+			Enabled: r.Enabled.Value,
 		})
 	}
-	SaveEnvironment(env.Data)
+	_ = SaveEnvironment(env.Data)
 	ui.activeEnvDirty = true
 }
 
@@ -71,6 +73,11 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
+	// Anchor — env editor is full of TextField/widget.Editor instances
+	// whose hit-area can extend past the visible bounds.
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+	pointer.CursorDefault.Add(gtx.Ops)
+
 	return layout.UniformInset(unit.Dp(16)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -87,7 +94,7 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 										gtx.Constraints.Min = image.Pt(gtx.Dp(16), gtx.Dp(16))
-										return iconBack.Layout(gtx, ui.Theme.Palette.Fg)
+										return iconBack.Layout(gtx, ui.Theme.Fg)
 									}),
 								)
 							})
@@ -140,14 +147,14 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 							gtx.Constraints.Min = image.Pt(size, size)
 							gtx.Constraints.Max = gtx.Constraints.Min
 							rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4)
-							bg := ui.Theme.Palette.ContrastBg
+							bg := ui.Theme.ContrastBg
 							if env.SaveBtn.Hovered() {
 								bg = colorAccentHover
 							}
 							paint.FillShape(gtx.Ops, bg, rect.Op(gtx.Ops))
 							return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 								gtx.Constraints.Min = image.Pt(gtx.Dp(18), gtx.Dp(18))
-								return iconSave.Layout(gtx, ui.Theme.Palette.ContrastFg)
+								return iconSave.Layout(gtx, ui.Theme.ContrastFg)
 							})
 						})
 					}),
@@ -183,7 +190,7 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 						return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							btn := material.Button(ui.Theme, &env.AddBtn, "+ Add Variable")
 							btn.Background = colorBorder
-							btn.Color = ui.Theme.Palette.Fg
+							btn.Color = ui.Theme.Fg
 							btn.TextSize = unit.Sp(12)
 							btn.Inset = layout.UniformInset(unit.Dp(8))
 							return btn.Layout(gtx)
@@ -208,7 +215,7 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 								return material.Clickable(gtx, &r.DelBtn, func(gtx layout.Context) layout.Dimensions {
 									rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2)
 									bg := colorBorder
-									iconColor := ui.Theme.Palette.Fg
+									iconColor := ui.Theme.Fg
 									if r.DelBtn.Hovered() {
 										bg = colorDanger
 										iconColor = colorDangerFg
@@ -236,7 +243,6 @@ func (ui *AppUI) saveVarPopup() {
 				for i, v := range env.Data.Vars {
 					if v.Key == ui.VarPopupName {
 						env.Data.Vars[i].Value = ui.VarPopupEditor.Text()
-						env.Data.Vars[i].Enabled = true
 						updated = true
 						break
 					}
@@ -248,7 +254,7 @@ func (ui *AppUI) saveVarPopup() {
 						Enabled: true,
 					})
 				}
-				SaveEnvironment(env.Data)
+				_ = SaveEnvironment(env.Data)
 				ui.activeEnvDirty = true
 				break
 			}

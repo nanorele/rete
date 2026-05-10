@@ -24,7 +24,7 @@ func (ui *AppUI) layoutTitleBtn(gtx layout.Context, btn *widget.Clickable, kind 
 
 	return btn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		bg := colorBgDark
-		fg := ui.Theme.Palette.Fg
+		fg := ui.Theme.Fg
 
 		if btn.Hovered() {
 			bg = colorBgHover

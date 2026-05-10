@@ -188,15 +188,15 @@ func TestStateErrors(t *testing.T) {
 	loadSavedCollections()
 	loadSavedEnvironments()
 
-	os.MkdirAll(filepath.Join(tempDir, "tracto"), 0755)
-	os.WriteFile(filepath.Join(tempDir, "tracto", "state.json"), []byte("invalid"), 0644)
+	_ = os.MkdirAll(filepath.Join(tempDir, "tracto"), 0755)
+	_ = os.WriteFile(filepath.Join(tempDir, "tracto", "state.json"), []byte("invalid"), 0644)
 	loadState()
 
-	os.MkdirAll(filepath.Join(tempDir, "tracto", "collections"), 0755)
-	os.WriteFile(filepath.Join(tempDir, "tracto", "collections", "bad.json"), []byte("invalid"), 0644)
+	_ = os.MkdirAll(filepath.Join(tempDir, "tracto", "collections"), 0755)
+	_ = os.WriteFile(filepath.Join(tempDir, "tracto", "collections", "bad.json"), []byte("invalid"), 0644)
 	loadSavedCollections()
 
-	os.MkdirAll(filepath.Join(tempDir, "tracto", "collections", "subdir"), 0755)
+	_ = os.MkdirAll(filepath.Join(tempDir, "tracto", "collections", "subdir"), 0755)
 	loadSavedCollections()
 }
 

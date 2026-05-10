@@ -140,7 +140,12 @@ func TokenizeYAML(src []byte) []Token {
 			if b == '\n' || b == '#' {
 				break
 			}
-			if b == ':' && (i+1 >= len(src) || src[i+1] == ' ' || src[i+1] == '\t' || src[i+1] == '\n' || src[i+1] == '\r') {
+			if b == ':' && (i+1 >= len(src) || src[i+1] == ' ' || src[i+1] == '\t' || src[i+1] == '\n' || src[i+1] == '\r' || (depth > 0 && (src[i+1] == ',' || src[i+1] == '}' || src[i+1] == ']'))) {
+				hadColon = true
+				colonAt = i
+				break
+			}
+			if depth > 0 && b == ':' {
 				hadColon = true
 				colonAt = i
 				break

@@ -237,8 +237,12 @@ func renderColorPicker(gtx layout.Context, th *material.Theme, p *colorPickerSta
 				if y > svH-1 {
 					y = svH - 1
 				}
-				p.s = float32(x) / float32(svW-1)
-				p.v = 1 - float32(y)/float32(svH-1)
+				if svW > 1 {
+					p.s = float32(x) / float32(svW-1)
+				}
+				if svH > 1 {
+					p.v = 1 - float32(y)/float32(svH-1)
+				}
 			}
 		}
 		stack.Pop()
@@ -304,7 +308,9 @@ func renderColorPicker(gtx layout.Context, th *material.Theme, p *colorPickerSta
 				if x > svW-1 {
 					x = svW - 1
 				}
-				p.h = float32(x) / float32(svW-1) * 360
+				if svW > 1 {
+					p.h = float32(x) / float32(svW-1) * 360
+				}
 			}
 		}
 		stack.Pop()

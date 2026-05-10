@@ -176,7 +176,7 @@ func loadPreviewFromFile(path string, totalSize int64, state *JSONFormatterState
 	if err != nil {
 		return "", 0, false
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	var probe [64]byte
 	pn, _ := f.Read(probe[:])
@@ -191,7 +191,7 @@ func loadPreviewFromFile(path string, totalSize int64, state *JSONFormatterState
 		readSize = batchSize
 	}
 
-	f.Seek(0, io.SeekStart)
+	_, _ = f.Seek(0, io.SeekStart)
 	data, release := getPreviewBuf(readSize)
 	n, _ := io.ReadFull(f, data)
 	data = data[:n]
@@ -224,7 +224,6 @@ func (t *RequestTab) loadMorePreview() {
 	if readSize > batchLimit {
 		readSize = batchLimit
 	}
-	t.previewLoaded += readSize
 	win := t.window
 	isJSON := t.respIsJSON
 
@@ -234,8 +233,8 @@ func (t *RequestTab) loadMorePreview() {
 		if err != nil {
 			return
 		}
-		defer f.Close()
-		f.Seek(offset, io.SeekStart)
+		defer func() { _ = f.Close() }()
+		_, _ = f.Seek(offset, io.SeekStart)
 
 		data, release := getPreviewBuf(readSize)
 		n, _ := io.ReadFull(f, data)
@@ -250,6 +249,7 @@ func (t *RequestTab) loadMorePreview() {
 			extra = utils.SanitizeBytes(data)
 		}
 		release()
+		t.previewLoaded += int64(n)
 		t.streamToEditor(extra, win)
 	}()
 }
@@ -257,22 +257,22 @@ func (t *RequestTab) loadMorePreview() {
 func openFile(path string) {
 	switch runtime.GOOS {
 	case "windows":
-		exec.Command("cmd", "/c", "start", "", path).Start()
+		_ = exec.Command("cmd", "/c", "start", "", path).Start()
 	case "darwin":
-		exec.Command("open", path).Start()
+		_ = exec.Command("open", path).Start()
 	default:
-		exec.Command("xdg-open", path).Start()
+		_ = exec.Command("xdg-open", path).Start()
 	}
 }
 
 func openFileInExplorer(path string) {
 	switch runtime.GOOS {
 	case "windows":
-		exec.Command("explorer", "/select,", filepath.ToSlash(path)).Start()
+		_ = exec.Command("explorer", "/select,", filepath.ToSlash(path)).Start()
 	case "darwin":
-		exec.Command("open", "-R", path).Start()
+		_ = exec.Command("open", "-R", path).Start()
 	default:
 		dir := filepath.Dir(path)
-		exec.Command("xdg-open", dir).Start()
+		_ = exec.Command("xdg-open", dir).Start()
 	}
 }
