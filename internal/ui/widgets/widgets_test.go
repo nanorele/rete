@@ -144,6 +144,152 @@ func TestMoveWordEdgeCases(t *testing.T) {
 	}
 }
 
+func TestMoveWordRussian(t *testing.T) {
+	s := "Привет, мир! Это тест."
+
+	rightCases := []struct {
+		pos      int
+		expected int
+	}{
+		{0, 6},
+		{3, 6},
+		{6, 11},
+		{11, 16},
+		{14, 16},
+		{17, 21},
+	}
+	for _, tc := range rightCases {
+		got := MoveWord(s, tc.pos, 1)
+		if got != tc.expected {
+			t.Errorf("Right: from %d expected %d, got %d", tc.pos, tc.expected, got)
+		}
+	}
+
+	leftCases := []struct {
+		pos      int
+		expected int
+	}{
+		{21, 17},
+		{17, 13},
+		{6, 0},
+		{0, 0},
+	}
+	for _, tc := range leftCases {
+		got := MoveWord(s, tc.pos, -1)
+		if got != tc.expected {
+			t.Errorf("Left: from %d expected %d, got %d", tc.pos, tc.expected, got)
+		}
+	}
+}
+
+func TestMoveWordEmoji(t *testing.T) {
+	s := "Hello 🚀 World 🔥"
+
+	rightFromZero := MoveWord(s, 0, 1)
+	if rightFromZero != 5 {
+		t.Errorf("from 0 expected 5 (end of Hello), got %d", rightFromZero)
+	}
+
+	rightFromSpace := MoveWord(s, 6, 1)
+	if rightFromSpace != 7 {
+		t.Errorf("from 6 (rocket) expected 7 (after rocket), got %d", rightFromSpace)
+	}
+
+	leftFromEnd := MoveWord(s, 16, -1)
+	if leftFromEnd != 14 {
+		t.Errorf("from end expected 14 (fire start), got %d", leftFromEnd)
+	}
+}
+
+func TestMoveWordZWJ(t *testing.T) {
+	s := "a 👨‍👩‍👧‍👦 b"
+
+	rightFromZero := MoveWord(s, 0, 1)
+	if rightFromZero != 1 {
+		t.Errorf("from 0 expected 1 (end of 'a'), got %d", rightFromZero)
+	}
+
+	rightFromA := MoveWord(s, 2, 1)
+	totalRunes := 0
+	for range s {
+		totalRunes++
+	}
+	if rightFromA <= 2 || rightFromA > totalRunes {
+		t.Errorf("from 2 (family) expected position past family, got %d (total runes %d)", rightFromA, totalRunes)
+	}
+}
+
+func TestMoveWordCJK(t *testing.T) {
+	s := "你好 世界 测试"
+
+	right1 := MoveWord(s, 0, 1)
+	if right1 != 2 {
+		t.Errorf("from 0 expected 2 (end of word), got %d", right1)
+	}
+
+	right2 := MoveWord(s, 3, 1)
+	if right2 != 5 {
+		t.Errorf("from 3 expected 5, got %d", right2)
+	}
+
+	left := MoveWord(s, 8, -1)
+	if left != 6 {
+		t.Errorf("from 8 expected 6, got %d", left)
+	}
+}
+
+func TestMoveWordMixedScripts(t *testing.T) {
+	s := "hello мир 你好 🚀end"
+
+	pos := 0
+	pos = MoveWord(s, pos, 1)
+	if pos != 5 {
+		t.Errorf("first word: expected 5, got %d", pos)
+	}
+
+	pos = MoveWord(s, pos, 1)
+	if pos != 9 {
+		t.Errorf("second word: expected 9 (мир end), got %d", pos)
+	}
+
+	pos = MoveWord(s, pos, 1)
+	if pos != 12 {
+		t.Errorf("third word: expected 12 (你好 end), got %d", pos)
+	}
+}
+
+func TestMoveWordRoundTrip(t *testing.T) {
+	inputs := []string{
+		"hello world",
+		"Привет мир",
+		"a 🚀 b",
+		"你好 世界",
+		"mixed: AAA bbb 你 🔥 final",
+	}
+	for _, s := range inputs {
+		totalRunes := 0
+		for range s {
+			totalRunes++
+		}
+		for pos := 0; pos <= totalRunes; pos++ {
+			r := MoveWord(s, pos, 1)
+			if r < pos {
+				t.Errorf("%q: right from %d went backward to %d", s, pos, r)
+			}
+			if r > totalRunes {
+				t.Errorf("%q: right from %d went past totalRunes %d to %d", s, pos, totalRunes, r)
+			}
+			l := MoveWord(s, pos, -1)
+			if l > pos {
+				t.Errorf("%q: left from %d went forward to %d", s, pos, l)
+			}
+			if l < 0 {
+				t.Errorf("%q: left from %d went negative to %d", s, pos, l)
+			}
+		}
+	}
+}
+
 func TestTextField_VarDetection(t *testing.T) {
 	th := material.NewTheme()
 	gtx := layout.Context{

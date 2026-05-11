@@ -208,7 +208,8 @@ func loadPreviewFromFile(path string, totalSize int64, state *JSONFormatterState
 }
 
 func (t *RequestTab) loadMorePreview() {
-	if t.respFile == "" || t.previewLoaded >= t.respSize {
+	loaded := t.previewLoaded.Load()
+	if t.respFile == "" || loaded >= t.respSize {
 		return
 	}
 	if !t.previewLoading.CompareAndSwap(false, true) {
@@ -216,12 +217,12 @@ func (t *RequestTab) loadMorePreview() {
 	}
 
 	filePath := t.respFile
-	offset := t.previewLoaded
+	offset := loaded
 	batchLimit := int64(previewBatchSize)
 	if t.respIsJSON {
 		batchLimit = int64(jsonPreviewBatchSize)
 	}
-	readSize := t.respSize - t.previewLoaded
+	readSize := t.respSize - loaded
 	if readSize > batchLimit {
 		readSize = batchLimit
 	}
@@ -250,7 +251,7 @@ func (t *RequestTab) loadMorePreview() {
 			extra = utils.SanitizeBytes(data)
 		}
 		release()
-		t.previewLoaded += int64(n)
+		t.previewLoaded.Add(int64(n))
 		t.streamToEditor(extra, win)
 	}()
 }

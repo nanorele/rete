@@ -24,21 +24,29 @@ var (
 	IconRefresh  *widget.Icon
 )
 
+func mustIcon(data []byte) *widget.Icon {
+	ic, err := widget.NewIcon(data)
+	if err != nil {
+		panic("widgets: failed to load icon: " + err.Error())
+	}
+	return ic
+}
+
 func init() {
-	IconClose, _ = widget.NewIcon(icons.NavigationClose)
-	IconSettings, _ = widget.NewIcon(icons.ActionSettings)
-	IconSave, _ = widget.NewIcon(icons.ContentSave)
-	IconBack, _ = widget.NewIcon(icons.NavigationArrowBack)
-	IconAddReq, _ = widget.NewIcon(icons.ActionNoteAdd)
-	IconAddFld, _ = widget.NewIcon(icons.FileCreateNewFolder)
-	IconRename, _ = widget.NewIcon(icons.EditorModeEdit)
-	IconDup, _ = widget.NewIcon(icons.ContentContentCopy)
-	IconDel, _ = widget.NewIcon(icons.ActionDelete)
-	IconSearch, _ = widget.NewIcon(icons.ActionSearch)
-	IconBug, _ = widget.NewIcon(icons.ActionBugReport)
-	IconDropDown, _ = widget.NewIcon(icons.NavigationArrowDropDown)
-	IconChevronR, _ = widget.NewIcon(icons.NavigationChevronRight)
-	IconChevronL, _ = widget.NewIcon(icons.NavigationChevronLeft)
-	IconChevronD, _ = widget.NewIcon(icons.HardwareKeyboardArrowDown)
-	IconRefresh, _ = widget.NewIcon(icons.NavigationRefresh)
+	IconClose = mustIcon(icons.NavigationClose)
+	IconSettings = mustIcon(icons.ActionSettings)
+	IconSave = mustIcon(icons.ContentSave)
+	IconBack = mustIcon(icons.NavigationArrowBack)
+	IconAddReq = mustIcon(icons.ActionNoteAdd)
+	IconAddFld = mustIcon(icons.FileCreateNewFolder)
+	IconRename = mustIcon(icons.EditorModeEdit)
+	IconDup = mustIcon(icons.ContentContentCopy)
+	IconDel = mustIcon(icons.ActionDelete)
+	IconSearch = mustIcon(icons.ActionSearch)
+	IconBug = mustIcon(icons.ActionBugReport)
+	IconDropDown = mustIcon(icons.NavigationArrowDropDown)
+	IconChevronR = mustIcon(icons.NavigationChevronRight)
+	IconChevronL = mustIcon(icons.NavigationChevronLeft)
+	IconChevronD = mustIcon(icons.HardwareKeyboardArrowDown)
+	IconRefresh = mustIcon(icons.NavigationRefresh)
 }

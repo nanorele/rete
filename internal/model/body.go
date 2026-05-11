@@ -3,8 +3,8 @@ package model
 type BodyType uint8
 
 const (
-	BodyRaw BodyType = iota
-	BodyNone
+	BodyNone BodyType = iota
+	BodyRaw
 	BodyFormData
 	BodyURLEncoded
 	BodyBinary
@@ -42,7 +42,7 @@ func (b BodyType) PostmanMode() string {
 
 func BodyTypeFromMode(s string) BodyType {
 	switch s {
-	case "none":
+	case "", "none":
 		return BodyNone
 	case "formdata", "form-data":
 		return BodyFormData

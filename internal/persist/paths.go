@@ -78,6 +78,8 @@ func AtomicWriteFile(path string, data []byte) error {
 
 func NewRandomID() string {
 	b := make([]byte, 16)
-	_, _ = rand.Read(b)
+	if _, err := rand.Read(b); err != nil {
+		panic("persist: random id: " + err.Error())
+	}
 	return hex.EncodeToString(b)
 }

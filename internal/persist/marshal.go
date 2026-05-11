@@ -31,6 +31,12 @@ func MarshalRequest(req *model.ParsedRequest) map[string]any {
 }
 
 func marshalRequestHeaders(req *model.ParsedRequest) []any {
+	if len(req.RawHeaders) > 0 {
+		var arr []any
+		if err := json.Unmarshal(req.RawHeaders, &arr); err == nil {
+			return arr
+		}
+	}
 	if len(req.Headers) == 0 {
 		return []any{}
 	}

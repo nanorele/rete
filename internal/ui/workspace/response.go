@@ -6,6 +6,7 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/widgets"
 	"unicode"
@@ -89,9 +90,11 @@ type ResponseViewer struct {
 	lastTotalH     int
 	lastViewportH  int
 
-	tokens     []syntax.Token
-	tokensLang syntax.Lang
-	tokensTxt  int
+	tokens        []syntax.Token
+	tokensLang    syntax.Lang
+	tokensTxt     int
+	tokensDirty   bool
+	tokensChanged time.Time
 
 	layoutShaper *text.Shaper
 	layoutFont   font.Font
@@ -145,6 +148,8 @@ func (v *ResponseViewer) SetText(s string) {
 		v.text = make([]byte, 0, len(s))
 	}
 	v.text = append(v.text[:0], s...)
+	v.tokensDirty = true
+	v.tokensChanged = time.Now()
 	v.rebuildLineStartsFrom(0)
 	v.invalidateChunkHeights()
 	v.padChunkHeights()
@@ -182,6 +187,8 @@ func (v *ResponseViewer) Append(s string) {
 	}
 	startIdx := len(v.text)
 	v.text = append(v.text, s...)
+	v.tokensDirty = true
+	v.tokensChanged = time.Now()
 	if last := len(v.chunkHeights) - 1; last >= 0 {
 		v.chunkHeights[last] = 0
 	}
@@ -287,7 +294,14 @@ func (v *ResponseViewer) scrollToByteOffset(off int) {
 		return
 	}
 	line := v.lineForByteOffset(off)
-	target := line * v.lastLineHeight
+	target := 0
+	for i := 0; i < line; i++ {
+		if i < len(v.chunkHeights) && v.chunkHeights[i] > 0 {
+			target += v.chunkHeights[i]
+		} else {
+			target += v.lastLineHeight
+		}
+	}
 	if v.lastViewportH > 0 {
 		target -= v.lastViewportH / 2
 	}
@@ -385,10 +399,25 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 	}
 
 	if s.Lang != syntax.LangPlain {
-		if s.Lang != v.tokensLang || len(v.text) != v.tokensTxt {
+		langChanged := s.Lang != v.tokensLang
+		sizeChanged := len(v.text) != v.tokensTxt
+		if langChanged || v.tokens == nil {
 			v.tokens = syntax.Tokenize(s.Lang, v.text)
 			v.tokensLang = s.Lang
 			v.tokensTxt = len(v.text)
+			v.tokensDirty = false
+		} else if v.tokensDirty || sizeChanged {
+			if !v.tokensDirty {
+				v.tokensDirty = true
+				v.tokensChanged = time.Now()
+			}
+			if time.Since(v.tokensChanged) >= tokenizeDebounce {
+				v.tokens = syntax.Tokenize(s.Lang, v.text)
+				v.tokensTxt = len(v.text)
+				v.tokensDirty = false
+			} else {
+				gtx.Execute(op.InvalidateCmd{At: v.tokensChanged.Add(tokenizeDebounce)})
+			}
 		}
 	} else if v.tokens != nil {
 		v.tokens = nil
@@ -520,7 +549,7 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		if !ok {
 			break
 		}
-		if ev.Kind != gesture.KindPress || ev.Source != pointer.Mouse {
+		if ev.Kind != gesture.KindPress {
 			continue
 		}
 		off := v.coordToByteOffset(gtx, ev.Position.X-pad, ev.Position.Y-pad, charAdv, exactLineH, innerW, s.Wrap)
@@ -1177,11 +1206,22 @@ func (v *ResponseViewer) ensureCaretVisible() {
 		return
 	}
 	line := v.lineForByteOffset(v.selEnd)
-	caretY := line * v.lastLineHeight
+	caretY := 0
+	for i := 0; i < line; i++ {
+		if i < len(v.chunkHeights) && v.chunkHeights[i] > 0 {
+			caretY += v.chunkHeights[i]
+		} else {
+			caretY += v.lastLineHeight
+		}
+	}
+	chunkH := v.lastLineHeight
+	if line < len(v.chunkHeights) && v.chunkHeights[line] > 0 {
+		chunkH = v.chunkHeights[line]
+	}
 	if caretY < v.scrollY {
 		v.scrollY = caretY
-	} else if v.lastViewportH > 0 && caretY+v.lastLineHeight > v.scrollY+v.lastViewportH {
-		v.scrollY = caretY + v.lastLineHeight - v.lastViewportH
+	} else if v.lastViewportH > 0 && caretY+chunkH > v.scrollY+v.lastViewportH {
+		v.scrollY = caretY + chunkH - v.lastViewportH
 	}
 	v.clampScroll()
 }

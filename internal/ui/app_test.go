@@ -20,7 +20,6 @@ import (
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
 	"github.com/nanorele/gio/unit"
-	"github.com/nanorele/gio/widget"
 )
 
 func TestAppUILayouts(t *testing.T) {
@@ -44,7 +43,7 @@ func TestAppUILayouts(t *testing.T) {
 	ui.layoutApp(gtx)
 	ui.layoutContent(gtx)
 
-	ui.TabCtxMenuIdx = 0
+	ui.TabBar.TabCtxMenuIdx = 0
 	ui.closeTab(0)
 	ui.layoutContent(gtx)
 
@@ -389,8 +388,8 @@ func TestAppUI_AllLayoutPaths(t *testing.T) {
 		Constraints: layout.Exact(image.Pt(1024, 768)),
 	}
 
-	ui.TabCtxMenuOpen = true
-	ui.VarPopupOpen = true
+	ui.TabBar.TabCtxMenuOpen = true
+	ui.VarPopup.Open = true
 	ui.activeEnvDirty = true
 	ui.saveNeeded = true
 
@@ -400,8 +399,7 @@ func TestAppUI_AllLayoutPaths(t *testing.T) {
 	widgets.GlobalVarHover = &widgets.VarHoverState{Name: "k", Pos: f32.Pt(10, 10)}
 	ui.layoutApp(gtx)
 
-	ui.VarPopupName = "k"
-	ui.VarPopupClicks = []widget.Clickable{{}}
+	ui.VarPopup.Name = "k"
 	ui.activeEnvVars = map[string]string{"k": "v"}
 	ui.layoutApp(gtx)
 }

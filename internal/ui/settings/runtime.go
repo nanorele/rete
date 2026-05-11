@@ -29,3 +29,5 @@ var (
 )
 
 var HTTPClient *http.Client = buildHTTPClient(model.DefaultSettings())
+
+var persistentJar http.CookieJar

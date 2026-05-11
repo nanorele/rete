@@ -94,16 +94,16 @@ func TestSaveVarPopup(t *testing.T) {
 	env := &model.ParsedEnvironment{ID: "e1", Name: "E1"}
 	ui.Environments = append(ui.Environments, &environments.EnvironmentUI{Data: env})
 
-	ui.VarPopupEnvID = "e1"
-	ui.VarPopupName = "newVar"
-	ui.VarPopupEditor.SetText("val")
+	ui.VarPopup.EnvID = "e1"
+	ui.VarPopup.Name = "newVar"
+	ui.VarPopup.Editor.SetText("val")
 	ui.saveVarPopup()
 
 	if len(env.Vars) != 1 || env.Vars[0].Key != "newVar" || env.Vars[0].Value != "val" {
 		t.Errorf("var not saved to env")
 	}
 
-	ui.VarPopupEditor.SetText("newVal")
+	ui.VarPopup.Editor.SetText("newVal")
 	ui.saveVarPopup()
 	if env.Vars[0].Value != "newVal" {
 		t.Errorf("var not updated")

@@ -16,6 +16,7 @@ import (
 	"tracto/internal/model"
 	"tracto/internal/ui/settings"
 	"tracto/internal/utils"
+	"unicode/utf8"
 
 	"github.com/nanorele/gio/app"
 )
@@ -237,6 +238,7 @@ func trimTrailingWhitespace(s string) string {
 
 func (t *RequestTab) prepareRequest(parent context.Context, env map[string]string) (*http.Request, context.Context, context.CancelFunc, error) {
 	urlRaw := strings.ReplaceAll(t.URLInput.Text(), "\n", "")
+	urlRaw = strings.ReplaceAll(urlRaw, "\t", "")
 	urlRaw = strings.TrimSpace(utils.SanitizeText(urlRaw))
 	rawURL := processTemplate(urlRaw, env)
 
@@ -247,10 +249,6 @@ func (t *RequestTab) prepareRequest(parent context.Context, env map[string]strin
 		rawURL = "http://" + rawURL
 	}
 	rawURL = strings.ReplaceAll(rawURL, " ", "%20")
-	if parsed, perr := url.Parse(rawURL); perr == nil {
-		parsed.RawQuery = parsed.Query().Encode()
-		rawURL = parsed.String()
-	}
 
 	if parent == nil {
 		parent = context.Background()
@@ -337,7 +335,7 @@ func (t *RequestTab) beginRequest() {
 	t.cleanupRespFile()
 	t.PreviewEnabled = true
 	t.SaveToFilePath = ""
-	t.previewLoaded = 0
+	t.previewLoaded.Store(0)
 }
 
 func (t *RequestTab) sendResponse(_ context.Context, resp tabResponse) bool {
@@ -372,6 +370,7 @@ func (t *RequestTab) streamResponse(ctx context.Context, body io.Reader, dest io
 	defer streamBufPool.Put(bufp)
 	var total int64
 	var previewSent int64
+	var previewTail []byte
 	lastUpdate := time.Now()
 	for {
 		select {
@@ -392,7 +391,32 @@ func (t *RequestTab) streamResponse(ctx context.Context, body io.Reader, dest io
 				if previewSent+sendN > maxStreamPreview {
 					sendN = maxStreamPreview - previewSent
 				}
-				chunk := utils.SanitizeBytes(buf[:sendN])
+				data := buf[:sendN]
+				if len(previewTail) > 0 {
+					merged := make([]byte, 0, len(previewTail)+int(sendN))
+					merged = append(merged, previewTail...)
+					merged = append(merged, buf[:sendN]...)
+					data = merged
+					previewTail = previewTail[:0]
+				}
+				isLast := previewSent+sendN >= maxStreamPreview || readErr != nil
+				end := len(data)
+				if !isLast {
+					for end > 0 && len(data)-end < 4 {
+						r, size := utf8.DecodeLastRune(data[:end])
+						if r != utf8.RuneError || size > 1 {
+							break
+						}
+						if size == 0 {
+							break
+						}
+						end--
+					}
+					if end < len(data) {
+						previewTail = append(previewTail[:0], data[end:]...)
+					}
+				}
+				chunk := utils.SanitizeBytes(data[:end])
 				select {
 				case t.appendChan <- chunk:
 				default:

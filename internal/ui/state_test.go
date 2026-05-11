@@ -231,9 +231,10 @@ func TestSnapshotCollection(t *testing.T) {
 						{
 							Name: "Request A",
 							Request: &model.ParsedRequest{
-								Method: "POST",
-								URL:    "http://api.example.com",
-								Body:   "{\"foo\": \"bar\"}",
+								Method:   "POST",
+								URL:      "http://api.example.com",
+								Body:     "{\"foo\": \"bar\"}",
+								BodyType: model.BodyRaw,
 								Headers: map[string]string{
 									"Content-Type": "application/json",
 									"Auth":         "Bearer token",

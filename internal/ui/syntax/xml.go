@@ -99,6 +99,7 @@ func TokenizeXML(src []byte) []Token {
 		}
 
 		for i < len(src) && src[i] != '>' && (src[i] != '/' || i+1 >= len(src) || src[i+1] != '>') {
+			loopStart := i
 			b := src[i]
 			if b == ' ' || b == '\t' || b == '\n' || b == '\r' {
 				i++
@@ -143,6 +144,10 @@ func TokenizeXML(src []byte) []Token {
 					i++
 				}
 				emit(vstart, i, TokString, 0)
+				continue
+			}
+			if i == loopStart {
+				i++
 				continue
 			}
 			if i < len(src) && src[i] != '>' && src[i] != '/' {

@@ -116,6 +116,78 @@ func TestTokenizeJSON_KeyVsString(t *testing.T) {
 	}
 }
 
+func TestTokenizeJSON_UnicodeStrings(t *testing.T) {
+	cases := [][]byte{
+		[]byte(`{"key": "Привет"}`),
+		[]byte(`{"emoji": "🚀"}`),
+		[]byte(`{"family": "👨‍👩‍👧‍👦"}`),
+		[]byte(`{"cjk": "你好"}`),
+		[]byte(`{"mixed": "a 🔥 б 漢"}`),
+		[]byte(`{"escape": "line1\nline2"}`),
+		[]byte(`{"escape": "tab\there"}`),
+		[]byte(`{"escape": "quote\"end"}`),
+		[]byte(`{"escape": "backslash\\end"}`),
+		[]byte(`{"unicode": "é"}`),
+		[]byte(`{"rtl": "مرحبا"}`),
+	}
+	for _, src := range cases {
+		t.Run(string(src), func(t *testing.T) {
+			done := make(chan struct{})
+			var tokens []Token
+			go func() {
+				defer close(done)
+				tokens = TokenizeJSON(src)
+			}()
+			select {
+			case <-done:
+			case <-timeout():
+				t.Fatalf("TokenizeJSON hung on %q", src)
+			}
+			if len(tokens) == 0 {
+				t.Errorf("no tokens for %q", src)
+			}
+			for _, tok := range tokens {
+				if tok.Start < 0 || tok.End > len(src) || tok.Start > tok.End {
+					t.Errorf("invalid token range [%d,%d) for input %q", tok.Start, tok.End, src)
+				}
+			}
+		})
+	}
+}
+
+func TestTokenizeJSON_MalformedNoHang(t *testing.T) {
+	cases := [][]byte{
+		[]byte(``),
+		[]byte(`{`),
+		[]byte(`}`),
+		[]byte(`{"`),
+		[]byte(`{"key`),
+		[]byte(`{"key":`),
+		[]byte(`{"key":}`),
+		[]byte(`[`),
+		[]byte(`[1,`),
+		[]byte(`"\`),
+		[]byte(`"\u`),
+		[]byte(`"\u00`),
+		[]byte(`{"a":1,}`),
+		[]byte(`null,null`),
+	}
+	for _, src := range cases {
+		t.Run(string(src), func(t *testing.T) {
+			done := make(chan struct{})
+			go func() {
+				defer close(done)
+				_ = TokenizeJSON(src)
+			}()
+			select {
+			case <-done:
+			case <-timeout():
+				t.Fatalf("TokenizeJSON hung on %q", src)
+			}
+		})
+	}
+}
+
 func TestDetect(t *testing.T) {
 	cases := []struct {
 		name     string

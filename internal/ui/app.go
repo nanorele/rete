@@ -7,9 +7,7 @@ import (
 	"embed"
 	"encoding/json"
 	"image"
-	"image/color"
 	"io"
-	"math"
 	"os"
 	"path/filepath"
 	"sync"
@@ -20,7 +18,10 @@ import (
 	"tracto/internal/ui/colorpicker"
 	"tracto/internal/ui/environments"
 	"tracto/internal/ui/settings"
+	"tracto/internal/ui/tabbar"
 	"tracto/internal/ui/theme"
+	"tracto/internal/ui/titlebar"
+	"tracto/internal/ui/varpopup"
 	"tracto/internal/ui/widgets"
 
 	"github.com/nanorele/gio-x/explorer"
@@ -45,27 +46,10 @@ import (
 )
 
 
-type cachedTab struct {
-	title string
-	width int
-	ppdp  float32
-}
-
-type tabBarInfo struct {
-	Idx        int
-	NatWidth   int
-	FinalWidth int
-}
-
 type AppUI struct {
 	Theme           *material.Theme
 	Window          *app.Window
-	BtnMinimize     widget.Clickable
-	BtnMaximize     widget.Clickable
-	BtnClose        widget.Clickable
-	IsMaximized     bool
-	TitleTag        bool
-	LastTitleClick  time.Time
+	TitleBar        titlebar.Bar
 	Explorer        *explorer.Explorer
 	pendingEnvClose *environments.EnvironmentUI
 	EnvColorPicker  colorpicker.State
@@ -85,7 +69,7 @@ type AppUI struct {
 	Tabs             []*workspace.RequestTab
 	ActiveIdx        int
 	TabsList         widget.List
-	AddTabBtn        widget.Clickable
+	TabBar           *tabbar.Strip
 	ImportBtn        widget.Clickable
 	AddColBtn        widget.Clickable
 	Collections      []*collections.CollectionUI
@@ -114,9 +98,6 @@ type AppUI struct {
 
 	RenamingNode *collections.CollectionNode
 
-	TabCtxMenuOpen    bool
-	TabCtxMenuIdx     int
-	TabCtxMenuPos     f32.Point
 	TabCtxClose       widget.Clickable
 	TabCtxCloseOthers widget.Clickable
 	TabCtxCloseAll    widget.Clickable
@@ -129,41 +110,17 @@ type AppUI struct {
 	Settings      model.AppSettings
 	SettingsOpen  bool
 	SettingsBtn   widget.Clickable
-	SettingsState *SettingsEditorState
+	SettingsState *settings.Editor
 	BugReportBtn  widget.Clickable
 	BugReportURL  string
 
-	SidebarDropTag   bool
-	TabDragTag       bool
-	TabDragIdx       int
-	TabDragging      bool
-	TabDragOriginX   float32
-	TabDragOriginY   float32
-	TabDragCurrentX  float32
-	TabDragPressTime time.Time
-	TabDragCurrentY  float32
-	LastPointerPos   f32.Point
+	SidebarDropTag bool
+	LastPointerPos f32.Point
 
-	VarHoverName        string
-	VarHoverPos         f32.Point
-	VarPopupOpen        bool
-	VarPopupName        string
-	VarPopupEnvID       string
-	VarPopupEditor      widget.Editor
-	VarPopupRange       struct{ Start, End int }
-	VarPopupSrcEditor   any
-	VarPopupSave        widget.Clickable
-	VarPopupList        widget.List
-	VarPopupClicks      []widget.Clickable
-	VarPopupPos         f32.Point
-	VarPopupEnvBtn      widget.Clickable
-	VarPopupEnvMenuOpen bool
-	VarPopupEnvList     widget.List
-	VarPopupEnvClicks   []widget.Clickable
+	VarPopup varpopup.State
 
 	PopupCloseTag struct{}
 
-	tabWidthCache           map[*workspace.RequestTab]cachedTab
 	activeEnvVars           map[string]string
 	activeEnvDirty          bool
 	saveNeeded              bool
@@ -174,10 +131,6 @@ type AppUI struct {
 	collectionFlushTimerSet bool
 	rootCtx                 context.Context
 	rootCancel              context.CancelFunc
-
-	tabInfoBuf []tabBarInfo
-	tabRowsBuf [][]int
-	tabRowBuf  []int
 
 	Title string
 }
@@ -277,9 +230,9 @@ func NewAppUI() *AppUI {
 		Window:           win,
 		SidebarWidth:     defaultSidebar,
 		SidebarEnvHeight: 300,
-		ColLoadedChan:    make(chan *collections.CollectionUI, 5),
-		EnvLoadedChan:    make(chan *environments.EnvironmentUI, 5),
-		tabWidthCache:    make(map[*workspace.RequestTab]cachedTab),
+		ColLoadedChan:    make(chan *collections.CollectionUI, 64),
+		EnvLoadedChan:    make(chan *environments.EnvironmentUI, 64),
+		TabBar:           tabbar.NewStrip(),
 		activeEnvDirty:   true,
 		ColsExpanded:     true,
 		EnvsExpanded:     true,
@@ -294,6 +247,32 @@ func NewAppUI() *AppUI {
 	ui.EnvList.Axis = layout.Vertical
 	ui.loadState()
 	return ui
+}
+
+func (ui *AppUI) pushColLoaded(col *collections.CollectionUI) {
+	for {
+		select {
+		case ui.ColLoadedChan <- col:
+			ui.Window.Invalidate()
+			return
+		default:
+			ui.Window.Invalidate()
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+}
+
+func (ui *AppUI) pushEnvLoaded(env *environments.EnvironmentUI) {
+	for {
+		select {
+		case ui.EnvLoadedChan <- env:
+			ui.Window.Invalidate()
+			return
+		default:
+			ui.Window.Invalidate()
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
 }
 
 func (ui *AppUI) revealLinkedNode(tab *workspace.RequestTab) {
@@ -381,504 +360,24 @@ func (ui *AppUI) refreshActiveEnv() {
 	}
 }
 
-func (ui *AppUI) addNewCollection() {
-	id := persist.NewRandomID()
-	root := &collections.CollectionNode{
-		Name:     "New Collection",
-		IsFolder: true,
-		Depth:    0,
-		Expanded: true,
+func (ui *AppUI) activeEnvSnapshot() map[string]string {
+	if ui.activeEnvVars == nil {
+		return nil
 	}
-	root.NameEditor.SingleLine = true
-	root.NameEditor.Submit = true
-	col := &collections.ParsedCollection{
-		ID:   id,
-		Name: "New Collection",
-		Root: root,
+	snap := make(map[string]string, len(ui.activeEnvVars))
+	for k, v := range ui.activeEnvVars {
+		snap[k] = v
 	}
-	collections.AssignParents(root, nil, col)
-	ui.Collections = append(ui.Collections, &collections.CollectionUI{Data: col})
-	ui.ColsExpanded = true
-	ui.markCollectionDirty(col)
-	ui.updateVisibleCols()
-	ui.Window.Invalidate()
+	return snap
 }
 
-func (ui *AppUI) deleteEnvironment(env *environments.EnvironmentUI) {
-	if env == nil || env.Data == nil {
-		return
-	}
-	for i, e := range ui.Environments {
-		if e == env {
-			ui.Environments = append(ui.Environments[:i], ui.Environments[i+1:]...)
-			break
-		}
-	}
-	if ui.ActiveEnvID == env.Data.ID {
-		ui.ActiveEnvID = ""
-		ui.activeEnvDirty = true
-	}
-	if ui.EditingEnv == env {
-		ui.EditingEnv = nil
-	}
-	if env.Data.ID != "" {
-		_ = os.Remove(filepath.Join(persist.EnvironmentsDir(), env.Data.ID+".json"))
-	}
-	ui.saveState()
-	ui.Window.Invalidate()
-}
-
-func (ui *AppUI) addNewEnvironment() {
-	id := persist.NewRandomID()
-	env := &model.ParsedEnvironment{
-		ID:   id,
-		Name: "New Environment",
-	}
-	envUI := &environments.EnvironmentUI{Data: env}
-	_ = persist.SaveEnvironment(env)
-	ui.Environments = append(ui.Environments, envUI)
-	ui.EnvsExpanded = true
-	ui.EditingEnv = envUI
-	envUI.InitEditor()
-	ui.saveState()
-	ui.Window.Invalidate()
-}
-
-func (ui *AppUI) dragEnvDropTargetIdx() int {
-	if ui.DraggedEnv == nil || !ui.DragEnvActive || ui.envRowH <= 0 {
-		return -1
-	}
-	srcIdx := -1
-	for i, e := range ui.Environments {
-		if e == ui.DraggedEnv {
-			srcIdx = i
-			break
-		}
-	}
-	if srcIdx < 0 {
-		return -1
-	}
-	rowsDelta := int(math.Round(float64(ui.DragEnvCurrentY-ui.DragEnvOriginY) / float64(ui.envRowH)))
-	target := srcIdx + rowsDelta
-	if target < 0 {
-		target = 0
-	}
-	if target >= len(ui.Environments) {
-		target = len(ui.Environments) - 1
-	}
-	return target
-}
-
-func (ui *AppUI) commitEnvDrop(src *environments.EnvironmentUI) {
-	target := ui.dragEnvDropTargetIdx()
-	if target < 0 {
-		return
-	}
-	srcIdx := -1
-	for i, e := range ui.Environments {
-		if e == src {
-			srcIdx = i
-			break
-		}
-	}
-	if srcIdx < 0 || srcIdx == target {
-		return
-	}
-	envs := make([]*environments.EnvironmentUI, 0, len(ui.Environments))
-	moved := ui.Environments[srcIdx]
-	for i, e := range ui.Environments {
-		if i == srcIdx {
-			continue
-		}
-		envs = append(envs, e)
-	}
-	insertIdx := target
-	if insertIdx > len(envs) {
-		insertIdx = len(envs)
-	}
-	envs = append(envs[:insertIdx], append([]*environments.EnvironmentUI{moved}, envs[insertIdx:]...)...)
-	ui.Environments = envs
-	ui.saveState()
-	ui.Window.Invalidate()
-}
-
-func (ui *AppUI) duplicateEnvironment(src *environments.EnvironmentUI) {
-	if src == nil || src.Data == nil {
-		return
-	}
-	id := persist.NewRandomID()
-	dup := &model.ParsedEnvironment{
-		ID:             id,
-		Name:           src.Data.Name + " (copy)",
-		HighlightColor: src.Data.HighlightColor,
-	}
-	dup.Vars = append(dup.Vars, src.Data.Vars...)
-	envUI := &environments.EnvironmentUI{Data: dup}
-	_ = persist.SaveEnvironment(dup)
-	ui.Environments = append(ui.Environments, envUI)
-	ui.EnvsExpanded = true
-	ui.saveState()
-	ui.Window.Invalidate()
-}
-
-type nodeDropTarget struct {
-	parent    *collections.CollectionNode
-	insertIdx int
-	intoNode  *collections.CollectionNode
-	lineIdx   int
-	lineDepth int
-}
-
-func siblingIndex(n *collections.CollectionNode) int {
-	if n == nil || n.Parent == nil {
-		return -1
-	}
-	for i, c := range n.Parent.Children {
-		if c == n {
-			return i
-		}
-	}
-	return -1
-}
-
-func isAncestorOrSelf(ancestor, n *collections.CollectionNode) bool {
-	for cur := n; cur != nil; cur = cur.Parent {
-		if cur == ancestor {
-			return true
-		}
-	}
-	return false
-}
-
-func recalcDepth(node *collections.CollectionNode, depth int) {
-	if node == nil {
-		return
-	}
-	node.Depth = depth
-	for _, child := range node.Children {
-		recalcDepth(child, depth+1)
-	}
-}
-
-func (ui *AppUI) dragNodeDrop(metric unit.Metric) (drop nodeDropTarget, ok bool) {
-	if ui.DraggedNode == nil || !ui.DragNodeActive || ui.colRowH <= 0 {
-		return nodeDropTarget{}, false
-	}
-	src := ui.DraggedNode
-
-	srcStart := -1
-	for i, n := range ui.VisibleCols {
-		if n == src {
-			srcStart = i
-			break
-		}
-	}
-	if srcStart < 0 {
-		return nodeDropTarget{}, false
-	}
-
-	rowYAt := func(idx int) int {
-		if idx >= len(ui.VisibleCols) {
-			if ui.colAfterLastY > 0 {
-				return ui.colAfterLastY
-			}
-			return idx * ui.colRowH
-		}
-		if y, exists := ui.colRowYs[idx]; exists {
-			return y
-		}
-		return idx * ui.colRowH
-	}
-
-	cursorY := rowYAt(srcStart) + int(ui.DragNodeCurrentY)
-	cursorX := int(ui.DragNodeCurrentX)
-
-	if src.Parent == nil {
-		return ui.dragRootDrop(cursorY, rowYAt)
-	}
-	return ui.dragChildDrop(src, srcStart, cursorY, cursorX, metric, rowYAt)
-}
-
-func (ui *AppUI) dragRootDrop(cursorY int, rowYAt func(int) int) (nodeDropTarget, bool) {
-	visible := ui.VisibleCols
-	src := ui.DraggedNode
-
-	type rootInfo struct {
-		rowIdx int
-	}
-	var roots []rootInfo
-	srcRootSibIdx := -1
-	for i := 0; i < len(visible); i++ {
-		if visible[i].Depth != 0 {
-			continue
-		}
-		if visible[i] == src {
-			srcRootSibIdx = len(roots)
-		}
-		roots = append(roots, rootInfo{rowIdx: i})
-	}
-	if srcRootSibIdx < 0 || len(roots) == 0 {
-		return nodeDropTarget{}, false
-	}
-
-	bestGap := srcRootSibIdx
-	bestDist := 1 << 30
-	for gap := 0; gap <= len(roots); gap++ {
-		var y int
-		if gap < len(roots) {
-			y = rowYAt(roots[gap].rowIdx)
-		} else {
-			y = ui.colAfterLastY
-		}
-		d := cursorY - y
-		if d < 0 {
-			d = -d
-		}
-		if d < bestDist {
-			bestDist = d
-			bestGap = gap
-		}
-	}
-
-	insertIdx := bestGap
-	if bestGap > srcRootSibIdx {
-		insertIdx = bestGap - 1
-	}
-
-	var lineIdx int
-	if bestGap < len(roots) {
-		lineIdx = roots[bestGap].rowIdx
-	} else {
-		lineIdx = len(visible)
-	}
-
-	return nodeDropTarget{
-		parent:    nil,
-		insertIdx: insertIdx,
-		lineIdx:   lineIdx,
-		lineDepth: 0,
-	}, true
-}
-
-func (ui *AppUI) dragChildDrop(src *collections.CollectionNode, srcStart, cursorY, cursorX int, metric unit.Metric, rowYAt func(int) int) (nodeDropTarget, bool) {
-	visible := ui.VisibleCols
-
-	srcEnd := srcStart + 1
-	for srcEnd < len(visible) && visible[srcEnd].Depth > src.Depth {
-		srcEnd++
-	}
-
-	depthPx := func(d int) int {
-		return metric.Dp(unit.Dp(float32(d * 12)))
-	}
-
-	type slot struct {
-		parent    *collections.CollectionNode
-		insertIdx int
-		intoNode  *collections.CollectionNode
-		y         int
-		x         int
-		lineIdx   int
-		lineDepth int
-	}
-	var slots []slot
-
-	for i, node := range visible {
-		if i >= srcStart && i < srcEnd {
-			continue
-		}
-		if node.Collection != src.Collection {
-			continue
-		}
-		yTop := rowYAt(i)
-		yBot := rowYAt(i + 1)
-		if yBot <= yTop {
-			yBot = yTop + ui.colRowH
-		}
-
-		if node.Parent != nil {
-			sibIdx := siblingIndex(node)
-			if sibIdx >= 0 {
-				slots = append(slots, slot{
-					parent:    node.Parent,
-					insertIdx: sibIdx,
-					y:         yTop,
-					x:         depthPx(node.Depth),
-					lineIdx:   i,
-					lineDepth: node.Depth,
-				})
-			}
-		}
-
-		if node.IsFolder && !isAncestorOrSelf(src, node) {
-			slots = append(slots, slot{
-				parent:    node,
-				insertIdx: 0,
-				intoNode:  node,
-				y:         (yTop + yBot) / 2,
-				x:         depthPx(node.Depth + 1),
-				lineIdx:   -1,
-				lineDepth: node.Depth + 1,
-			})
-		}
-
-		nextDepth := 0
-		if i+1 < len(visible) {
-			nextDepth = visible[i+1].Depth
-		}
-		if node.Parent != nil && node.Depth > nextDepth {
-			for ancestor := node; ancestor != nil && ancestor.Parent != nil && ancestor.Depth > nextDepth; ancestor = ancestor.Parent {
-				sibIdx := siblingIndex(ancestor)
-				if sibIdx < 0 {
-					continue
-				}
-				slots = append(slots, slot{
-					parent:    ancestor.Parent,
-					insertIdx: sibIdx + 1,
-					y:         yBot,
-					x:         depthPx(ancestor.Depth),
-					lineIdx:   i + 1,
-					lineDepth: ancestor.Depth,
-				})
-			}
-		}
-	}
-
-	if len(slots) == 0 {
-		return nodeDropTarget{}, false
-	}
-
-	bestIdx := -1
-	bestDist := int64(1) << 60
-	for i, s := range slots {
-		dy := int64(cursorY - s.y)
-		dx := int64(cursorX - s.x)
-		dist := dy*dy*16 + dx*dx
-		if dist < bestDist {
-			bestDist = dist
-			bestIdx = i
-		}
-	}
-	if bestIdx < 0 {
-		return nodeDropTarget{}, false
-	}
-	chosen := slots[bestIdx]
-	return nodeDropTarget{
-		parent:    chosen.parent,
-		insertIdx: chosen.insertIdx,
-		intoNode:  chosen.intoNode,
-		lineIdx:   chosen.lineIdx,
-		lineDepth: chosen.lineDepth,
-	}, true
-}
-
-func (ui *AppUI) buildDisplayVisibleCols() []*collections.CollectionNode {
-	return ui.VisibleCols
-}
-
-func (ui *AppUI) commitNodeDrop(src *collections.CollectionNode, metric unit.Metric) {
-	if src == nil {
-		return
-	}
-	drop, ok := ui.dragNodeDrop(metric)
-	if !ok {
-		return
-	}
-
-	if src.Parent == nil {
-		if drop.parent != nil {
-			return
-		}
-		oldIdx := -1
-		var movedColUI *collections.CollectionUI
-		for i, c := range ui.Collections {
-			if c != nil && c.Data != nil && c.Data.Root == src {
-				movedColUI = c
-				oldIdx = i
-				break
-			}
-		}
-		if movedColUI == nil || oldIdx < 0 {
-			return
-		}
-		insertIdx := drop.insertIdx
-		if insertIdx == oldIdx {
-			return
-		}
-		if insertIdx < 0 {
-			insertIdx = 0
-		}
-		if insertIdx > len(ui.Collections) {
-			insertIdx = len(ui.Collections)
-		}
-		ui.Collections = append(ui.Collections[:oldIdx], ui.Collections[oldIdx+1:]...)
-		if insertIdx > len(ui.Collections) {
-			insertIdx = len(ui.Collections)
-		}
-		ui.Collections = append(ui.Collections[:insertIdx], append([]*collections.CollectionUI{movedColUI}, ui.Collections[insertIdx:]...)...)
-	} else {
-		newParent := drop.parent
-		if newParent == nil {
-			return
-		}
-		if isAncestorOrSelf(src, newParent) {
-			return
-		}
-		if newParent.Collection != src.Collection {
-			return
-		}
-
-		oldParent := src.Parent
-		oldIdx := siblingIndex(src)
-		if oldIdx < 0 {
-			return
-		}
-
-		insertIdx := drop.insertIdx
-		if oldParent == newParent {
-			if insertIdx == oldIdx || insertIdx == oldIdx+1 {
-				return
-			}
-			oldParent.Children = append(oldParent.Children[:oldIdx], oldParent.Children[oldIdx+1:]...)
-			if insertIdx > oldIdx {
-				insertIdx--
-			}
-			if insertIdx < 0 {
-				insertIdx = 0
-			}
-			if insertIdx > len(oldParent.Children) {
-				insertIdx = len(oldParent.Children)
-			}
-			oldParent.Children = append(oldParent.Children[:insertIdx], append([]*collections.CollectionNode{src}, oldParent.Children[insertIdx:]...)...)
-		} else {
-			oldParent.Children = append(oldParent.Children[:oldIdx], oldParent.Children[oldIdx+1:]...)
-			src.Parent = newParent
-			if insertIdx < 0 {
-				insertIdx = 0
-			}
-			if insertIdx > len(newParent.Children) {
-				insertIdx = len(newParent.Children)
-			}
-			newParent.Children = append(newParent.Children[:insertIdx], append([]*collections.CollectionNode{src}, newParent.Children[insertIdx:]...)...)
-			recalcDepth(src, newParent.Depth+1)
-			if drop.intoNode != nil && !newParent.Expanded {
-				newParent.Expanded = true
-			}
-		}
-		ui.markCollectionDirty(src.Collection)
-	}
-	ui.updateVisibleCols()
-	ui.saveState()
-	ui.Window.Invalidate()
-}
 
 func (ui *AppUI) importDroppedData(data []byte) {
 	go func() {
 		id := persist.NewRandomID()
 		if col, err := collections.ParseCollection(bytes.NewReader(data), id); err == nil && col != nil && col.Name != "" {
 			if werr := persist.AtomicWriteFile(filepath.Join(persist.CollectionsDir(), id+".json"), data); werr == nil {
-				ui.ColLoadedChan <- &collections.CollectionUI{Data: col}
-				ui.Window.Invalidate()
+				ui.pushColLoaded(&collections.CollectionUI{Data: col})
 			}
 			return
 		}
@@ -886,8 +385,7 @@ func (ui *AppUI) importDroppedData(data []byte) {
 		envID := persist.NewRandomID()
 		if env, err := environments.ParseEnvironment(bytes.NewReader(data), envID); err == nil && env != nil && env.Name != "" {
 			if werr := persist.AtomicWriteFile(filepath.Join(persist.EnvironmentsDir(), envID+".json"), data); werr == nil {
-				ui.EnvLoadedChan <- &environments.EnvironmentUI{Data: env}
-				ui.Window.Invalidate()
+				ui.pushEnvLoaded(&environments.EnvironmentUI{Data: env})
 			}
 			return
 		}
@@ -917,7 +415,7 @@ func (ui *AppUI) Run() error {
 			ui.saveStateSync()
 			return e.Err
 		case app.ConfigEvent:
-			ui.IsMaximized = e.Config.Mode == app.Maximized || e.Config.Mode == app.Fullscreen
+			ui.TitleBar.Maximized = e.Config.Mode == app.Maximized || e.Config.Mode == app.Fullscreen
 			ui.Window.Invalidate()
 		case app.FrameEvent:
 
@@ -1389,7 +887,10 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			if ui.SettingsOpen {
 				paint.FillShape(gtx.Ops, ui.Theme.Bg, clip.Rect{Max: gtx.Constraints.Max}.Op())
-				return ui.layoutSettings(gtx)
+				if ui.SettingsState == nil {
+					ui.SettingsState = settings.NewEditor(ui.Settings)
+				}
+				return ui.SettingsState.Layout(gtx, ui.settingsHost())
 			}
 			return ui.layoutContent(gtx)
 		}),
@@ -1409,7 +910,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 	tabMenuOpen := activeTab != nil && (activeTab.SendMenuOpen || activeTab.MethodListOpen || activeTab.BodyTypeOpen)
 
 	closeAllPopups := func() {
-		ui.TabCtxMenuOpen = false
+		ui.TabBar.TabCtxMenuOpen = false
 		ui.closeAllSidebarMenus()
 		if activeTab != nil {
 			activeTab.SendMenuOpen = false
@@ -1418,7 +919,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	if ui.TabCtxMenuOpen || anySidebarMenuOpen || tabMenuOpen {
+	if ui.TabBar.TabCtxMenuOpen || anySidebarMenuOpen || tabMenuOpen {
 		layout.Stack{}.Layout(gtx,
 			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
@@ -1446,7 +947,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		)
 	}
 
-	if widgets.GlobalVarHover != nil && !ui.VarPopupOpen {
+	if widgets.GlobalVarHover != nil && !ui.VarPopup.Open {
 		var val string
 		found := false
 		if ui.activeEnvVars != nil {
@@ -1521,20 +1022,20 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		if ui.activeEnvVars != nil {
 			val = ui.activeEnvVars[widgets.GlobalVarClick.Name]
 		}
-		ui.VarPopupOpen = true
-		ui.VarPopupName = widgets.GlobalVarClick.Name
-		ui.VarPopupEnvID = ui.ActiveEnvID
-		ui.VarPopupEditor.SetText(val)
-		ui.VarPopupRange = widgets.GlobalVarClick.Range
-		ui.VarPopupSrcEditor = widgets.GlobalVarClick.Editor
-		ui.VarPopupPos = widgets.GlobalVarClick.Pos
-		ui.VarPopupEnvMenuOpen = false
+		ui.VarPopup.OpenAt(
+			widgets.GlobalVarClick.Name,
+			val,
+			widgets.GlobalVarClick.Editor,
+			widgets.GlobalVarClick.Range,
+			widgets.GlobalVarClick.Pos,
+			ui.ActiveEnvID,
+		)
 		ui.Window.Invalidate()
 		widgets.GlobalVarClick = nil
 	}
 
-	if ui.VarPopupOpen {
-		ui.layoutVarPopup(gtx)
+	if ui.VarPopup.Open {
+		ui.VarPopup.Layout(gtx, ui.varPopupHost())
 	}
 
 	if ui.SettingsOpen && ui.SettingsState != nil && ui.SettingsState.ColorPicker.IsOpen() {
@@ -1623,248 +1124,6 @@ func (ui *AppUI) renderColorPickerOverlay(gtx layout.Context, p *colorpicker.Sta
 	op.Defer(gtx.Ops, macro.Stop())
 }
 
-func (ui *AppUI) layoutVarPopup(gtx layout.Context) {
-	popupW := gtx.Dp(unit.Dp(360))
-	popupH := gtx.Dp(unit.Dp(180))
-	if ui.VarPopupEnvMenuOpen {
-		popupH = gtx.Dp(unit.Dp(340))
-	}
-
-	gap := gtx.Dp(unit.Dp(4))
-
-	px := int(ui.VarPopupPos.X)
-	py := int(ui.VarPopupPos.Y) + gap
-	if px+popupW > gtx.Constraints.Max.X {
-		px = gtx.Constraints.Max.X - popupW
-	}
-	if px < 0 {
-		px = 0
-	}
-	if py+popupH > gtx.Constraints.Max.Y {
-
-		py = int(ui.VarPopupPos.Y) - popupH - gap
-	}
-	if py < 0 {
-		py = 0
-	}
-
-	popupRect := image.Rect(px, py, px+popupW, py+popupH)
-
-	layout.Stack{}.Layout(gtx,
-		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-			paint.FillShape(gtx.Ops, color.NRGBA{A: 80}, clip.Rect{Max: gtx.Constraints.Max}.Op())
-			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-			for {
-				ev, ok := gtx.Event(pointer.Filter{
-					Target: &ui.VarPopupOpen,
-					Kinds:  pointer.Press,
-				})
-				if !ok {
-					break
-				}
-				pe, ok := ev.(pointer.Event)
-				if !ok {
-					continue
-				}
-
-				p := image.Pt(int(pe.Position.X), int(pe.Position.Y))
-				if p.In(popupRect) {
-					continue
-				}
-				ui.saveVarPopup()
-				ui.VarPopupOpen = false
-				ui.VarPopupEnvMenuOpen = false
-			}
-			event.Op(gtx.Ops, &ui.VarPopupOpen)
-			pointer.CursorDefault.Add(gtx.Ops)
-			return layout.Dimensions{Size: gtx.Constraints.Max}
-		}),
-		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-			defer op.Offset(image.Pt(px, py)).Push(gtx.Ops).Pop()
-			gtx.Constraints.Min = image.Pt(popupW, popupH)
-			gtx.Constraints.Max = image.Pt(popupW, popupH)
-			paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(image.Rectangle{Max: image.Pt(popupW, popupH)}, 8).Op(gtx.Ops))
-			widget.Border{Color: theme.BorderLight, CornerRadius: unit.Dp(8), Width: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Dimensions{Size: image.Pt(popupW, popupH)}
-			})
-			return layout.UniformInset(unit.Dp(12)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						lbl := material.Label(ui.Theme, unit.Sp(13), "Variable: "+ui.VarPopupName)
-						lbl.Font.Weight = font.Bold
-						return lbl.Layout(gtx)
-					}),
-					layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						hint := "Value in active environment:"
-						if ui.ActiveEnvID == "" {
-							hint = "No environment selected — pick one below."
-						}
-						lbl := material.Label(ui.Theme, unit.Sp(11), hint)
-						lbl.Color = theme.FgMuted
-						return lbl.Layout(gtx)
-					}),
-					layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return widgets.TextField(gtx, ui.Theme, &ui.VarPopupEditor, "Value", true, nil, 0, unit.Sp(12))
-					}),
-					layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return ui.layoutVarPopupEnvSelect(gtx)
-					}),
-				)
-			})
-		}),
-	)
-}
-
-func (ui *AppUI) layoutVarPopupEnvSelect(gtx layout.Context) layout.Dimensions {
-
-	ui.VarPopupEnvList.Axis = layout.Vertical
-	if ui.VarPopupEnvBtn.Clicked(gtx) {
-		ui.VarPopupEnvMenuOpen = !ui.VarPopupEnvMenuOpen
-	}
-
-	currentName := "(no environment)"
-	for _, e := range ui.Environments {
-		if e.Data.ID == ui.ActiveEnvID {
-			currentName = e.Data.Name
-			break
-		}
-	}
-
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			lbl := material.Label(ui.Theme, unit.Sp(11), "Environment:")
-			lbl.Color = theme.FgMuted
-			return lbl.Layout(gtx)
-		}),
-		layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return material.Clickable(gtx, &ui.VarPopupEnvBtn, func(gtx layout.Context) layout.Dimensions {
-				size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(26)))
-				gtx.Constraints.Min = size
-				gtx.Constraints.Max = size
-				paint.FillShape(gtx.Ops, theme.BgField, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
-				borderC := theme.BorderLight
-				if ui.VarPopupEnvMenuOpen {
-					borderC = theme.Accent
-				}
-				widget.Border{Color: borderC, CornerRadius: unit.Dp(4), Width: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.Dimensions{Size: size}
-				})
-				return layout.Inset{Left: unit.Dp(10), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-							gtx.Constraints.Min.Y = 0
-							lbl := material.Label(ui.Theme, unit.Sp(12), currentName)
-							lbl.MaxLines = 1
-							lbl.Truncator = "…"
-							return lbl.Layout(gtx)
-						}),
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							gtx.Constraints.Min = image.Pt(gtx.Dp(14), gtx.Dp(14))
-							return widgets.IconDropDown.Layout(gtx, theme.FgMuted)
-						}),
-					)
-				})
-			})
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			if !ui.VarPopupEnvMenuOpen {
-				return layout.Dimensions{}
-			}
-			entries := len(ui.Environments) + 1
-			if len(ui.VarPopupEnvClicks) < entries {
-				ui.VarPopupEnvClicks = make([]widget.Clickable, entries)
-			}
-			return layout.Inset{Top: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				listH := gtx.Dp(unit.Dp(140))
-				if gtx.Constraints.Max.Y < listH {
-					listH = gtx.Constraints.Max.Y
-				}
-				gtx.Constraints.Max.Y = listH
-				gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, listH)
-				paint.FillShape(gtx.Ops, theme.BgField, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
-				widget.Border{Color: theme.BorderLight, CornerRadius: unit.Dp(4), Width: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.Dimensions{Size: gtx.Constraints.Min}
-				})
-				return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return material.List(ui.Theme, &ui.VarPopupEnvList).Layout(gtx, entries, func(gtx layout.Context, i int) layout.Dimensions {
-						var envID, envName, preview string
-						if i == 0 {
-							envID = ""
-							envName = "(no environment)"
-						} else {
-							e := ui.Environments[i-1]
-							envID = e.Data.ID
-							envName = e.Data.Name
-							for _, v := range e.Data.Vars {
-								if v.Key == ui.VarPopupName && v.Value != "" {
-									preview = v.Value
-									break
-								}
-							}
-						}
-						for ui.VarPopupEnvClicks[i].Clicked(gtx) {
-							ui.ActiveEnvID = envID
-							ui.activeEnvDirty = true
-							ui.refreshActiveEnv()
-							var val string
-							if ui.activeEnvVars != nil {
-								val = ui.activeEnvVars[ui.VarPopupName]
-							}
-							ui.VarPopupEditor.SetText(val)
-							ui.VarPopupEnvID = envID
-							ui.VarPopupEnvMenuOpen = false
-							ui.saveState()
-							ui.Window.Invalidate()
-						}
-						isActive := ui.ActiveEnvID == envID
-						return material.Clickable(gtx, &ui.VarPopupEnvClicks[i], func(gtx layout.Context) layout.Dimensions {
-							gtx.Constraints.Min.X = gtx.Constraints.Max.X
-							bg := theme.Transparent
-							if isActive {
-								bg = theme.AccentDim
-							} else if ui.VarPopupEnvClicks[i].Hovered() {
-								bg = theme.BgHover
-							}
-							rowH := gtx.Dp(unit.Dp(28))
-							paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: image.Pt(gtx.Constraints.Max.X, rowH)}, 4).Op(gtx.Ops))
-							return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-									layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
-										lbl := material.Label(ui.Theme, unit.Sp(12), envName)
-										if isActive {
-											lbl.Font.Weight = font.Bold
-										}
-										lbl.MaxLines = 1
-										lbl.Truncator = "…"
-										return lbl.Layout(gtx)
-									}),
-									layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
-									layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
-										txt := preview
-										if i == 0 {
-											txt = ""
-										} else if preview == "" {
-											txt = "(undefined)"
-										}
-										lbl := material.Label(ui.Theme, unit.Sp(11), txt)
-										lbl.Color = theme.FgMuted
-										lbl.MaxLines = 1
-										lbl.Truncator = "…"
-										return lbl.Layout(gtx)
-									}),
-								)
-							})
-						})
-					})
-				})
-			})
-		}),
-	)
-}
 
 func (ui *AppUI) closeAllSidebarMenus() {
 	for _, n := range ui.VisibleCols {
@@ -1889,7 +1148,9 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 
 				switch {
 				case ui.SettingsOpen:
-					ui.applyDraftSettings()
+					if ui.SettingsState != nil {
+						ui.SettingsState.Apply(ui.settingsHost())
+					}
 					ui.saveState()
 				case ui.EditingEnv != nil:
 					ui.commitEditingEnv()
@@ -1912,7 +1173,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 				if ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
 					tab := ui.Tabs[ui.ActiveIdx]
 					tab.SendMenuOpen = false
-					tab.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvVars)
+					tab.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
 					ui.saveState()
 				}
 			}
@@ -1934,8 +1195,8 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	for ui.AddTabBtn.Clicked(gtx) {
-		ui.TabCtxMenuOpen = false
+	for ui.TabBar.AddTabBtn.Clicked(gtx) {
+		ui.TabBar.TabCtxMenuOpen = false
 		newTab := workspace.NewRequestTab("New request")
 		ui.inheritActiveTabLayout(newTab)
 		ui.Tabs = append(ui.Tabs, newTab)
@@ -1944,18 +1205,18 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 
 	for i := len(ui.Tabs) - 1; i >= 0; i-- {
 		for ui.Tabs[i].CloseBtn.Clicked(gtx) {
-			ui.TabCtxMenuOpen = false
+			ui.TabBar.TabCtxMenuOpen = false
 			ui.closeTab(i)
 			break
 		}
 	}
 
 	for ui.TabCtxClose.Clicked(gtx) {
-		ui.closeTab(ui.TabCtxMenuIdx)
-		ui.TabCtxMenuOpen = false
+		ui.closeTab(ui.TabBar.TabCtxMenuIdx)
+		ui.TabBar.TabCtxMenuOpen = false
 	}
 	for ui.TabCtxCloseOthers.Clicked(gtx) {
-		keep := ui.TabCtxMenuIdx
+		keep := ui.TabBar.TabCtxMenuIdx
 		for i := len(ui.Tabs) - 1; i >= 0; i-- {
 			if i != keep {
 				ui.closeTab(i)
@@ -1965,13 +1226,13 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 			}
 		}
 		ui.ActiveIdx = 0
-		ui.TabCtxMenuOpen = false
+		ui.TabBar.TabCtxMenuOpen = false
 	}
 	for ui.TabCtxCloseAll.Clicked(gtx) {
 		for i := len(ui.Tabs) - 1; i >= 0; i-- {
 			ui.closeTab(i)
 		}
-		ui.TabCtxMenuOpen = false
+		ui.TabBar.TabCtxMenuOpen = false
 	}
 
 	if len(ui.Tabs) == 0 {
@@ -2106,13 +1367,13 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 
 								for tab.SendBtn.Clicked(gtx) {
 									tab.SendMenuOpen = false
-									tab.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvVars)
+									tab.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
 									ui.saveState()
 								}
 								if tab.URLSubmitted {
 									tab.URLSubmitted = false
 									tab.SendMenuOpen = false
-									tab.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvVars)
+									tab.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
 									ui.saveState()
 								}
 								for tab.CancelBtn.Clicked(gtx) {
@@ -2146,7 +1407,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 									if f, ok := w.(*os.File); ok {
 										tab.SaveToFilePath = f.Name()
 									}
-									tab.ExecuteRequestToFile(ui.rootCtx, ui.Window, ui.activeEnvVars, w)
+									tab.ExecuteRequestToFile(ui.rootCtx, ui.Window, ui.activeEnvSnapshot(), w)
 								default:
 								}
 
@@ -2176,13 +1437,13 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 									}),
 									layout.Rigid(layout.Spacer{Height: unit.Dp(24)}.Layout),
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										if ui.AddTabBtn.Clicked(gtx) {
-											ui.TabCtxMenuOpen = false
+										if ui.TabBar.AddTabBtn.Clicked(gtx) {
+											ui.TabBar.TabCtxMenuOpen = false
 											newTab := workspace.NewRequestTab("New request")
 											ui.Tabs = append(ui.Tabs, newTab)
 											ui.ActiveIdx = len(ui.Tabs) - 1
 										}
-										btn := material.Button(ui.Theme, &ui.AddTabBtn, "Create Request")
+										btn := material.Button(ui.Theme, &ui.TabBar.AddTabBtn, "Create Request")
 										btn.Background = theme.Accent
 										btn.Color = ui.Theme.ContrastFg
 										btn.TextSize = unit.Sp(14)
@@ -2198,14 +1459,14 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, horizChildren...)
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-			if !ui.TabCtxMenuOpen {
+			if !ui.TabBar.TabCtxMenuOpen {
 				return layout.Dimensions{}
 			}
 
 			macro := op.Record(gtx.Ops)
 
-			offX := int(ui.TabCtxMenuPos.X) + ui.SidebarWidth + gtx.Dp(unit.Dp(8))
-			offY := int(ui.TabCtxMenuPos.Y) + gtx.Dp(unit.Dp(8))
+			offX := int(ui.TabBar.TabCtxMenuPos.X) + ui.SidebarWidth + gtx.Dp(unit.Dp(8))
+			offY := int(ui.TabBar.TabCtxMenuPos.Y) + gtx.Dp(unit.Dp(8))
 			op.Offset(image.Pt(offX, offY)).Add(gtx.Ops)
 
 			menuItem := func(gtx layout.Context, clk *widget.Clickable, title string) layout.Dimensions {

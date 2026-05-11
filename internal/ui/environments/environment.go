@@ -51,17 +51,32 @@ type EnvironmentUI struct {
 }
 
 func (ui *EnvironmentUI) InitEditor() {
-	ui.NameEditor.SetText(ui.Data.Name)
+	if ui.NameEditor.Text() != ui.Data.Name {
+		ui.NameEditor.SetText(ui.Data.Name)
+	}
 	ui.ColorEditor.SingleLine = true
 	ui.ColorEditor.Submit = true
-	ui.ColorEditor.SetText(ui.Data.HighlightColor)
-	ui.Rows = nil
-	for _, v := range ui.Data.Vars {
-		r := &EnvVarRow{}
-		r.KeyEditor.SetText(v.Key)
-		r.ValEditor.SetText(v.Value)
+	if ui.ColorEditor.Text() != ui.Data.HighlightColor {
+		ui.ColorEditor.SetText(ui.Data.HighlightColor)
+	}
+	for i, v := range ui.Data.Vars {
+		var r *EnvVarRow
+		if i < len(ui.Rows) {
+			r = ui.Rows[i]
+		} else {
+			r = &EnvVarRow{}
+			ui.Rows = append(ui.Rows, r)
+		}
+		if r.KeyEditor.Text() != v.Key {
+			r.KeyEditor.SetText(v.Key)
+		}
+		if r.ValEditor.Text() != v.Value {
+			r.ValEditor.SetText(v.Value)
+		}
 		r.Enabled.Value = v.Enabled
-		ui.Rows = append(ui.Rows, r)
+	}
+	if len(ui.Rows) > len(ui.Data.Vars) {
+		ui.Rows = ui.Rows[:len(ui.Data.Vars)]
 	}
 	ui.List.Axis = 1
 }

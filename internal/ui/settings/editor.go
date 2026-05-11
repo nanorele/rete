@@ -1,4 +1,4 @@
-package ui
+package settings
 
 import (
 	"fmt"
@@ -8,7 +8,6 @@ import (
 	"tracto/internal/model"
 	"tracto/internal/persist"
 	"tracto/internal/ui/colorpicker"
-	"tracto/internal/ui/settings"
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/widgets"
 
@@ -38,7 +37,7 @@ var acceptEncodingOptions = []struct {
 	{"gzip, deflate, br", "all"},
 }
 
-type SettingsEditorState struct {
+type Editor struct {
 	Draft model.AppSettings
 
 	Category    int
@@ -157,12 +156,12 @@ type SettingsEditorState struct {
 	initialized bool
 }
 
-func newSettingsEditorState(current model.AppSettings) *SettingsEditorState {
-	s := &SettingsEditorState{
+func NewEditor(current model.AppSettings) *Editor {
+	s := &Editor{
 		Draft:                 current,
 		CategoryBtn:           make([]widget.Clickable, len(settingsCategories)),
 		ThemeBtns:             make([]widget.Clickable, len(theme.Registry)),
-		DefaultMethodBtn:      make([]widget.Clickable, len(settings.Methods)),
+		DefaultMethodBtn:      make([]widget.Clickable, len(Methods)),
 		AcceptEncodingBtn:     make([]widget.Clickable, len(acceptEncodingOptions)),
 		SyntaxOverrideEditors: make([]widget.Editor, len(theme.TokenColorTable)),
 		SyntaxResetBtns:       make([]widget.Clickable, len(theme.TokenColorTable)),
@@ -254,233 +253,226 @@ func textToHeaders(s string) []model.DefaultHeader {
 	return out
 }
 
-func (ui *AppUI) applyDraftSettings() {
-	if ui.SettingsState == nil {
+func (e *Editor) Apply(host *Host) {
+	if e == nil {
 		return
 	}
-	st := ui.SettingsState
-	st.Draft.HideTabBar = st.HideTabBar.Value
-	st.Draft.HideSidebar = st.HideSidebar.Value
-	st.Draft.RestoreTabsOnStartup = st.RestoreTabsOnStartup.Value
+	e.Draft.HideTabBar = e.HideTabBar.Value
+	e.Draft.HideSidebar = e.HideSidebar.Value
+	e.Draft.RestoreTabsOnStartup = e.RestoreTabsOnStartup.Value
 
-	st.Draft.UserAgent = strings.TrimSpace(st.UserAgentEditor.Text())
-	st.Draft.Proxy = strings.TrimSpace(st.ProxyEditor.Text())
-	st.Draft.FollowRedirects = st.FollowRedirects.Value
-	st.Draft.VerifySSL = st.VerifySSL.Value
-	st.Draft.KeepAlive = st.KeepAlive.Value
-	st.Draft.DisableHTTP2 = st.DisableHTTP2.Value
-	st.Draft.CookieJarEnabled = st.CookieJar.Value
-	st.Draft.SendConnectionClose = st.SendConnClose.Value
-	st.Draft.DefaultHeaders = textToHeaders(st.DefaultHdrEdit.Text())
-	st.Draft.WrapLinesDefault = st.WrapLines.Value
-	st.Draft.AutoFormatJSON = st.AutoFormatJSON.Value
-	st.Draft.AutoFormatJSONRequest = st.AutoFormatJSONRequest.Value
-	st.Draft.StripJSONComments = st.StripJSONComments.Value
-	st.Draft.TrimTrailingWhitespace = st.TrimTrailingWS.Value
-	st.Draft.BracketPairColorization = st.BracketPairColorization.Value
+	e.Draft.UserAgent = strings.TrimSpace(e.UserAgentEditor.Text())
+	e.Draft.Proxy = strings.TrimSpace(e.ProxyEditor.Text())
+	e.Draft.FollowRedirects = e.FollowRedirects.Value
+	e.Draft.VerifySSL = e.VerifySSL.Value
+	e.Draft.KeepAlive = e.KeepAlive.Value
+	e.Draft.DisableHTTP2 = e.DisableHTTP2.Value
+	e.Draft.CookieJarEnabled = e.CookieJar.Value
+	e.Draft.SendConnectionClose = e.SendConnClose.Value
+	e.Draft.DefaultHeaders = textToHeaders(e.DefaultHdrEdit.Text())
+	e.Draft.WrapLinesDefault = e.WrapLines.Value
+	e.Draft.AutoFormatJSON = e.AutoFormatJSON.Value
+	e.Draft.AutoFormatJSONRequest = e.AutoFormatJSONRequest.Value
+	e.Draft.StripJSONComments = e.StripJSONComments.Value
+	e.Draft.TrimTrailingWhitespace = e.TrimTrailingWS.Value
+	e.Draft.BracketPairColorization = e.BracketPairColorization.Value
 
-	st.Draft = settings.Sanitize(st.Draft)
-	ui.Settings = st.Draft
-	settings.Apply(ui.Theme, ui.Settings)
+	e.Draft = Sanitize(e.Draft)
+	(*host.Current) = e.Draft
+	Apply(host.Theme, (*host.Current))
 }
 
-func (ui *AppUI) closeSettings() {
-	ui.SettingsOpen = false
-	ui.SettingsState = nil
-	if ui.Window != nil {
-		ui.Window.Invalidate()
-	}
-}
 
-func (st *SettingsEditorState) syncSyntaxEditors() {
-	if st.syntaxEditorsThemeID == st.Draft.Theme {
+func (e *Editor) syncSyntaxEditors() {
+	if e.syntaxEditorsThemeID == e.Draft.Theme {
 		return
 	}
-	st.syntaxEditorsThemeID = st.Draft.Theme
-	ov := st.Draft.SyntaxOverrides[st.Draft.Theme]
+	e.syntaxEditorsThemeID = e.Draft.Theme
+	ov := e.Draft.SyntaxOverrides[e.Draft.Theme]
 	for i, entry := range theme.TokenColorTable {
-		st.SyntaxOverrideEditors[i].SetText(entry.GetOv(ov))
+		e.SyntaxOverrideEditors[i].SetText(entry.GetOv(ov))
 	}
 }
 
-func (st *SettingsEditorState) putOverride(i int, h string) {
-	themeID := st.Draft.Theme
-	ov := st.Draft.SyntaxOverrides[themeID]
+func (e *Editor) putOverride(i int, h string) {
+	themeID := e.Draft.Theme
+	ov := e.Draft.SyntaxOverrides[themeID]
 	theme.TokenColorTable[i].SetOv(&ov, h)
 	if ov == (model.ThemeSyntaxOverride{}) {
-		if st.Draft.SyntaxOverrides != nil {
-			delete(st.Draft.SyntaxOverrides, themeID)
-			if len(st.Draft.SyntaxOverrides) == 0 {
-				st.Draft.SyntaxOverrides = nil
+		if e.Draft.SyntaxOverrides != nil {
+			delete(e.Draft.SyntaxOverrides, themeID)
+			if len(e.Draft.SyntaxOverrides) == 0 {
+				e.Draft.SyntaxOverrides = nil
 			}
 		}
 		return
 	}
-	if st.Draft.SyntaxOverrides == nil {
-		st.Draft.SyntaxOverrides = map[string]model.ThemeSyntaxOverride{}
+	if e.Draft.SyntaxOverrides == nil {
+		e.Draft.SyntaxOverrides = map[string]model.ThemeSyntaxOverride{}
 	}
-	st.Draft.SyntaxOverrides[themeID] = ov
+	e.Draft.SyntaxOverrides[themeID] = ov
 }
 
-func (st *SettingsEditorState) syncThemeEditors() {
-	if st.themeEditorsThemeID == st.Draft.Theme {
+func (e *Editor) syncThemeEditors() {
+	if e.themeEditorsThemeID == e.Draft.Theme {
 		return
 	}
-	st.themeEditorsThemeID = st.Draft.Theme
-	ov := st.Draft.ThemeOverrides[st.Draft.Theme]
+	e.themeEditorsThemeID = e.Draft.Theme
+	ov := e.Draft.ThemeOverrides[e.Draft.Theme]
 	for i, entry := range theme.PaletteColorTable {
-		st.ThemeColorEditors[i].SetText(entry.GetOv(ov))
+		e.ThemeColorEditors[i].SetText(entry.GetOv(ov))
 	}
 }
 
-func (st *SettingsEditorState) putThemeOverride(i int, h string) {
-	themeID := st.Draft.Theme
-	ov := st.Draft.ThemeOverrides[themeID]
+func (e *Editor) putThemeOverride(i int, h string) {
+	themeID := e.Draft.Theme
+	ov := e.Draft.ThemeOverrides[themeID]
 	theme.PaletteColorTable[i].SetOv(&ov, h)
 	if ov == (model.ThemeColorOverride{}) {
-		if st.Draft.ThemeOverrides != nil {
-			delete(st.Draft.ThemeOverrides, themeID)
-			if len(st.Draft.ThemeOverrides) == 0 {
-				st.Draft.ThemeOverrides = nil
+		if e.Draft.ThemeOverrides != nil {
+			delete(e.Draft.ThemeOverrides, themeID)
+			if len(e.Draft.ThemeOverrides) == 0 {
+				e.Draft.ThemeOverrides = nil
 			}
 		}
 		return
 	}
-	if st.Draft.ThemeOverrides == nil {
-		st.Draft.ThemeOverrides = map[string]model.ThemeColorOverride{}
+	if e.Draft.ThemeOverrides == nil {
+		e.Draft.ThemeOverrides = map[string]model.ThemeColorOverride{}
 	}
-	st.Draft.ThemeOverrides[themeID] = ov
+	e.Draft.ThemeOverrides[themeID] = ov
 }
 
-func (ui *AppUI) resetSettings() {
-	if ui.SettingsState == nil {
+func (e *Editor) Reset() {
+	if e == nil {
 		return
 	}
 	def := model.DefaultSettings()
-	st := ui.SettingsState
-	st.Draft = def
-	st.HideTabBar.Value = def.HideTabBar
-	st.HideSidebar.Value = def.HideSidebar
-	st.RestoreTabsOnStartup.Value = def.RestoreTabsOnStartup
+	e.Draft = def
+	e.HideTabBar.Value = def.HideTabBar
+	e.HideSidebar.Value = def.HideSidebar
+	e.RestoreTabsOnStartup.Value = def.RestoreTabsOnStartup
 
-	st.UserAgentEditor.SetText(def.UserAgent)
-	st.ProxyEditor.SetText(def.Proxy)
-	st.FollowRedirects.Value = def.FollowRedirects
-	st.VerifySSL.Value = def.VerifySSL
-	st.KeepAlive.Value = def.KeepAlive
-	st.DisableHTTP2.Value = def.DisableHTTP2
-	st.CookieJar.Value = def.CookieJarEnabled
-	st.SendConnClose.Value = def.SendConnectionClose
-	st.DefaultHdrEdit.SetText(headersToText(def.DefaultHeaders))
-	st.WrapLines.Value = def.WrapLinesDefault
-	st.AutoFormatJSON.Value = def.AutoFormatJSON
-	st.AutoFormatJSONRequest.Value = def.AutoFormatJSONRequest
-	st.StripJSONComments.Value = def.StripJSONComments
-	st.TrimTrailingWS.Value = def.TrimTrailingWhitespace
-	st.BracketPairColorization.Value = def.BracketPairColorization
+	e.UserAgentEditor.SetText(def.UserAgent)
+	e.ProxyEditor.SetText(def.Proxy)
+	e.FollowRedirects.Value = def.FollowRedirects
+	e.VerifySSL.Value = def.VerifySSL
+	e.KeepAlive.Value = def.KeepAlive
+	e.DisableHTTP2.Value = def.DisableHTTP2
+	e.CookieJar.Value = def.CookieJarEnabled
+	e.SendConnClose.Value = def.SendConnectionClose
+	e.DefaultHdrEdit.SetText(headersToText(def.DefaultHeaders))
+	e.WrapLines.Value = def.WrapLinesDefault
+	e.AutoFormatJSON.Value = def.AutoFormatJSON
+	e.AutoFormatJSONRequest.Value = def.AutoFormatJSONRequest
+	e.StripJSONComments.Value = def.StripJSONComments
+	e.TrimTrailingWS.Value = def.TrimTrailingWhitespace
+	e.BracketPairColorization.Value = def.BracketPairColorization
 }
 
-func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
-	if ui.SettingsState == nil {
-		ui.SettingsState = newSettingsEditorState(ui.Settings)
+func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
+	if e == nil {
+		e = NewEditor((*host.Current))
 	}
-	st := ui.SettingsState
 
-	for st.BackBtn.Clicked(gtx) {
-		ui.closeSettings()
+	for e.BackBtn.Clicked(gtx) {
+		host.OnClose()
 		return layout.Dimensions{Size: gtx.Constraints.Max}
 	}
 	resetChanged := false
-	for st.ResetBtn.Clicked(gtx) {
-		ui.resetSettings()
+	for e.ResetBtn.Clicked(gtx) {
+		e.Reset()
 		resetChanged = true
 	}
 
-	for i := range st.CategoryBtn {
-		if st.CategoryBtn[i].Clicked(gtx) {
-			st.Category = i
+	for i := range e.CategoryBtn {
+		if e.CategoryBtn[i].Clicked(gtx) {
+			if e.Category != i {
+				e.Category = i
+				e.ContentList.Position = layout.Position{}
+			}
 		}
 	}
 
 	changed := false
-	for i := range st.ThemeBtns {
-		for st.ThemeBtns[i].Clicked(gtx) {
+	for i := range e.ThemeBtns {
+		for e.ThemeBtns[i].Clicked(gtx) {
 			tid := theme.Registry[i].ID
-			if st.Draft.Theme != tid {
-				st.Draft.Theme = tid
-				st.ColorPicker.Close()
+			if e.Draft.Theme != tid {
+				e.Draft.Theme = tid
+				e.ColorPicker.Close()
 				changed = true
 			}
 		}
 	}
-	if len(st.NewThemeBaseBtns) != len(theme.Registry) {
-		st.NewThemeBaseBtns = make([]widget.Clickable, len(theme.Registry))
+	if len(e.NewThemeBaseBtns) != len(theme.Registry) {
+		e.NewThemeBaseBtns = make([]widget.Clickable, len(theme.Registry))
 	}
-	if len(st.CustomThemeBtns) != len(st.Draft.CustomThemes) {
-		st.CustomThemeBtns = make([]widget.Clickable, len(st.Draft.CustomThemes))
-		st.CustomThemeDelBtns = make([]widget.Clickable, len(st.Draft.CustomThemes))
+	if len(e.CustomThemeBtns) != len(e.Draft.CustomThemes) {
+		e.CustomThemeBtns = make([]widget.Clickable, len(e.Draft.CustomThemes))
+		e.CustomThemeDelBtns = make([]widget.Clickable, len(e.Draft.CustomThemes))
 	}
-	for i := range st.CustomThemeBtns {
-		for st.CustomThemeBtns[i].Clicked(gtx) {
-			if i < len(st.Draft.CustomThemes) {
-				tid := st.Draft.CustomThemes[i].ID
-				if st.Draft.Theme != tid {
-					st.Draft.Theme = tid
-					st.ColorPicker.Close()
+	for i := range e.CustomThemeBtns {
+		for e.CustomThemeBtns[i].Clicked(gtx) {
+			if i < len(e.Draft.CustomThemes) {
+				tid := e.Draft.CustomThemes[i].ID
+				if e.Draft.Theme != tid {
+					e.Draft.Theme = tid
+					e.ColorPicker.Close()
 					changed = true
 				}
 			}
 		}
 	}
 	deleteIdx := -1
-	for i := range st.CustomThemeDelBtns {
-		if i >= len(st.CustomThemeDelBtns) {
+	for i := range e.CustomThemeDelBtns {
+		if i >= len(e.CustomThemeDelBtns) {
 			break
 		}
-		if st.CustomThemeDelBtns[i].Clicked(gtx) {
+		if e.CustomThemeDelBtns[i].Clicked(gtx) {
 			deleteIdx = i
-			for st.CustomThemeDelBtns[i].Clicked(gtx) {
+			for e.CustomThemeDelBtns[i].Clicked(gtx) {
 			}
 			break
 		}
 	}
-	if deleteIdx >= 0 && deleteIdx < len(st.Draft.CustomThemes) {
-		deletedID := st.Draft.CustomThemes[deleteIdx].ID
-		st.Draft.CustomThemes = append(st.Draft.CustomThemes[:deleteIdx], st.Draft.CustomThemes[deleteIdx+1:]...)
-		st.CustomThemeBtns = make([]widget.Clickable, len(st.Draft.CustomThemes))
-		st.CustomThemeDelBtns = make([]widget.Clickable, len(st.Draft.CustomThemes))
-		if st.Draft.Theme == deletedID {
-			st.Draft.Theme = "dark"
+	if deleteIdx >= 0 && deleteIdx < len(e.Draft.CustomThemes) {
+		deletedID := e.Draft.CustomThemes[deleteIdx].ID
+		e.Draft.CustomThemes = append(e.Draft.CustomThemes[:deleteIdx], e.Draft.CustomThemes[deleteIdx+1:]...)
+		e.CustomThemeBtns = make([]widget.Clickable, len(e.Draft.CustomThemes))
+		e.CustomThemeDelBtns = make([]widget.Clickable, len(e.Draft.CustomThemes))
+		if e.Draft.Theme == deletedID {
+			e.Draft.Theme = "dark"
 		}
 		changed = true
 	}
-	for st.NewThemeBtn.Clicked(gtx) {
-		st.NewThemeDialogOpen = !st.NewThemeDialogOpen
-		if st.NewThemeDialogOpen {
-			st.NewThemeNameEditor.SingleLine = true
-			st.NewThemeNameEditor.Submit = true
-			st.NewThemeNameEditor.SetText("")
-			st.NewThemeBaseID = st.Draft.Theme
+	for e.NewThemeBtn.Clicked(gtx) {
+		e.NewThemeDialogOpen = !e.NewThemeDialogOpen
+		if e.NewThemeDialogOpen {
+			e.NewThemeNameEditor.SingleLine = true
+			e.NewThemeNameEditor.Submit = true
+			e.NewThemeNameEditor.SetText("")
+			e.NewThemeBaseID = e.Draft.Theme
 		}
 	}
-	for i := range st.NewThemeBaseBtns {
-		for st.NewThemeBaseBtns[i].Clicked(gtx) {
-			st.NewThemeBaseID = theme.Registry[i].ID
+	for i := range e.NewThemeBaseBtns {
+		for e.NewThemeBaseBtns[i].Clicked(gtx) {
+			e.NewThemeBaseID = theme.Registry[i].ID
 		}
 	}
-	for st.NewThemeCancelBtn.Clicked(gtx) {
-		st.NewThemeDialogOpen = false
+	for e.NewThemeCancelBtn.Clicked(gtx) {
+		e.NewThemeDialogOpen = false
 	}
-	for st.NewThemeCreateBtn.Clicked(gtx) {
-		name := strings.TrimSpace(st.NewThemeNameEditor.Text())
+	for e.NewThemeCreateBtn.Clicked(gtx) {
+		name := strings.TrimSpace(e.NewThemeNameEditor.Text())
 		if name == "" {
 			continue
 		}
-		baseID := st.NewThemeBaseID
+		baseID := e.NewThemeBaseID
 		if baseID == "" {
 			baseID = "dark"
 		}
-		basePalette := theme.PaletteFor(baseID, st.Draft.CustomThemes)
+		basePalette := theme.PaletteFor(baseID, e.Draft.CustomThemes)
 		newID := "custom-" + persist.NewRandomID()[:8]
 		ct := model.CustomTheme{
 			ID:      newID,
@@ -489,323 +481,323 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 			Palette: theme.PaletteToOverride(basePalette),
 			Syntax:  theme.SyntaxToOverride(basePalette.Syntax),
 		}
-		st.Draft.CustomThemes = append(st.Draft.CustomThemes, ct)
-		st.Draft.Theme = newID
-		st.NewThemeDialogOpen = false
-		st.NewThemeNameEditor.SetText("")
-		st.CustomThemeBtns = make([]widget.Clickable, len(st.Draft.CustomThemes))
-		st.CustomThemeDelBtns = make([]widget.Clickable, len(st.Draft.CustomThemes))
-		st.ColorPicker.Close()
+		e.Draft.CustomThemes = append(e.Draft.CustomThemes, ct)
+		e.Draft.Theme = newID
+		e.NewThemeDialogOpen = false
+		e.NewThemeNameEditor.SetText("")
+		e.CustomThemeBtns = make([]widget.Clickable, len(e.Draft.CustomThemes))
+		e.CustomThemeDelBtns = make([]widget.Clickable, len(e.Draft.CustomThemes))
+		e.ColorPicker.Close()
 		changed = true
 	}
-	st.syncSyntaxEditors()
+	e.syncSyntaxEditors()
 
-	for st.UISizeDec.Clicked(gtx) {
-		if st.Draft.UITextSize > 10 {
-			st.Draft.UITextSize--
+	for e.UISizeDec.Clicked(gtx) {
+		if e.Draft.UITextSize > 10 {
+			e.Draft.UITextSize--
 			changed = true
 		}
 	}
-	for st.UISizeInc.Clicked(gtx) {
-		if st.Draft.UITextSize < 28 {
-			st.Draft.UITextSize++
+	for e.UISizeInc.Clicked(gtx) {
+		if e.Draft.UITextSize < 28 {
+			e.Draft.UITextSize++
 			changed = true
 		}
 	}
-	for st.BodySizeDec.Clicked(gtx) {
-		if st.Draft.BodyTextSize > 10 {
-			st.Draft.BodyTextSize--
+	for e.BodySizeDec.Clicked(gtx) {
+		if e.Draft.BodyTextSize > 10 {
+			e.Draft.BodyTextSize--
 			changed = true
 		}
 	}
-	for st.BodySizeInc.Clicked(gtx) {
-		if st.Draft.BodyTextSize < 28 {
-			st.Draft.BodyTextSize++
+	for e.BodySizeInc.Clicked(gtx) {
+		if e.Draft.BodyTextSize < 28 {
+			e.Draft.BodyTextSize++
 			changed = true
 		}
 	}
-	for st.UIScaleDec.Clicked(gtx) {
-		if st.Draft.UIScale > 0.75 {
-			st.Draft.UIScale -= 0.05
+	for e.UIScaleDec.Clicked(gtx) {
+		if e.Draft.UIScale > 0.75 {
+			e.Draft.UIScale -= 0.05
 			changed = true
 		}
 	}
-	for st.UIScaleInc.Clicked(gtx) {
-		if st.Draft.UIScale < 2.0 {
-			st.Draft.UIScale += 0.05
+	for e.UIScaleInc.Clicked(gtx) {
+		if e.Draft.UIScale < 2.0 {
+			e.Draft.UIScale += 0.05
 			changed = true
 		}
 	}
-	for st.BodyPaddingDec.Clicked(gtx) {
-		if st.Draft.ResponseBodyPadding > 0 {
-			st.Draft.ResponseBodyPadding--
+	for e.BodyPaddingDec.Clicked(gtx) {
+		if e.Draft.ResponseBodyPadding > 0 {
+			e.Draft.ResponseBodyPadding--
 			changed = true
 		}
 	}
-	for st.BodyPaddingInc.Clicked(gtx) {
-		if st.Draft.ResponseBodyPadding < 32 {
-			st.Draft.ResponseBodyPadding++
+	for e.BodyPaddingInc.Clicked(gtx) {
+		if e.Draft.ResponseBodyPadding < 32 {
+			e.Draft.ResponseBodyPadding++
 			changed = true
 		}
 	}
-	for st.SplitRatioDec.Clicked(gtx) {
-		if st.Draft.DefaultSplitRatio > 0.2 {
-			st.Draft.DefaultSplitRatio -= 0.05
-			if st.Draft.DefaultSplitRatio < 0.2 {
-				st.Draft.DefaultSplitRatio = 0.2
+	for e.SplitRatioDec.Clicked(gtx) {
+		if e.Draft.DefaultSplitRatio > 0.2 {
+			e.Draft.DefaultSplitRatio -= 0.05
+			if e.Draft.DefaultSplitRatio < 0.2 {
+				e.Draft.DefaultSplitRatio = 0.2
 			}
 			changed = true
 		}
 	}
-	for st.SplitRatioInc.Clicked(gtx) {
-		if st.Draft.DefaultSplitRatio < 0.8 {
-			st.Draft.DefaultSplitRatio += 0.05
-			if st.Draft.DefaultSplitRatio > 0.8 {
-				st.Draft.DefaultSplitRatio = 0.8
+	for e.SplitRatioInc.Clicked(gtx) {
+		if e.Draft.DefaultSplitRatio < 0.8 {
+			e.Draft.DefaultSplitRatio += 0.05
+			if e.Draft.DefaultSplitRatio > 0.8 {
+				e.Draft.DefaultSplitRatio = 0.8
 			}
 			changed = true
 		}
 	}
-	for st.StackBpDec.Clicked(gtx) {
-		if st.Draft.StackBreakpointDp <= 400 {
-			st.Draft.StackBreakpointDp = 0
+	for e.StackBpDec.Clicked(gtx) {
+		if e.Draft.StackBreakpointDp <= 400 {
+			e.Draft.StackBreakpointDp = 0
 		} else {
-			st.Draft.StackBreakpointDp -= 50
+			e.Draft.StackBreakpointDp -= 50
 		}
 		changed = true
 	}
-	for st.StackBpInc.Clicked(gtx) {
-		if st.Draft.StackBreakpointDp == 0 {
-			st.Draft.StackBreakpointDp = 400
-		} else if st.Draft.StackBreakpointDp < 2000 {
-			st.Draft.StackBreakpointDp += 50
-			if st.Draft.StackBreakpointDp > 2000 {
-				st.Draft.StackBreakpointDp = 2000
+	for e.StackBpInc.Clicked(gtx) {
+		if e.Draft.StackBreakpointDp == 0 {
+			e.Draft.StackBreakpointDp = 400
+		} else if e.Draft.StackBreakpointDp < 2000 {
+			e.Draft.StackBreakpointDp += 50
+			if e.Draft.StackBreakpointDp > 2000 {
+				e.Draft.StackBreakpointDp = 2000
 			}
 		}
 		changed = true
 	}
-	for i := range st.DefaultMethodBtn {
-		for st.DefaultMethodBtn[i].Clicked(gtx) {
-			if st.Draft.DefaultMethod != settings.Methods[i] {
-				st.Draft.DefaultMethod = settings.Methods[i]
+	for i := range e.DefaultMethodBtn {
+		for e.DefaultMethodBtn[i].Clicked(gtx) {
+			if e.Draft.DefaultMethod != Methods[i] {
+				e.Draft.DefaultMethod = Methods[i]
 				changed = true
 			}
 		}
 	}
-	for st.MaxConnsDec.Clicked(gtx) {
-		step := connsStep(st.Draft.MaxConnsPerHost)
-		if st.Draft.MaxConnsPerHost > 0 {
-			st.Draft.MaxConnsPerHost -= step
-			if st.Draft.MaxConnsPerHost < 0 {
-				st.Draft.MaxConnsPerHost = 0
+	for e.MaxConnsDec.Clicked(gtx) {
+		step := connsStep(e.Draft.MaxConnsPerHost)
+		if e.Draft.MaxConnsPerHost > 0 {
+			e.Draft.MaxConnsPerHost -= step
+			if e.Draft.MaxConnsPerHost < 0 {
+				e.Draft.MaxConnsPerHost = 0
 			}
 			changed = true
 		}
 	}
-	for st.MaxConnsInc.Clicked(gtx) {
-		step := connsStep(st.Draft.MaxConnsPerHost)
-		if st.Draft.MaxConnsPerHost < 10000 {
-			st.Draft.MaxConnsPerHost += step
-			if st.Draft.MaxConnsPerHost > 10000 {
-				st.Draft.MaxConnsPerHost = 10000
+	for e.MaxConnsInc.Clicked(gtx) {
+		step := connsStep(e.Draft.MaxConnsPerHost)
+		if e.Draft.MaxConnsPerHost < 10000 {
+			e.Draft.MaxConnsPerHost += step
+			if e.Draft.MaxConnsPerHost > 10000 {
+				e.Draft.MaxConnsPerHost = 10000
 			}
 			changed = true
 		}
 	}
 
-	for st.TimeoutDec.Clicked(gtx) {
-		step := timeoutStep(st.Draft.RequestTimeoutSec)
-		if st.Draft.RequestTimeoutSec > 0 {
-			st.Draft.RequestTimeoutSec -= step
-			if st.Draft.RequestTimeoutSec < 0 {
-				st.Draft.RequestTimeoutSec = 0
+	for e.TimeoutDec.Clicked(gtx) {
+		step := timeoutStep(e.Draft.RequestTimeoutSec)
+		if e.Draft.RequestTimeoutSec > 0 {
+			e.Draft.RequestTimeoutSec -= step
+			if e.Draft.RequestTimeoutSec < 0 {
+				e.Draft.RequestTimeoutSec = 0
 			}
 			changed = true
 		}
 	}
-	for st.TimeoutInc.Clicked(gtx) {
-		step := timeoutStep(st.Draft.RequestTimeoutSec)
-		if st.Draft.RequestTimeoutSec < 3600 {
-			st.Draft.RequestTimeoutSec += step
-			if st.Draft.RequestTimeoutSec > 3600 {
-				st.Draft.RequestTimeoutSec = 3600
+	for e.TimeoutInc.Clicked(gtx) {
+		step := timeoutStep(e.Draft.RequestTimeoutSec)
+		if e.Draft.RequestTimeoutSec < 3600 {
+			e.Draft.RequestTimeoutSec += step
+			if e.Draft.RequestTimeoutSec > 3600 {
+				e.Draft.RequestTimeoutSec = 3600
 			}
 			changed = true
 		}
 	}
-	for st.ConnectTimeoutDec.Clicked(gtx) {
-		if st.Draft.ConnectTimeoutSec > 0 {
-			st.Draft.ConnectTimeoutSec--
+	for e.ConnectTimeoutDec.Clicked(gtx) {
+		if e.Draft.ConnectTimeoutSec > 0 {
+			e.Draft.ConnectTimeoutSec--
 			changed = true
 		}
 	}
-	for st.ConnectTimeoutInc.Clicked(gtx) {
-		if st.Draft.ConnectTimeoutSec < 600 {
-			st.Draft.ConnectTimeoutSec++
+	for e.ConnectTimeoutInc.Clicked(gtx) {
+		if e.Draft.ConnectTimeoutSec < 600 {
+			e.Draft.ConnectTimeoutSec++
 			changed = true
 		}
 	}
-	for st.TLSTimeoutDec.Clicked(gtx) {
-		if st.Draft.TLSHandshakeTimeoutSec > 0 {
-			st.Draft.TLSHandshakeTimeoutSec--
+	for e.TLSTimeoutDec.Clicked(gtx) {
+		if e.Draft.TLSHandshakeTimeoutSec > 0 {
+			e.Draft.TLSHandshakeTimeoutSec--
 			changed = true
 		}
 	}
-	for st.TLSTimeoutInc.Clicked(gtx) {
-		if st.Draft.TLSHandshakeTimeoutSec < 600 {
-			st.Draft.TLSHandshakeTimeoutSec++
+	for e.TLSTimeoutInc.Clicked(gtx) {
+		if e.Draft.TLSHandshakeTimeoutSec < 600 {
+			e.Draft.TLSHandshakeTimeoutSec++
 			changed = true
 		}
 	}
-	for st.IdleTimeoutDec.Clicked(gtx) {
-		step := timeoutStep(st.Draft.IdleConnTimeoutSec)
-		if st.Draft.IdleConnTimeoutSec > 0 {
-			st.Draft.IdleConnTimeoutSec -= step
-			if st.Draft.IdleConnTimeoutSec < 0 {
-				st.Draft.IdleConnTimeoutSec = 0
+	for e.IdleTimeoutDec.Clicked(gtx) {
+		step := timeoutStep(e.Draft.IdleConnTimeoutSec)
+		if e.Draft.IdleConnTimeoutSec > 0 {
+			e.Draft.IdleConnTimeoutSec -= step
+			if e.Draft.IdleConnTimeoutSec < 0 {
+				e.Draft.IdleConnTimeoutSec = 0
 			}
 			changed = true
 		}
 	}
-	for st.IdleTimeoutInc.Clicked(gtx) {
-		step := timeoutStep(st.Draft.IdleConnTimeoutSec)
-		if st.Draft.IdleConnTimeoutSec < 3600 {
-			st.Draft.IdleConnTimeoutSec += step
-			if st.Draft.IdleConnTimeoutSec > 3600 {
-				st.Draft.IdleConnTimeoutSec = 3600
+	for e.IdleTimeoutInc.Clicked(gtx) {
+		step := timeoutStep(e.Draft.IdleConnTimeoutSec)
+		if e.Draft.IdleConnTimeoutSec < 3600 {
+			e.Draft.IdleConnTimeoutSec += step
+			if e.Draft.IdleConnTimeoutSec > 3600 {
+				e.Draft.IdleConnTimeoutSec = 3600
 			}
 			changed = true
 		}
 	}
-	for st.SidebarWidthDec.Clicked(gtx) {
-		if st.Draft.DefaultSidebarWidthPx > 160 {
-			st.Draft.DefaultSidebarWidthPx -= 10
-			if st.Draft.DefaultSidebarWidthPx < 160 {
-				st.Draft.DefaultSidebarWidthPx = 160
+	for e.SidebarWidthDec.Clicked(gtx) {
+		if e.Draft.DefaultSidebarWidthPx > 160 {
+			e.Draft.DefaultSidebarWidthPx -= 10
+			if e.Draft.DefaultSidebarWidthPx < 160 {
+				e.Draft.DefaultSidebarWidthPx = 160
 			}
 			changed = true
 		}
 	}
-	for st.SidebarWidthInc.Clicked(gtx) {
-		if st.Draft.DefaultSidebarWidthPx < 1000 {
-			st.Draft.DefaultSidebarWidthPx += 10
-			if st.Draft.DefaultSidebarWidthPx > 1000 {
-				st.Draft.DefaultSidebarWidthPx = 1000
+	for e.SidebarWidthInc.Clicked(gtx) {
+		if e.Draft.DefaultSidebarWidthPx < 1000 {
+			e.Draft.DefaultSidebarWidthPx += 10
+			if e.Draft.DefaultSidebarWidthPx > 1000 {
+				e.Draft.DefaultSidebarWidthPx = 1000
 			}
 			changed = true
 		}
 	}
-	for i := range st.AcceptEncodingBtn {
-		for st.AcceptEncodingBtn[i].Clicked(gtx) {
-			if st.Draft.DefaultAcceptEncoding != acceptEncodingOptions[i].Value {
-				st.Draft.DefaultAcceptEncoding = acceptEncodingOptions[i].Value
+	for i := range e.AcceptEncodingBtn {
+		for e.AcceptEncodingBtn[i].Clicked(gtx) {
+			if e.Draft.DefaultAcceptEncoding != acceptEncodingOptions[i].Value {
+				e.Draft.DefaultAcceptEncoding = acceptEncodingOptions[i].Value
 				changed = true
 			}
 		}
 	}
-	for st.MaxRedirectsDec.Clicked(gtx) {
-		if st.Draft.MaxRedirects > 0 {
-			st.Draft.MaxRedirects--
+	for e.MaxRedirectsDec.Clicked(gtx) {
+		if e.Draft.MaxRedirects > 0 {
+			e.Draft.MaxRedirects--
 			changed = true
 		}
 	}
-	for st.MaxRedirectsInc.Clicked(gtx) {
-		if st.Draft.MaxRedirects < 50 {
-			st.Draft.MaxRedirects++
+	for e.MaxRedirectsInc.Clicked(gtx) {
+		if e.Draft.MaxRedirects < 50 {
+			e.Draft.MaxRedirects++
 			changed = true
 		}
 	}
-	for st.JSONIndentDec.Clicked(gtx) {
-		if st.Draft.JSONIndentSpaces > 0 {
-			st.Draft.JSONIndentSpaces--
+	for e.JSONIndentDec.Clicked(gtx) {
+		if e.Draft.JSONIndentSpaces > 0 {
+			e.Draft.JSONIndentSpaces--
 			changed = true
 		}
 	}
-	for st.JSONIndentInc.Clicked(gtx) {
-		if st.Draft.JSONIndentSpaces < 8 {
-			st.Draft.JSONIndentSpaces++
+	for e.JSONIndentInc.Clicked(gtx) {
+		if e.Draft.JSONIndentSpaces < 8 {
+			e.Draft.JSONIndentSpaces++
 			changed = true
 		}
 	}
-	for st.PreviewMaxDec.Clicked(gtx) {
-		if st.Draft.PreviewMaxMB > 1 {
-			st.Draft.PreviewMaxMB--
+	for e.PreviewMaxDec.Clicked(gtx) {
+		if e.Draft.PreviewMaxMB > 1 {
+			e.Draft.PreviewMaxMB--
 			changed = true
 		}
 	}
-	for st.PreviewMaxInc.Clicked(gtx) {
-		if st.Draft.PreviewMaxMB < 500 {
-			st.Draft.PreviewMaxMB++
+	for e.PreviewMaxInc.Clicked(gtx) {
+		if e.Draft.PreviewMaxMB < 500 {
+			e.Draft.PreviewMaxMB++
 			changed = true
 		}
 	}
 
-	if v, ok := intStepperUpdate(gtx, &st.UISizeEditor, st.Draft.UITextSize, 10, 28); ok {
-		st.Draft.UITextSize = v
+	if v, ok := intStepperUpdate(gtx, &e.UISizeEditor, e.Draft.UITextSize, 10, 28); ok {
+		e.Draft.UITextSize = v
 		changed = true
 	}
-	if v, ok := intStepperUpdate(gtx, &st.BodySizeEditor, st.Draft.BodyTextSize, 10, 28); ok {
-		st.Draft.BodyTextSize = v
+	if v, ok := intStepperUpdate(gtx, &e.BodySizeEditor, e.Draft.BodyTextSize, 10, 28); ok {
+		e.Draft.BodyTextSize = v
 		changed = true
 	}
-	if v, ok := floatStepperUpdate(gtx, &st.UIScaleEditor, st.Draft.UIScale, 0.75, 2.0, "%.2f", 1.0); ok {
-		st.Draft.UIScale = v
+	if v, ok := floatStepperUpdate(gtx, &e.UIScaleEditor, e.Draft.UIScale, 0.75, 2.0, "%.2f", 1.0); ok {
+		e.Draft.UIScale = v
 		changed = true
 	}
-	if v, ok := intStepperUpdate(gtx, &st.BodyPaddingEditor, st.Draft.ResponseBodyPadding, 0, 32); ok {
-		st.Draft.ResponseBodyPadding = v
+	if v, ok := intStepperUpdate(gtx, &e.BodyPaddingEditor, e.Draft.ResponseBodyPadding, 0, 32); ok {
+		e.Draft.ResponseBodyPadding = v
 		changed = true
 	}
-	if v, ok := floatStepperUpdate(gtx, &st.SplitRatioEditor, st.Draft.DefaultSplitRatio, 0.2, 0.8, "%.0f", 100); ok {
-		st.Draft.DefaultSplitRatio = v
+	if v, ok := floatStepperUpdate(gtx, &e.SplitRatioEditor, e.Draft.DefaultSplitRatio, 0.2, 0.8, "%.0f", 100); ok {
+		e.Draft.DefaultSplitRatio = v
 		changed = true
 	}
-	if v, ok := intStepperUpdate(gtx, &st.StackBpEditor, st.Draft.StackBreakpointDp, 0, 2000); ok {
+	if v, ok := intStepperUpdate(gtx, &e.StackBpEditor, e.Draft.StackBreakpointDp, 0, 2000); ok {
 		if v > 0 && v < 400 {
 			v = 400
 		}
-		st.Draft.StackBreakpointDp = v
+		e.Draft.StackBreakpointDp = v
 		changed = true
 	}
-	if v, ok := intStepperUpdate(gtx, &st.TimeoutEditor, st.Draft.RequestTimeoutSec, 0, 3600); ok {
-		st.Draft.RequestTimeoutSec = v
+	if v, ok := intStepperUpdate(gtx, &e.TimeoutEditor, e.Draft.RequestTimeoutSec, 0, 3600); ok {
+		e.Draft.RequestTimeoutSec = v
 		changed = true
 	}
-	if v, ok := intStepperUpdate(gtx, &st.ConnectTimeoutEditor, st.Draft.ConnectTimeoutSec, 0, 600); ok {
-		st.Draft.ConnectTimeoutSec = v
+	if v, ok := intStepperUpdate(gtx, &e.ConnectTimeoutEditor, e.Draft.ConnectTimeoutSec, 0, 600); ok {
+		e.Draft.ConnectTimeoutSec = v
 		changed = true
 	}
-	if v, ok := intStepperUpdate(gtx, &st.TLSTimeoutEditor, st.Draft.TLSHandshakeTimeoutSec, 0, 600); ok {
-		st.Draft.TLSHandshakeTimeoutSec = v
+	if v, ok := intStepperUpdate(gtx, &e.TLSTimeoutEditor, e.Draft.TLSHandshakeTimeoutSec, 0, 600); ok {
+		e.Draft.TLSHandshakeTimeoutSec = v
 		changed = true
 	}
-	if v, ok := intStepperUpdate(gtx, &st.IdleTimeoutEditor, st.Draft.IdleConnTimeoutSec, 0, 3600); ok {
-		st.Draft.IdleConnTimeoutSec = v
+	if v, ok := intStepperUpdate(gtx, &e.IdleTimeoutEditor, e.Draft.IdleConnTimeoutSec, 0, 3600); ok {
+		e.Draft.IdleConnTimeoutSec = v
 		changed = true
 	}
-	if v, ok := intStepperUpdate(gtx, &st.MaxRedirectsEditor, st.Draft.MaxRedirects, 0, 50); ok {
-		st.Draft.MaxRedirects = v
+	if v, ok := intStepperUpdate(gtx, &e.MaxRedirectsEditor, e.Draft.MaxRedirects, 0, 50); ok {
+		e.Draft.MaxRedirects = v
 		changed = true
 	}
-	if v, ok := intStepperUpdate(gtx, &st.MaxConnsEditor, st.Draft.MaxConnsPerHost, 0, 10000); ok {
-		st.Draft.MaxConnsPerHost = v
+	if v, ok := intStepperUpdate(gtx, &e.MaxConnsEditor, e.Draft.MaxConnsPerHost, 0, 10000); ok {
+		e.Draft.MaxConnsPerHost = v
 		changed = true
 	}
-	if v, ok := intStepperUpdate(gtx, &st.SidebarWidthEditor, st.Draft.DefaultSidebarWidthPx, 160, 1000); ok {
-		st.Draft.DefaultSidebarWidthPx = v
+	if v, ok := intStepperUpdate(gtx, &e.SidebarWidthEditor, e.Draft.DefaultSidebarWidthPx, 160, 1000); ok {
+		e.Draft.DefaultSidebarWidthPx = v
 		changed = true
 	}
-	if v, ok := intStepperUpdate(gtx, &st.JSONIndentEditor, st.Draft.JSONIndentSpaces, 0, 8); ok {
-		st.Draft.JSONIndentSpaces = v
+	if v, ok := intStepperUpdate(gtx, &e.JSONIndentEditor, e.Draft.JSONIndentSpaces, 0, 8); ok {
+		e.Draft.JSONIndentSpaces = v
 		changed = true
 	}
-	if v, ok := intStepperUpdate(gtx, &st.PreviewMaxEditor, st.Draft.PreviewMaxMB, 1, 500); ok {
-		st.Draft.PreviewMaxMB = v
+	if v, ok := intStepperUpdate(gtx, &e.PreviewMaxEditor, e.Draft.PreviewMaxMB, 1, 500); ok {
+		e.Draft.PreviewMaxMB = v
 		changed = true
 	}
 
-	for _, ed := range []*widget.Editor{&st.UserAgentEditor, &st.ProxyEditor, &st.DefaultHdrEdit} {
+	for _, ed := range []*widget.Editor{&e.UserAgentEditor, &e.ProxyEditor, &e.DefaultHdrEdit} {
 		for {
 			ev, ok := ed.Update(gtx)
 			if !ok {
@@ -820,15 +812,15 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	for i := range st.SyntaxOverrideEditors {
-		ed := &st.SyntaxOverrideEditors[i]
+	for i := range e.SyntaxOverrideEditors {
+		ed := &e.SyntaxOverrideEditors[i]
 		for {
 			ev, ok := ed.Update(gtx)
 			if !ok {
 				break
 			}
 			if _, ok := ev.(widget.ChangeEvent); ok {
-				st.putOverride(i, strings.TrimSpace(ed.Text()))
+				e.putOverride(i, strings.TrimSpace(ed.Text()))
 				changed = true
 			}
 			if _, ok := ev.(widget.SubmitEvent); ok {
@@ -836,63 +828,66 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 			}
 		}
 	}
-	for i := range st.SyntaxResetBtns {
-		for st.SyntaxResetBtns[i].Clicked(gtx) {
-			st.putOverride(i, "")
-			st.SyntaxOverrideEditors[i].SetText("")
-			if st.ColorPicker.Kind == colorpicker.KindSyntax && st.ColorPicker.OpenIdx == i {
-				st.ColorPicker.Close()
+	for i := range e.SyntaxResetBtns {
+		for e.SyntaxResetBtns[i].Clicked(gtx) {
+			e.putOverride(i, "")
+			e.SyntaxOverrideEditors[i].SetText("")
+			if e.ColorPicker.Kind == colorpicker.KindSyntax && e.ColorPicker.OpenIdx == i {
+				e.ColorPicker.Close()
 			}
 			changed = true
 		}
 	}
-	for i := range st.SyntaxSwatchBtns {
-		for st.SyntaxSwatchBtns[i].Clicked(gtx) {
-			if st.ColorPicker.Kind == colorpicker.KindSyntax && st.ColorPicker.OpenIdx == i {
-				st.ColorPicker.Close()
+	for i := range e.SyntaxSwatchBtns {
+		for e.SyntaxSwatchBtns[i].Clicked(gtx) {
+			if e.ColorPicker.Kind == colorpicker.KindSyntax && e.ColorPicker.OpenIdx == i {
+				e.ColorPicker.Close()
 			} else {
-				base := theme.PaletteFor(st.Draft.Theme, st.Draft.CustomThemes).Syntax
-				if ov, ok := st.Draft.SyntaxOverrides[st.Draft.Theme]; ok {
+				base := theme.PaletteFor(e.Draft.Theme, e.Draft.CustomThemes).Syntax
+				if ov, ok := e.Draft.SyntaxOverrides[e.Draft.Theme]; ok {
 					base = theme.ApplySyntaxOverride(base, ov)
 				}
-				st.ColorPicker.Open(colorpicker.KindSyntax, i, theme.TokenColorTable[i].GetBase(base), colorpicker.Anchor{X: widgets.GlobalPointerPos.X, Y: widgets.GlobalPointerPos.Y})
+				e.ColorPicker.Open(colorpicker.KindSyntax, i, theme.TokenColorTable[i].GetBase(base), colorpicker.Anchor{X: widgets.GlobalPointerPos.X, Y: widgets.GlobalPointerPos.Y})
 			}
 			changed = true
 		}
 	}
-	if st.ColorPicker.IsOpen() {
-		cur := [3]float32{st.ColorPicker.H, st.ColorPicker.S, st.ColorPicker.V}
-		if cur != st.ColorPicker.LastHSV {
-			hex := theme.HexFromColor(st.ColorPicker.Color())
-			idx := st.ColorPicker.OpenIdx
-			switch st.ColorPicker.Kind {
+	if e.ColorPicker.IsOpen() {
+		cur := [3]float32{e.ColorPicker.H, e.ColorPicker.S, e.ColorPicker.V}
+		if cur != e.ColorPicker.LastHSV {
+			hex := theme.HexFromColor(e.ColorPicker.Color())
+			idx := e.ColorPicker.OpenIdx
+			switch e.ColorPicker.Kind {
 			case colorpicker.KindSyntax:
-				st.SyntaxOverrideEditors[idx].SetText(hex)
-				st.putOverride(idx, hex)
+				if idx >= 0 && idx < len(e.SyntaxOverrideEditors) && e.SyntaxOverrideEditors[idx].Text() != hex {
+					e.SyntaxOverrideEditors[idx].SetText(hex)
+					e.putOverride(idx, hex)
+					changed = true
+				}
 			case colorpicker.KindTheme:
-				if idx >= 0 && idx < len(st.ThemeColorEditors) {
-					st.ThemeColorEditors[idx].SetText(hex)
-					st.putThemeOverride(idx, hex)
+				if idx >= 0 && idx < len(e.ThemeColorEditors) && e.ThemeColorEditors[idx].Text() != hex {
+					e.ThemeColorEditors[idx].SetText(hex)
+					e.putThemeOverride(idx, hex)
+					changed = true
 				}
 			}
-			changed = true
 		}
-		st.ColorPicker.LastHSV = cur
+		e.ColorPicker.LastHSV = cur
 	}
-	for st.ColorPicker.CloseBtn.Clicked(gtx) {
-		st.ColorPicker.Close()
+	for e.ColorPicker.CloseBtn.Clicked(gtx) {
+		e.ColorPicker.Close()
 		changed = true
 	}
-	st.syncThemeEditors()
-	for i := range st.ThemeColorEditors {
-		ed := &st.ThemeColorEditors[i]
+	e.syncThemeEditors()
+	for i := range e.ThemeColorEditors {
+		ed := &e.ThemeColorEditors[i]
 		for {
 			ev, ok := ed.Update(gtx)
 			if !ok {
 				break
 			}
 			if _, ok := ev.(widget.ChangeEvent); ok {
-				st.putThemeOverride(i, strings.TrimSpace(ed.Text()))
+				e.putThemeOverride(i, strings.TrimSpace(ed.Text()))
 				changed = true
 			}
 			if _, ok := ev.(widget.SubmitEvent); ok {
@@ -900,110 +895,110 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 			}
 		}
 	}
-	for i := range st.ThemeColorResetBtns {
-		for st.ThemeColorResetBtns[i].Clicked(gtx) {
-			st.putThemeOverride(i, "")
-			st.ThemeColorEditors[i].SetText("")
-			if st.ColorPicker.Kind == colorpicker.KindTheme && st.ColorPicker.OpenIdx == i {
-				st.ColorPicker.Close()
+	for i := range e.ThemeColorResetBtns {
+		for e.ThemeColorResetBtns[i].Clicked(gtx) {
+			e.putThemeOverride(i, "")
+			e.ThemeColorEditors[i].SetText("")
+			if e.ColorPicker.Kind == colorpicker.KindTheme && e.ColorPicker.OpenIdx == i {
+				e.ColorPicker.Close()
 			}
 			changed = true
 		}
 	}
-	for i := range st.ThemeColorSwatchBtns {
-		for st.ThemeColorSwatchBtns[i].Clicked(gtx) {
-			if st.ColorPicker.Kind == colorpicker.KindTheme && st.ColorPicker.OpenIdx == i {
-				st.ColorPicker.Close()
+	for i := range e.ThemeColorSwatchBtns {
+		for e.ThemeColorSwatchBtns[i].Clicked(gtx) {
+			if e.ColorPicker.Kind == colorpicker.KindTheme && e.ColorPicker.OpenIdx == i {
+				e.ColorPicker.Close()
 			} else {
-				base := theme.PaletteFor(st.Draft.Theme, st.Draft.CustomThemes)
-				if ov, ok := st.Draft.ThemeOverrides[st.Draft.Theme]; ok {
+				base := theme.PaletteFor(e.Draft.Theme, e.Draft.CustomThemes)
+				if ov, ok := e.Draft.ThemeOverrides[e.Draft.Theme]; ok {
 					base = theme.ApplyOverride(base, ov)
 				}
-				st.ColorPicker.Open(colorpicker.KindTheme, i, theme.PaletteColorTable[i].GetBase(base), colorpicker.Anchor{X: widgets.GlobalPointerPos.X, Y: widgets.GlobalPointerPos.Y})
+				e.ColorPicker.Open(colorpicker.KindTheme, i, theme.PaletteColorTable[i].GetBase(base), colorpicker.Anchor{X: widgets.GlobalPointerPos.X, Y: widgets.GlobalPointerPos.Y})
 			}
 			changed = true
 		}
 	}
-	for st.ThemeColorResetAllBtn.Clicked(gtx) {
-		if st.Draft.ThemeOverrides != nil {
-			delete(st.Draft.ThemeOverrides, st.Draft.Theme)
-			if len(st.Draft.ThemeOverrides) == 0 {
-				st.Draft.ThemeOverrides = nil
+	for e.ThemeColorResetAllBtn.Clicked(gtx) {
+		if e.Draft.ThemeOverrides != nil {
+			delete(e.Draft.ThemeOverrides, e.Draft.Theme)
+			if len(e.Draft.ThemeOverrides) == 0 {
+				e.Draft.ThemeOverrides = nil
 			}
 		}
-		for i := range st.ThemeColorEditors {
-			st.ThemeColorEditors[i].SetText("")
+		for i := range e.ThemeColorEditors {
+			e.ThemeColorEditors[i].SetText("")
 		}
 		changed = true
 	}
-	for st.ThemeColorsHeaderBtn.Clicked(gtx) {
-		st.ThemeColorsExpanded = !st.ThemeColorsExpanded
+	for e.ThemeColorsHeaderBtn.Clicked(gtx) {
+		e.ThemeColorsExpanded = !e.ThemeColorsExpanded
 	}
-	for st.SyntaxColorsHeaderBtn.Clicked(gtx) {
-		st.SyntaxColorsExpanded = !st.SyntaxColorsExpanded
+	for e.SyntaxColorsHeaderBtn.Clicked(gtx) {
+		e.SyntaxColorsExpanded = !e.SyntaxColorsExpanded
 	}
 
-	for st.SyntaxResetAllBtn.Clicked(gtx) {
-		if st.Draft.SyntaxOverrides != nil {
-			delete(st.Draft.SyntaxOverrides, st.Draft.Theme)
-			if len(st.Draft.SyntaxOverrides) == 0 {
-				st.Draft.SyntaxOverrides = nil
+	for e.SyntaxResetAllBtn.Clicked(gtx) {
+		if e.Draft.SyntaxOverrides != nil {
+			delete(e.Draft.SyntaxOverrides, e.Draft.Theme)
+			if len(e.Draft.SyntaxOverrides) == 0 {
+				e.Draft.SyntaxOverrides = nil
 			}
 		}
-		for i := range st.SyntaxOverrideEditors {
-			st.SyntaxOverrideEditors[i].SetText("")
+		for i := range e.SyntaxOverrideEditors {
+			e.SyntaxOverrideEditors[i].SetText("")
 		}
 		changed = true
 	}
-	if st.HideTabBar.Update(gtx) {
+	if e.HideTabBar.Update(gtx) {
 		changed = true
 	}
-	if st.HideSidebar.Update(gtx) {
+	if e.HideSidebar.Update(gtx) {
 		changed = true
 	}
-	if st.RestoreTabsOnStartup.Update(gtx) {
+	if e.RestoreTabsOnStartup.Update(gtx) {
 		changed = true
 	}
-	if st.FollowRedirects.Update(gtx) {
+	if e.FollowRedirects.Update(gtx) {
 		changed = true
 	}
-	if st.VerifySSL.Update(gtx) {
+	if e.VerifySSL.Update(gtx) {
 		changed = true
 	}
-	if st.KeepAlive.Update(gtx) {
+	if e.KeepAlive.Update(gtx) {
 		changed = true
 	}
-	if st.DisableHTTP2.Update(gtx) {
+	if e.DisableHTTP2.Update(gtx) {
 		changed = true
 	}
-	if st.CookieJar.Update(gtx) {
+	if e.CookieJar.Update(gtx) {
 		changed = true
 	}
-	if st.SendConnClose.Update(gtx) {
+	if e.SendConnClose.Update(gtx) {
 		changed = true
 	}
-	if st.WrapLines.Update(gtx) {
+	if e.WrapLines.Update(gtx) {
 		changed = true
 	}
-	if st.AutoFormatJSON.Update(gtx) {
+	if e.AutoFormatJSON.Update(gtx) {
 		changed = true
 	}
-	if st.AutoFormatJSONRequest.Update(gtx) {
+	if e.AutoFormatJSONRequest.Update(gtx) {
 		changed = true
 	}
-	if st.StripJSONComments.Update(gtx) {
+	if e.StripJSONComments.Update(gtx) {
 		changed = true
 	}
-	if st.TrimTrailingWS.Update(gtx) {
+	if e.TrimTrailingWS.Update(gtx) {
 		changed = true
 	}
-	if st.BracketPairColorization.Update(gtx) {
+	if e.BracketPairColorization.Update(gtx) {
 		changed = true
 	}
 
 	if changed || resetChanged {
-		ui.applyDraftSettings()
-		ui.saveState()
+		e.Apply(host)
+		host.OnSave()
 	}
 
 	// Anchor the whole settings screen to CursorDefault. The settings
@@ -1019,7 +1014,7 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 	return layout.UniformInset(unit.Dp(16)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return ui.layoutSettingsHeader(gtx)
+				return e.layoutHeader(gtx, host)
 			}),
 			layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -1027,7 +1022,7 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						gtx.Constraints.Min.X = gtx.Dp(unit.Dp(200))
 						gtx.Constraints.Max.X = gtx.Dp(unit.Dp(220))
-						return ui.layoutSettingsCategories(gtx)
+						return e.layoutCategories(gtx, host)
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						size := image.Pt(1, gtx.Constraints.Max.Y)
@@ -1036,7 +1031,7 @@ func (ui *AppUI) layoutSettings(gtx layout.Context) layout.Dimensions {
 					}),
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 						return layout.Inset{Left: unit.Dp(16)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return ui.layoutSettingsContent(gtx)
+							return e.layoutContent(gtx, host)
 						})
 					}),
 				)
@@ -1071,24 +1066,24 @@ func connsStep(current int) int {
 	}
 }
 
-func methodGrid(th *material.Theme, st *SettingsEditorState, gtx layout.Context) layout.Dimensions {
+func methodGrid(th *material.Theme, e *Editor, gtx layout.Context) layout.Dimensions {
 	height := gtx.Dp(unit.Dp(28))
 	gap := gtx.Dp(unit.Dp(2))
-	children := make([]layout.FlexChild, 0, len(settings.Methods)*2)
-	for i, m := range settings.Methods {
+	children := make([]layout.FlexChild, 0, len(Methods)*2)
+	for i, m := range Methods {
 		i, m := i, m
 		children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			return material.Clickable(gtx, &st.DefaultMethodBtn[i], func(gtx layout.Context) layout.Dimensions {
+			return material.Clickable(gtx, &e.DefaultMethodBtn[i], func(gtx layout.Context) layout.Dimensions {
 				size := image.Pt(gtx.Constraints.Max.X, height)
 				gtx.Constraints.Min = size
 				gtx.Constraints.Max = size
 				borderC := theme.Border
 				borderW := gtx.Dp(unit.Dp(1))
-				active := st.Draft.DefaultMethod == m
+				active := e.Draft.DefaultMethod == m
 				if active {
 					borderC = theme.Accent
 					borderW = gtx.Dp(unit.Dp(2))
-				} else if st.DefaultMethodBtn[i].Hovered() {
+				} else if e.DefaultMethodBtn[i].Hovered() {
 					borderC = theme.BorderLight
 				}
 				outer := clip.UniformRRect(image.Rectangle{Max: size}, 4)
@@ -1105,31 +1100,31 @@ func methodGrid(th *material.Theme, st *SettingsEditorState, gtx layout.Context)
 				})
 			})
 		}))
-		if i < len(settings.Methods)-1 {
+		if i < len(Methods)-1 {
 			children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(float32(gap) / gtx.Metric.PxPerDp)}.Layout))
 		}
 	}
 	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
 }
 
-func acceptEncodingGrid(th *material.Theme, st *SettingsEditorState, gtx layout.Context) layout.Dimensions {
+func acceptEncodingGrid(th *material.Theme, e *Editor, gtx layout.Context) layout.Dimensions {
 	height := gtx.Dp(unit.Dp(28))
 	gap := gtx.Dp(unit.Dp(4))
 	children := make([]layout.FlexChild, 0, len(acceptEncodingOptions)*2)
 	for i, opt := range acceptEncodingOptions {
 		i, opt := i, opt
 		children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			return material.Clickable(gtx, &st.AcceptEncodingBtn[i], func(gtx layout.Context) layout.Dimensions {
+			return material.Clickable(gtx, &e.AcceptEncodingBtn[i], func(gtx layout.Context) layout.Dimensions {
 				size := image.Pt(gtx.Constraints.Max.X, height)
 				gtx.Constraints.Min = size
 				gtx.Constraints.Max = size
 				borderC := theme.Border
 				borderW := gtx.Dp(unit.Dp(1))
-				active := st.Draft.DefaultAcceptEncoding == opt.Value
+				active := e.Draft.DefaultAcceptEncoding == opt.Value
 				if active {
 					borderC = theme.Accent
 					borderW = gtx.Dp(unit.Dp(2))
-				} else if st.AcceptEncodingBtn[i].Hovered() {
+				} else if e.AcceptEncodingBtn[i].Hovered() {
 					borderC = theme.BorderLight
 				}
 				outer := clip.UniformRRect(image.Rectangle{Max: size}, 4)
@@ -1153,28 +1148,27 @@ func acceptEncodingGrid(th *material.Theme, st *SettingsEditorState, gtx layout.
 	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
 }
 
-func (ui *AppUI) layoutSettingsHeader(gtx layout.Context) layout.Dimensions {
-	st := ui.SettingsState
+func (e *Editor) layoutHeader(gtx layout.Context, host *Host) layout.Dimensions {
 	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return material.Clickable(gtx, &st.BackBtn, func(gtx layout.Context) layout.Dimensions {
+			return material.Clickable(gtx, &e.BackBtn, func(gtx layout.Context) layout.Dimensions {
 				size := image.Pt(gtx.Dp(unit.Dp(28)), gtx.Dp(unit.Dp(28)))
 				gtx.Constraints.Min = size
 				gtx.Constraints.Max = size
 				bg := theme.Border
-				if st.BackBtn.Hovered() {
+				if e.BackBtn.Hovered() {
 					bg = theme.BorderLight
 				}
 				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min = image.Pt(gtx.Dp(16), gtx.Dp(16))
-					return widgets.IconBack.Layout(gtx, ui.Theme.Fg)
+					return widgets.IconBack.Layout(gtx, host.Theme.Fg)
 				})
 			})
 		}),
 		layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			lbl := material.Label(ui.Theme, unit.Sp(18), "Settings")
+			lbl := material.Label(host.Theme, unit.Sp(18), "Settings")
 			lbl.Font.Weight = font.Bold
 			return lbl.Layout(gtx)
 		}),
@@ -1182,18 +1176,18 @@ func (ui *AppUI) layoutSettingsHeader(gtx layout.Context) layout.Dimensions {
 			return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, 0)}
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return material.Clickable(gtx, &st.ResetBtn, func(gtx layout.Context) layout.Dimensions {
+			return material.Clickable(gtx, &e.ResetBtn, func(gtx layout.Context) layout.Dimensions {
 				size := image.Pt(gtx.Dp(unit.Dp(140)), gtx.Dp(unit.Dp(32)))
 				gtx.Constraints.Min = size
 				gtx.Constraints.Max = size
 				bg := theme.Border
-				if st.ResetBtn.Hovered() {
+				if e.ResetBtn.Hovered() {
 					bg = theme.BorderLight
 				}
 				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					lbl := material.Label(ui.Theme, unit.Sp(13), "Reset to defaults")
-					lbl.Color = ui.Theme.Fg
+					lbl := material.Label(host.Theme, unit.Sp(13), "Reset to defaults")
+					lbl.Color = host.Theme.Fg
 					lbl.Font.Weight = font.Bold
 					return lbl.Layout(gtx)
 				})
@@ -1202,29 +1196,28 @@ func (ui *AppUI) layoutSettingsHeader(gtx layout.Context) layout.Dimensions {
 	)
 }
 
-func (ui *AppUI) layoutSettingsCategories(gtx layout.Context) layout.Dimensions {
-	st := ui.SettingsState
+func (e *Editor) layoutCategories(gtx layout.Context, host *Host) layout.Dimensions {
 	children := make([]layout.FlexChild, 0, len(settingsCategories))
 	for i, name := range settingsCategories {
 		i, name := i, name
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return material.Clickable(gtx, &st.CategoryBtn[i], func(gtx layout.Context) layout.Dimensions {
+			return material.Clickable(gtx, &e.CategoryBtn[i], func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.X = gtx.Constraints.Max.X
 					bg := theme.Transparent
 					fg := theme.FgMuted
-					if st.Category == i {
+					if e.Category == i {
 						bg = theme.BgHover
-						fg = ui.Theme.Fg
-					} else if st.CategoryBtn[i].Hovered() {
+						fg = host.Theme.Fg
+					} else if e.CategoryBtn[i].Hovered() {
 						bg = theme.BgSecondary
 					}
 					rect := clip.UniformRRect(image.Rectangle{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(32)))}, 4)
 					paint.FillShape(gtx.Ops, bg, rect.Op(gtx.Ops))
 					return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8), Left: unit.Dp(12), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						lbl := material.Label(ui.Theme, unit.Sp(13), name)
+						lbl := material.Label(host.Theme, unit.Sp(13), name)
 						lbl.Color = fg
-						if st.Category == i {
+						if e.Category == i {
 							lbl.Font.Weight = font.Bold
 						}
 						return lbl.Layout(gtx)
@@ -1236,25 +1229,24 @@ func (ui *AppUI) layoutSettingsCategories(gtx layout.Context) layout.Dimensions 
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 }
 
-func (ui *AppUI) layoutSettingsContent(gtx layout.Context) layout.Dimensions {
+func (e *Editor) layoutContent(gtx layout.Context, host *Host) layout.Dimensions {
 	var sections []layout.Widget
-	switch ui.SettingsState.Category {
+	switch e.Category {
 	case 0:
-		sections = ui.sectionsAppearance()
+		sections = e.sectionsAppearance(host)
 	case 1:
-		sections = ui.sectionsSizes()
+		sections = e.sectionsSizes(host)
 	case 2:
-		sections = ui.sectionsHTTP()
+		sections = e.sectionsHTTP(host)
 	case 3:
-		sections = ui.sectionsAdvanced()
+		sections = e.sectionsAdvanced(host)
 	}
-	return material.List(ui.Theme, &ui.SettingsState.ContentList).Layout(gtx, len(sections), func(gtx layout.Context, i int) layout.Dimensions {
+	return material.List(host.Theme, &e.ContentList).Layout(gtx, len(sections), func(gtx layout.Context, i int) layout.Dimensions {
 		return layout.Inset{Right: unit.Dp(8)}.Layout(gtx, sections[i])
 	})
 }
 
-func (ui *AppUI) sectionsAppearance() []layout.Widget {
-	st := ui.SettingsState
+func (e *Editor) sectionsAppearance(host *Host) []layout.Widget {
 	def := model.DefaultSettings()
 	defName := "Dark+"
 	for _, t := range theme.Registry {
@@ -1268,61 +1260,61 @@ func (ui *AppUI) sectionsAppearance() []layout.Widget {
 	restoreHint := "Reopen previously open tabs when the app starts. " + defaultOnOff(def.RestoreTabsOnStartup)
 	activeThemeName := defName
 	for _, t := range theme.Registry {
-		if t.ID == st.Draft.Theme {
+		if t.ID == e.Draft.Theme {
 			activeThemeName = t.Name
 			break
 		}
 	}
-	for _, c := range st.Draft.CustomThemes {
-		if c.ID == st.Draft.Theme {
+	for _, c := range e.Draft.CustomThemes {
+		if c.ID == e.Draft.Theme {
 			activeThemeName = c.Name
 			break
 		}
 	}
 	widgets := []layout.Widget{
-		settingsSectionTitle(ui.Theme, "Visibility"),
+		settingsSectionTitle(host.Theme, "Visibility"),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.HideTabBar)
-			return settingsSwitchRow(ui.Theme, "Hide tab bar", tabHint, sw.Layout)(gtx)
+			sw := styledSwitch(host.Theme, &e.HideTabBar)
+			return settingsSwitchRow(host.Theme, "Hide tab bar", tabHint, sw.Layout)(gtx)
 		},
 		spacerH(12),
 		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.HideSidebar)
-			return settingsSwitchRow(ui.Theme, "Hide sidebar", sideHint, sw.Layout)(gtx)
+			sw := styledSwitch(host.Theme, &e.HideSidebar)
+			return settingsSwitchRow(host.Theme, "Hide sidebar", sideHint, sw.Layout)(gtx)
 		},
 		spacerH(20),
-		settingsSectionTitle(ui.Theme, "Startup"),
+		settingsSectionTitle(host.Theme, "Startup"),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.RestoreTabsOnStartup)
-			return settingsSwitchRow(ui.Theme, "Restore tabs on startup", restoreHint, sw.Layout)(gtx)
+			sw := styledSwitch(host.Theme, &e.RestoreTabsOnStartup)
+			return settingsSwitchRow(host.Theme, "Restore tabs on startup", restoreHint, sw.Layout)(gtx)
 		},
 		spacerH(20),
-		settingsSectionTitle(ui.Theme, "Color theme"),
+		settingsSectionTitle(host.Theme, "Color theme"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("VS Code–inspired themes. Default: %s.", defName)),
+		settingsHint(host.Theme, fmt.Sprintf("VS Code–inspired themes. Default: %s.", defName)),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			return themeGrid(ui.Theme, st, gtx)
+			return themeGrid(host.Theme, e, gtx)
 		},
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			return ui.layoutNewThemeRow(gtx, st)
+			return e.layoutNewThemeRow(gtx, host)
 		},
 		spacerH(20),
-		spoilerHeader(ui.Theme, &st.ThemeColorsHeaderBtn, &st.ThemeColorResetAllBtn,
-			"Customize colors — "+activeThemeName, st.ThemeColorsExpanded),
+		spoilerHeader(host.Theme, &e.ThemeColorsHeaderBtn, &e.ThemeColorResetAllBtn,
+			"Customize colors — "+activeThemeName, e.ThemeColorsExpanded),
 	}
-	if st.ThemeColorsExpanded {
+	if e.ThemeColorsExpanded {
 		widgets = append(widgets,
 			spacerH(4),
-			settingsHint(ui.Theme, "Type a hex color (e.g. #1F1F1F) or click the swatch for a picker. Empty = theme default."),
+			settingsHint(host.Theme, "Type a hex color (e.g. #1F1F1F) or click the swatch for a picker. Empty = theme default."),
 			spacerH(8),
 		)
 		for i := range theme.PaletteColorTable {
 			idx := i
-			widgets = append(widgets, themeColorRow(ui.Theme, st, idx))
+			widgets = append(widgets, themeColorRow(host.Theme, e, idx))
 			widgets = append(widgets, spacerH(4))
 		}
 		widgets = append(widgets,
@@ -1334,7 +1326,7 @@ func (ui *AppUI) sectionsAppearance() []layout.Widget {
 			},
 			spacerH(8),
 			func(gtx layout.Context) layout.Dimensions {
-				lbl := material.Label(ui.Theme, unit.Sp(11), "Syntax")
+				lbl := material.Label(host.Theme, unit.Sp(11), "Syntax")
 				lbl.Color = theme.FgMuted
 				lbl.Font.Weight = font.Bold
 				return lbl.Layout(gtx)
@@ -1343,7 +1335,7 @@ func (ui *AppUI) sectionsAppearance() []layout.Widget {
 		)
 		for i := range theme.TokenColorTable {
 			idx := i
-			widgets = append(widgets, syntaxColorRow(ui.Theme, st, idx))
+			widgets = append(widgets, syntaxColorRow(host.Theme, e, idx))
 			if idx < len(theme.TokenColorTable)-1 {
 				widgets = append(widgets, spacerH(4))
 			}
@@ -1393,11 +1385,11 @@ func spoilerHeader(th *material.Theme, headerBtn, resetBtn *widget.Clickable, ti
 	}
 }
 
-func themeColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout.Widget {
+func themeColorRow(th *material.Theme, e *Editor, idx int) layout.Widget {
 	entry := theme.PaletteColorTable[idx]
 	return func(gtx layout.Context) layout.Dimensions {
-		base := theme.PaletteFor(st.Draft.Theme, st.Draft.CustomThemes)
-		if ov, ok := st.Draft.ThemeOverrides[st.Draft.Theme]; ok {
+		base := theme.PaletteFor(e.Draft.Theme, e.Draft.CustomThemes)
+		if ov, ok := e.Draft.ThemeOverrides[e.Draft.Theme]; ok {
 			base = theme.ApplyOverride(base, ov)
 		}
 		swatchColor := entry.GetBase(base)
@@ -1406,14 +1398,14 @@ func themeColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout.
 				size := image.Pt(gtx.Dp(unit.Dp(20)), gtx.Dp(unit.Dp(20)))
 				gtx.Constraints.Min = size
 				gtx.Constraints.Max = size
-				return material.Clickable(gtx, &st.ThemeColorSwatchBtns[idx], func(gtx layout.Context) layout.Dimensions {
+				return material.Clickable(gtx, &e.ThemeColorSwatchBtns[idx], func(gtx layout.Context) layout.Dimensions {
 					border := gtx.Dp(unit.Dp(1))
-					if st.ColorPicker.Kind == colorpicker.KindTheme && st.ColorPicker.OpenIdx == idx {
+					if e.ColorPicker.Kind == colorpicker.KindTheme && e.ColorPicker.OpenIdx == idx {
 						border = gtx.Dp(unit.Dp(2))
 						paint.FillShape(gtx.Ops, theme.Accent, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
 					} else {
 						borderC := theme.BorderLight
-						if st.ThemeColorSwatchBtns[idx].Hovered() {
+						if e.ThemeColorSwatchBtns[idx].Hovered() {
 							borderC = theme.Accent
 						}
 						paint.FillShape(gtx.Ops, borderC, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
@@ -1431,16 +1423,16 @@ func themeColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout.
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Max.X = gtx.Dp(unit.Dp(110))
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				return widgets.TextField(gtx, th, &st.ThemeColorEditors[idx], theme.HexFromColor(entry.GetBase(theme.PaletteFor(st.Draft.Theme, st.Draft.CustomThemes))), true, nil, 0, unit.Sp(11))
+				return widgets.TextField(gtx, th, &e.ThemeColorEditors[idx], theme.HexFromColor(entry.GetBase(theme.PaletteFor(e.Draft.Theme, e.Draft.CustomThemes))), true, nil, 0, unit.Sp(11))
 			}),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				size := image.Pt(gtx.Dp(unit.Dp(22)), gtx.Dp(unit.Dp(22)))
 				gtx.Constraints.Min = size
 				gtx.Constraints.Max = size
-				return material.Clickable(gtx, &st.ThemeColorResetBtns[idx], func(gtx layout.Context) layout.Dimensions {
+				return material.Clickable(gtx, &e.ThemeColorResetBtns[idx], func(gtx layout.Context) layout.Dimensions {
 					bg := theme.BgField
-					if st.ThemeColorResetBtns[idx].Hovered() {
+					if e.ThemeColorResetBtns[idx].Hovered() {
 						bg = theme.BgHover
 					}
 					paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
@@ -1456,11 +1448,11 @@ func themeColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout.
 	}
 }
 
-func syntaxColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout.Widget {
+func syntaxColorRow(th *material.Theme, e *Editor, idx int) layout.Widget {
 	entry := theme.TokenColorTable[idx]
 	return func(gtx layout.Context) layout.Dimensions {
-		basePalette := theme.PaletteFor(st.Draft.Theme, st.Draft.CustomThemes).Syntax
-		if ov, ok := st.Draft.SyntaxOverrides[st.Draft.Theme]; ok {
+		basePalette := theme.PaletteFor(e.Draft.Theme, e.Draft.CustomThemes).Syntax
+		if ov, ok := e.Draft.SyntaxOverrides[e.Draft.Theme]; ok {
 			basePalette = theme.ApplySyntaxOverride(basePalette, ov)
 		}
 		swatchColor := entry.GetBase(basePalette)
@@ -1470,14 +1462,14 @@ func syntaxColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout
 				size := image.Pt(gtx.Dp(unit.Dp(20)), gtx.Dp(unit.Dp(20)))
 				gtx.Constraints.Min = size
 				gtx.Constraints.Max = size
-				return material.Clickable(gtx, &st.SyntaxSwatchBtns[idx], func(gtx layout.Context) layout.Dimensions {
+				return material.Clickable(gtx, &e.SyntaxSwatchBtns[idx], func(gtx layout.Context) layout.Dimensions {
 					border := gtx.Dp(unit.Dp(1))
-					if st.ColorPicker.Kind == colorpicker.KindSyntax && st.ColorPicker.OpenIdx == idx {
+					if e.ColorPicker.Kind == colorpicker.KindSyntax && e.ColorPicker.OpenIdx == idx {
 						border = gtx.Dp(unit.Dp(2))
 						paint.FillShape(gtx.Ops, theme.Accent, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
 					} else {
 						borderC := theme.BorderLight
-						if st.SyntaxSwatchBtns[idx].Hovered() {
+						if e.SyntaxSwatchBtns[idx].Hovered() {
 							borderC = theme.Accent
 						}
 						paint.FillShape(gtx.Ops, borderC, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
@@ -1495,16 +1487,16 @@ func syntaxColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Max.X = gtx.Dp(unit.Dp(110))
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
-				return widgets.TextField(gtx, th, &st.SyntaxOverrideEditors[idx], theme.HexFromColor(entry.GetBase(theme.PaletteFor(st.Draft.Theme, st.Draft.CustomThemes).Syntax)), true, nil, 0, unit.Sp(11))
+				return widgets.TextField(gtx, th, &e.SyntaxOverrideEditors[idx], theme.HexFromColor(entry.GetBase(theme.PaletteFor(e.Draft.Theme, e.Draft.CustomThemes).Syntax)), true, nil, 0, unit.Sp(11))
 			}),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				size := image.Pt(gtx.Dp(unit.Dp(22)), gtx.Dp(unit.Dp(22)))
 				gtx.Constraints.Min = size
 				gtx.Constraints.Max = size
-				return material.Clickable(gtx, &st.SyntaxResetBtns[idx], func(gtx layout.Context) layout.Dimensions {
+				return material.Clickable(gtx, &e.SyntaxResetBtns[idx], func(gtx layout.Context) layout.Dimensions {
 					bg := theme.BgField
-					if st.SyntaxResetBtns[idx].Hovered() {
+					if e.SyntaxResetBtns[idx].Hovered() {
 						bg = theme.BgHover
 					}
 					paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
@@ -1520,56 +1512,54 @@ func syntaxColorRow(th *material.Theme, st *SettingsEditorState, idx int) layout
 	}
 }
 
-func (ui *AppUI) sectionsSizes() []layout.Widget {
-	st := ui.SettingsState
+func (e *Editor) sectionsSizes(host *Host) []layout.Widget {
 	def := model.DefaultSettings()
 	return []layout.Widget{
-		settingsSectionTitle(ui.Theme, "UI text size"),
+		settingsSectionTitle(host.Theme, "UI text size"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Scales all UI text. Default: %d pt.", def.UITextSize)),
+		settingsHint(host.Theme, fmt.Sprintf("Scales all UI text. Default: %d pt.", def.UITextSize)),
 		spacerH(8),
-		stepperEditableRow(ui.Theme, &st.UISizeDec, &st.UISizeInc, &st.UISizeEditor, "pt"),
+		stepperEditableRow(host.Theme, &e.UISizeDec, &e.UISizeInc, &e.UISizeEditor, "pt"),
 		spacerH(20),
-		settingsSectionTitle(ui.Theme, "Body text size"),
+		settingsSectionTitle(host.Theme, "Body text size"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Size of the request and response body editors. Default: %d pt.", def.BodyTextSize)),
+		settingsHint(host.Theme, fmt.Sprintf("Size of the request and response body editors. Default: %d pt.", def.BodyTextSize)),
 		spacerH(8),
-		stepperEditableRow(ui.Theme, &st.BodySizeDec, &st.BodySizeInc, &st.BodySizeEditor, "pt"),
+		stepperEditableRow(host.Theme, &e.BodySizeDec, &e.BodySizeInc, &e.BodySizeEditor, "pt"),
 		spacerH(20),
-		settingsSectionTitle(ui.Theme, "UI scale"),
+		settingsSectionTitle(host.Theme, "UI scale"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Overall size of layout spacing and controls. Default: %.2fx.", def.UIScale)),
+		settingsHint(host.Theme, fmt.Sprintf("Overall size of layout spacing and controls. Default: %.2fx.", def.UIScale)),
 		spacerH(8),
-		stepperEditableRow(ui.Theme, &st.UIScaleDec, &st.UIScaleInc, &st.UIScaleEditor, "x"),
+		stepperEditableRow(host.Theme, &e.UIScaleDec, &e.UIScaleInc, &e.UIScaleEditor, "x"),
 		spacerH(20),
-		settingsSectionTitle(ui.Theme, "Response body padding"),
+		settingsSectionTitle(host.Theme, "Response body padding"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Inner padding around the response body text. Same for wrap and no-wrap modes. Default: %d px.", def.ResponseBodyPadding)),
+		settingsHint(host.Theme, fmt.Sprintf("Inner padding around the response body text. Same for wrap and no-wrap modes. Default: %d px.", def.ResponseBodyPadding)),
 		spacerH(8),
-		stepperEditableRow(ui.Theme, &st.BodyPaddingDec, &st.BodyPaddingInc, &st.BodyPaddingEditor, "px"),
+		stepperEditableRow(host.Theme, &e.BodyPaddingDec, &e.BodyPaddingInc, &e.BodyPaddingEditor, "px"),
 		spacerH(20),
-		settingsSectionTitle(ui.Theme, "Default request/response split"),
+		settingsSectionTitle(host.Theme, "Default request/response split"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Initial width ratio of the request pane in new tabs. Default: %.0f%%.", def.DefaultSplitRatio*100)),
+		settingsHint(host.Theme, fmt.Sprintf("Initial width ratio of the request pane in new tabs. Default: %.0f%%.", def.DefaultSplitRatio*100)),
 		spacerH(8),
-		stepperEditableRow(ui.Theme, &st.SplitRatioDec, &st.SplitRatioInc, &st.SplitRatioEditor, "%"),
+		stepperEditableRow(host.Theme, &e.SplitRatioDec, &e.SplitRatioInc, &e.SplitRatioEditor, "%"),
 		spacerH(20),
-		settingsSectionTitle(ui.Theme, "Adaptive stack breakpoint"),
+		settingsSectionTitle(host.Theme, "Adaptive stack breakpoint"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Stack request and response panes vertically when the tab content area is narrower than this width. Set to 0 to always keep them side-by-side. Default: %d dp.", def.StackBreakpointDp)),
+		settingsHint(host.Theme, fmt.Sprintf("Stack request and response panes vertically when the tab content area is narrower than this width. Set to 0 to always keep them side-by-side. Default: %d dp.", def.StackBreakpointDp)),
 		spacerH(8),
-		stepperEditableRow(ui.Theme, &st.StackBpDec, &st.StackBpInc, &st.StackBpEditor, "dp"),
+		stepperEditableRow(host.Theme, &e.StackBpDec, &e.StackBpInc, &e.StackBpEditor, "dp"),
 		spacerH(20),
-		settingsSectionTitle(ui.Theme, "Default sidebar width"),
+		settingsSectionTitle(host.Theme, "Default sidebar width"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Initial width of the collections/environments sidebar on first launch. Existing windows keep their dragged width. Default: %d px.", def.DefaultSidebarWidthPx)),
+		settingsHint(host.Theme, fmt.Sprintf("Initial width of the collections/environments sidebar on first launch. Existing windows keep their dragged width. Default: %d px.", def.DefaultSidebarWidthPx)),
 		spacerH(8),
-		stepperEditableRow(ui.Theme, &st.SidebarWidthDec, &st.SidebarWidthInc, &st.SidebarWidthEditor, "px"),
+		stepperEditableRow(host.Theme, &e.SidebarWidthDec, &e.SidebarWidthInc, &e.SidebarWidthEditor, "px"),
 	}
 }
 
-func (ui *AppUI) sectionsHTTP() []layout.Widget {
-	st := ui.SettingsState
+func (e *Editor) sectionsHTTP(host *Host) []layout.Widget {
 	def := model.DefaultSettings()
 	redirectHint := "Follow HTTP 3xx redirects automatically. " + defaultOnOff(def.FollowRedirects)
 	verifyHint := "Verify TLS certificates for HTTPS requests. Disable only for local dev against self-signed certs. " + defaultOnOff(def.VerifySSL)
@@ -1578,132 +1568,131 @@ func (ui *AppUI) sectionsHTTP() []layout.Widget {
 	cookieHint := "Persist cookies set by the server and resend them on subsequent requests to the same host (in-memory only, cleared on app exit). " + defaultOnOff(def.CookieJarEnabled)
 	connCloseHint := "Send Connection: close on every request and tear down the TCP connection after the response. Useful for debugging. " + defaultOnOff(def.SendConnectionClose)
 	return []layout.Widget{
-		settingsSectionTitle(ui.Theme, "Request timeout"),
+		settingsSectionTitle(host.Theme, "Request timeout"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Cancel a request if no response arrives in this many seconds. 0 = no timeout. Default: %d s.", def.RequestTimeoutSec)),
+		settingsHint(host.Theme, fmt.Sprintf("Cancel a request if no response arrives in this many seconds. 0 = no timeout. Default: %d s.", def.RequestTimeoutSec)),
 		spacerH(8),
-		stepperEditableRow(ui.Theme, &st.TimeoutDec, &st.TimeoutInc, &st.TimeoutEditor, "s"),
+		stepperEditableRow(host.Theme, &e.TimeoutDec, &e.TimeoutInc, &e.TimeoutEditor, "s"),
 		spacerH(20),
 
-		settingsSectionTitle(ui.Theme, "Connect timeout"),
+		settingsSectionTitle(host.Theme, "Connect timeout"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Maximum time to establish a TCP connection. 0 = system default. Default: %d s.", def.ConnectTimeoutSec)),
+		settingsHint(host.Theme, fmt.Sprintf("Maximum time to establish a TCP connection. 0 = system default. Default: %d s.", def.ConnectTimeoutSec)),
 		spacerH(8),
-		stepperEditableRow(ui.Theme, &st.ConnectTimeoutDec, &st.ConnectTimeoutInc, &st.ConnectTimeoutEditor, "s"),
+		stepperEditableRow(host.Theme, &e.ConnectTimeoutDec, &e.ConnectTimeoutInc, &e.ConnectTimeoutEditor, "s"),
 		spacerH(20),
 
-		settingsSectionTitle(ui.Theme, "TLS handshake timeout"),
+		settingsSectionTitle(host.Theme, "TLS handshake timeout"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Maximum time waiting for the TLS handshake. 0 = system default. Default: %d s.", def.TLSHandshakeTimeoutSec)),
+		settingsHint(host.Theme, fmt.Sprintf("Maximum time waiting for the TLS handshake. 0 = system default. Default: %d s.", def.TLSHandshakeTimeoutSec)),
 		spacerH(8),
-		stepperEditableRow(ui.Theme, &st.TLSTimeoutDec, &st.TLSTimeoutInc, &st.TLSTimeoutEditor, "s"),
+		stepperEditableRow(host.Theme, &e.TLSTimeoutDec, &e.TLSTimeoutInc, &e.TLSTimeoutEditor, "s"),
 		spacerH(20),
 
-		settingsSectionTitle(ui.Theme, "Idle connection timeout"),
+		settingsSectionTitle(host.Theme, "Idle connection timeout"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Close idle keep-alive connections after this many seconds. 0 = never. Default: %d s.", def.IdleConnTimeoutSec)),
+		settingsHint(host.Theme, fmt.Sprintf("Close idle keep-alive connections after this many seconds. 0 = never. Default: %d s.", def.IdleConnTimeoutSec)),
 		spacerH(8),
-		stepperEditableRow(ui.Theme, &st.IdleTimeoutDec, &st.IdleTimeoutInc, &st.IdleTimeoutEditor, "s"),
+		stepperEditableRow(host.Theme, &e.IdleTimeoutDec, &e.IdleTimeoutInc, &e.IdleTimeoutEditor, "s"),
 		spacerH(20),
 
-		settingsSectionTitle(ui.Theme, "Default request method"),
+		settingsSectionTitle(host.Theme, "Default request method"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Method assigned to newly created tabs. Default: %s.", def.DefaultMethod)),
+		settingsHint(host.Theme, fmt.Sprintf("Method assigned to newly created tabs. Default: %s.", def.DefaultMethod)),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			return methodGrid(ui.Theme, st, gtx)
+			return methodGrid(host.Theme, e, gtx)
 		},
 		spacerH(20),
 
-		settingsSectionTitle(ui.Theme, "Default User-Agent"),
+		settingsSectionTitle(host.Theme, "Default User-Agent"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Sent on every request unless overridden by a per-request header. Default: %s.", def.UserAgent)),
+		settingsHint(host.Theme, fmt.Sprintf("Sent on every request unless overridden by a per-request header. Default: %s.", def.UserAgent)),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			return widgets.TextField(gtx, ui.Theme, &st.UserAgentEditor, "User-Agent", true, nil, 0, unit.Sp(13))
+			return widgets.TextField(gtx, host.Theme, &e.UserAgentEditor, "User-Agent", true, nil, 0, unit.Sp(13))
 		},
 		spacerH(20),
 
-		settingsSectionTitle(ui.Theme, "Redirects"),
+		settingsSectionTitle(host.Theme, "Redirects"),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.FollowRedirects)
-			return settingsSwitchRow(ui.Theme, "Follow redirects", redirectHint, sw.Layout)(gtx)
-		},
-		spacerH(12),
-		settingsHint(ui.Theme, fmt.Sprintf("Maximum redirect chain length. 0 = unlimited. Default: %d.", def.MaxRedirects)),
-		spacerH(8),
-		stepperEditableRow(ui.Theme, &st.MaxRedirectsDec, &st.MaxRedirectsInc, &st.MaxRedirectsEditor, ""),
-		spacerH(20),
-
-		settingsSectionTitle(ui.Theme, "TLS"),
-		spacerH(8),
-		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.VerifySSL)
-			return settingsSwitchRow(ui.Theme, "Verify SSL certificates", verifyHint, sw.Layout)(gtx)
-		},
-		spacerH(20),
-
-		settingsSectionTitle(ui.Theme, "Connection"),
-		spacerH(8),
-		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.KeepAlive)
-			return settingsSwitchRow(ui.Theme, "Keep-Alive", keepAliveHint, sw.Layout)(gtx)
+			sw := styledSwitch(host.Theme, &e.FollowRedirects)
+			return settingsSwitchRow(host.Theme, "Follow redirects", redirectHint, sw.Layout)(gtx)
 		},
 		spacerH(12),
+		settingsHint(host.Theme, fmt.Sprintf("Maximum redirect chain length. 0 = unlimited. Default: %d.", def.MaxRedirects)),
+		spacerH(8),
+		stepperEditableRow(host.Theme, &e.MaxRedirectsDec, &e.MaxRedirectsInc, &e.MaxRedirectsEditor, ""),
+		spacerH(20),
+
+		settingsSectionTitle(host.Theme, "TLS"),
+		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.DisableHTTP2)
-			return settingsSwitchRow(ui.Theme, "Disable HTTP/2", http2Hint, sw.Layout)(gtx)
+			sw := styledSwitch(host.Theme, &e.VerifySSL)
+			return settingsSwitchRow(host.Theme, "Verify SSL certificates", verifyHint, sw.Layout)(gtx)
+		},
+		spacerH(20),
+
+		settingsSectionTitle(host.Theme, "Connection"),
+		spacerH(8),
+		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(host.Theme, &e.KeepAlive)
+			return settingsSwitchRow(host.Theme, "Keep-Alive", keepAliveHint, sw.Layout)(gtx)
 		},
 		spacerH(12),
 		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.SendConnClose)
-			return settingsSwitchRow(ui.Theme, "Send Connection: close", connCloseHint, sw.Layout)(gtx)
+			sw := styledSwitch(host.Theme, &e.DisableHTTP2)
+			return settingsSwitchRow(host.Theme, "Disable HTTP/2", http2Hint, sw.Layout)(gtx)
 		},
 		spacerH(12),
 		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.CookieJar)
-			return settingsSwitchRow(ui.Theme, "Cookie jar", cookieHint, sw.Layout)(gtx)
+			sw := styledSwitch(host.Theme, &e.SendConnClose)
+			return settingsSwitchRow(host.Theme, "Send Connection: close", connCloseHint, sw.Layout)(gtx)
 		},
 		spacerH(12),
-		settingsHint(ui.Theme, fmt.Sprintf("Maximum concurrent connections per host. 0 = unlimited. Default: %d.", def.MaxConnsPerHost)),
+		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(host.Theme, &e.CookieJar)
+			return settingsSwitchRow(host.Theme, "Cookie jar", cookieHint, sw.Layout)(gtx)
+		},
+		spacerH(12),
+		settingsHint(host.Theme, fmt.Sprintf("Maximum concurrent connections per host. 0 = unlimited. Default: %d.", def.MaxConnsPerHost)),
 		spacerH(8),
-		stepperEditableRow(ui.Theme, &st.MaxConnsDec, &st.MaxConnsInc, &st.MaxConnsEditor, ""),
+		stepperEditableRow(host.Theme, &e.MaxConnsDec, &e.MaxConnsInc, &e.MaxConnsEditor, ""),
 		spacerH(20),
 
-		settingsSectionTitle(ui.Theme, "Default Accept-Encoding"),
+		settingsSectionTitle(host.Theme, "Default Accept-Encoding"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Sent on every request unless overridden by a per-request header. \"off\" omits the header (Go will then add gzip automatically and transparently decode it). Default: %q.", def.DefaultAcceptEncoding)),
+		settingsHint(host.Theme, fmt.Sprintf("Sent on every request unless overridden by a per-request header. \"off\" omits the header (Go will then add gzip automatically and transparently decode it). Default: %q.", def.DefaultAcceptEncoding)),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			return acceptEncodingGrid(ui.Theme, st, gtx)
+			return acceptEncodingGrid(host.Theme, e, gtx)
 		},
 		spacerH(20),
 
-		settingsSectionTitle(ui.Theme, "HTTP proxy"),
+		settingsSectionTitle(host.Theme, "HTTP proxy"),
 		spacerH(4),
-		settingsHint(ui.Theme, "Send all requests through this proxy. Format: http://host:port or http://user:pass@host:port. Leave empty to disable."),
+		settingsHint(host.Theme, "Send all requests through this proxy. Format: http://host:port or http://user:pass@host:port. Leave empty to disable."),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = gtx.Dp(unit.Dp(360))
-			return widgets.TextField(gtx, ui.Theme, &st.ProxyEditor, "http://proxy.local:8080", true, nil, 0, unit.Sp(13))
+			return widgets.TextField(gtx, host.Theme, &e.ProxyEditor, "http://proxy.local:8080", true, nil, 0, unit.Sp(13))
 		},
 		spacerH(20),
 
-		settingsSectionTitle(ui.Theme, "Default headers"),
+		settingsSectionTitle(host.Theme, "Default headers"),
 		spacerH(4),
-		settingsHint(ui.Theme, "One per line, format \"Header: value\". Added to every request unless the tab sets the same header. Lines starting with # are comments."),
+		settingsHint(host.Theme, "One per line, format \"Header: value\". Added to every request unless the tab sets the same header. Lines starting with # are comments."),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Max.X = gtx.Dp(unit.Dp(480))
 			gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(96))
-			return widgets.TextField(gtx, ui.Theme, &st.DefaultHdrEdit, "Accept: application/json", true, nil, 0, unit.Sp(13))
+			return widgets.TextField(gtx, host.Theme, &e.DefaultHdrEdit, "Accept: application/json", true, nil, 0, unit.Sp(13))
 		},
 	}
 }
 
-func (ui *AppUI) sectionsAdvanced() []layout.Widget {
-	st := ui.SettingsState
+func (e *Editor) sectionsAdvanced(host *Host) []layout.Widget {
 	def := model.DefaultSettings()
 	wrapHint := "Wrap long lines by default in new editors. " + defaultOnOff(def.WrapLinesDefault)
 	autoFmtHint := "Pretty-print JSON responses in the preview viewer. Disable to display raw bytes as received. " + defaultOnOff(def.AutoFormatJSON)
@@ -1712,59 +1701,59 @@ func (ui *AppUI) sectionsAdvanced() []layout.Widget {
 	trimHint := "Strip trailing spaces and tabs from each line of the request body before sending. " + defaultOnOff(def.TrimTrailingWhitespace)
 	bracketHint := "Color matched brackets in nested JSON by depth, like VS Code. " + defaultOnOff(def.BracketPairColorization)
 	return []layout.Widget{
-		settingsSectionTitle(ui.Theme, "JSON indent"),
+		settingsSectionTitle(host.Theme, "JSON indent"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Spaces per level in the JSON pretty-printer. 0 = minified. Default: %d.", def.JSONIndentSpaces)),
+		settingsHint(host.Theme, fmt.Sprintf("Spaces per level in the JSON pretty-printer. 0 = minified. Default: %d.", def.JSONIndentSpaces)),
 		spacerH(8),
-		stepperEditableRow(ui.Theme, &st.JSONIndentDec, &st.JSONIndentInc, &st.JSONIndentEditor, ""),
+		stepperEditableRow(host.Theme, &e.JSONIndentDec, &e.JSONIndentInc, &e.JSONIndentEditor, ""),
 		spacerH(20),
 
-		settingsSectionTitle(ui.Theme, "Response preview cap"),
+		settingsSectionTitle(host.Theme, "Response preview cap"),
 		spacerH(4),
-		settingsHint(ui.Theme, fmt.Sprintf("Maximum response size loaded into the preview editor before 'Load more' is required. Default: %d MB.", def.PreviewMaxMB)),
+		settingsHint(host.Theme, fmt.Sprintf("Maximum response size loaded into the preview editor before 'Load more' is required. Default: %d MB.", def.PreviewMaxMB)),
 		spacerH(8),
-		stepperEditableRow(ui.Theme, &st.PreviewMaxDec, &st.PreviewMaxInc, &st.PreviewMaxEditor, "MB"),
+		stepperEditableRow(host.Theme, &e.PreviewMaxDec, &e.PreviewMaxInc, &e.PreviewMaxEditor, "MB"),
 		spacerH(20),
 
-		settingsSectionTitle(ui.Theme, "Editors"),
+		settingsSectionTitle(host.Theme, "Editors"),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.WrapLines)
-			return settingsSwitchRow(ui.Theme, "Wrap long lines by default", wrapHint, sw.Layout)(gtx)
+			sw := styledSwitch(host.Theme, &e.WrapLines)
+			return settingsSwitchRow(host.Theme, "Wrap long lines by default", wrapHint, sw.Layout)(gtx)
 		},
 		spacerH(20),
 
-		settingsSectionTitle(ui.Theme, "JSON handling"),
+		settingsSectionTitle(host.Theme, "JSON handling"),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.AutoFormatJSON)
-			return settingsSwitchRow(ui.Theme, "Auto-format JSON responses", autoFmtHint, sw.Layout)(gtx)
+			sw := styledSwitch(host.Theme, &e.AutoFormatJSON)
+			return settingsSwitchRow(host.Theme, "Auto-format JSON responses", autoFmtHint, sw.Layout)(gtx)
 		},
 		spacerH(12),
 		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.AutoFormatJSONRequest)
-			return settingsSwitchRow(ui.Theme, "Auto-format JSON request before send", autoFmtReqHint, sw.Layout)(gtx)
+			sw := styledSwitch(host.Theme, &e.AutoFormatJSONRequest)
+			return settingsSwitchRow(host.Theme, "Auto-format JSON request before send", autoFmtReqHint, sw.Layout)(gtx)
 		},
 		spacerH(12),
 		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.StripJSONComments)
-			return settingsSwitchRow(ui.Theme, "Strip // comments before send", stripHint, sw.Layout)(gtx)
+			sw := styledSwitch(host.Theme, &e.StripJSONComments)
+			return settingsSwitchRow(host.Theme, "Strip // comments before send", stripHint, sw.Layout)(gtx)
 		},
 		spacerH(20),
 
-		settingsSectionTitle(ui.Theme, "Body editor"),
+		settingsSectionTitle(host.Theme, "Body editor"),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.TrimTrailingWS)
-			return settingsSwitchRow(ui.Theme, "Trim trailing whitespace before send", trimHint, sw.Layout)(gtx)
+			sw := styledSwitch(host.Theme, &e.TrimTrailingWS)
+			return settingsSwitchRow(host.Theme, "Trim trailing whitespace before send", trimHint, sw.Layout)(gtx)
 		},
 		spacerH(20),
 
-		settingsSectionTitle(ui.Theme, "Syntax coloring"),
+		settingsSectionTitle(host.Theme, "Syntax coloring"),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
-			sw := styledSwitch(ui.Theme, &st.BracketPairColorization)
-			return settingsSwitchRow(ui.Theme, "Bracket pair colorization", bracketHint, sw.Layout)(gtx)
+			sw := styledSwitch(host.Theme, &e.BracketPairColorization)
+			return settingsSwitchRow(host.Theme, "Bracket pair colorization", bracketHint, sw.Layout)(gtx)
 		},
 	}
 }
@@ -1956,8 +1945,8 @@ func settingsSwitchRow(th *material.Theme, title, hint string, control layout.Wi
 	}
 }
 
-func (ui *AppUI) layoutNewThemeRow(gtx layout.Context, st *SettingsEditorState) layout.Dimensions {
-	if !st.NewThemeDialogOpen {
+func (e *Editor) layoutNewThemeRow(gtx layout.Context, host *Host) layout.Dimensions {
+	if !e.NewThemeDialogOpen {
 		return layout.Dimensions{}
 	}
 	return widget.Border{
@@ -1968,44 +1957,44 @@ func (ui *AppUI) layoutNewThemeRow(gtx layout.Context, st *SettingsEditorState) 
 		return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					lbl := material.Label(ui.Theme, unit.Sp(13), "Create new theme")
+					lbl := material.Label(host.Theme, unit.Sp(13), "Create new theme")
 					lbl.Font.Weight = font.Bold
 					return lbl.Layout(gtx)
 				}),
 				layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					lbl := material.Label(ui.Theme, unit.Sp(11), "Name")
+					lbl := material.Label(host.Theme, unit.Sp(11), "Name")
 					lbl.Color = theme.FgMuted
 					return lbl.Layout(gtx)
 				}),
 				layout.Rigid(layout.Spacer{Height: unit.Dp(2)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return widgets.TextField(gtx, ui.Theme, &st.NewThemeNameEditor, "My theme", true, nil, 0, unit.Sp(12))
+					return widgets.TextField(gtx, host.Theme, &e.NewThemeNameEditor, "My theme", true, nil, 0, unit.Sp(12))
 				}),
 				layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					lbl := material.Label(ui.Theme, unit.Sp(11), "Based on")
+					lbl := material.Label(host.Theme, unit.Sp(11), "Based on")
 					lbl.Color = theme.FgMuted
 					return lbl.Layout(gtx)
 				}),
 				layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return ui.layoutBaseThemePicker(gtx, st)
+					return e.layoutBaseThemePicker(gtx, host)
 				}),
 				layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							btn := material.Button(ui.Theme, &st.NewThemeCreateBtn, "Create")
+							btn := material.Button(host.Theme, &e.NewThemeCreateBtn, "Create")
 							btn.TextSize = unit.Sp(12)
 							btn.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(14), Right: unit.Dp(14)}
 							return btn.Layout(gtx)
 						}),
 						layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							btn := material.Button(ui.Theme, &st.NewThemeCancelBtn, "Cancel")
+							btn := material.Button(host.Theme, &e.NewThemeCancelBtn, "Cancel")
 							btn.Background = theme.Border
-							btn.Color = ui.Theme.Fg
+							btn.Color = host.Theme.Fg
 							btn.TextSize = unit.Sp(12)
 							btn.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(14), Right: unit.Dp(14)}
 							return btn.Layout(gtx)
@@ -2017,7 +2006,7 @@ func (ui *AppUI) layoutNewThemeRow(gtx layout.Context, st *SettingsEditorState) 
 	})
 }
 
-func (ui *AppUI) layoutBaseThemePicker(gtx layout.Context, st *SettingsEditorState) layout.Dimensions {
+func (e *Editor) layoutBaseThemePicker(gtx layout.Context, host *Host) layout.Dimensions {
 	tileW := gtx.Dp(unit.Dp(110))
 	tileH := gtx.Dp(unit.Dp(40))
 	gap := gtx.Dp(unit.Dp(6))
@@ -2038,18 +2027,18 @@ func (ui *AppUI) layoutBaseThemePicker(gtx layout.Context, st *SettingsEditorSta
 			for j, t := range slice {
 				j, t := j, t
 				cols = append(cols, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return material.Clickable(gtx, &st.NewThemeBaseBtns[baseIdx+j], func(gtx layout.Context) layout.Dimensions {
+					return material.Clickable(gtx, &e.NewThemeBaseBtns[baseIdx+j], func(gtx layout.Context) layout.Dimensions {
 						gtx.Constraints.Min = image.Pt(tileW, tileH)
 						gtx.Constraints.Max = gtx.Constraints.Min
 						bg := t.Palette.Bg
 						paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
-						if st.NewThemeBaseID == t.ID {
+						if e.NewThemeBaseID == t.ID {
 							paint.FillShape(gtx.Ops, theme.Accent, clip.Stroke{Path: clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Path(gtx.Ops), Width: 2}.Op())
 						} else {
 							widgets.PaintBorder1px(gtx, gtx.Constraints.Min, theme.BorderLight)
 						}
 						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							lbl := material.Label(ui.Theme, unit.Sp(11), t.Name)
+							lbl := material.Label(host.Theme, unit.Sp(11), t.Name)
 							lbl.Color = t.Palette.Fg
 							return lbl.Layout(gtx)
 						})
@@ -2066,7 +2055,7 @@ func (ui *AppUI) layoutBaseThemePicker(gtx layout.Context, st *SettingsEditorSta
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rows...)
 }
 
-func themeGrid(th *material.Theme, st *SettingsEditorState, gtx layout.Context) layout.Dimensions {
+func themeGrid(th *material.Theme, e *Editor, gtx layout.Context) layout.Dimensions {
 	tileW := gtx.Dp(unit.Dp(150))
 	tileH := gtx.Dp(unit.Dp(90))
 	gap := gtx.Dp(unit.Dp(10))
@@ -2084,20 +2073,20 @@ func themeGrid(th *material.Theme, st *SettingsEditorState, gtx layout.Context) 
 	}
 	var entries []tileEntry
 	for i := range theme.Registry {
-		entries = append(entries, tileEntry{def: theme.Registry[i], btn: &st.ThemeBtns[i]})
+		entries = append(entries, tileEntry{def: theme.Registry[i], btn: &e.ThemeBtns[i]})
 	}
-	for i, c := range st.Draft.CustomThemes {
-		if i >= len(st.CustomThemeBtns) || i >= len(st.CustomThemeDelBtns) {
+	for i, c := range e.Draft.CustomThemes {
+		if i >= len(e.CustomThemeBtns) || i >= len(e.CustomThemeDelBtns) {
 			break
 		}
 		entries = append(entries, tileEntry{
-			def:      theme.Def{ID: c.ID, Name: c.Name, Palette: theme.PaletteFor(c.ID, st.Draft.CustomThemes)},
-			btn:      &st.CustomThemeBtns[i],
-			delBtn:   &st.CustomThemeDelBtns[i],
+			def:      theme.Def{ID: c.ID, Name: c.Name, Palette: theme.PaletteFor(c.ID, e.Draft.CustomThemes)},
+			btn:      &e.CustomThemeBtns[i],
+			delBtn:   &e.CustomThemeDelBtns[i],
 			isCustom: true,
 		})
 	}
-	entries = append(entries, tileEntry{btn: &st.NewThemeBtn, isAdd: true})
+	entries = append(entries, tileEntry{btn: &e.NewThemeBtn, isAdd: true})
 
 	var rows []layout.FlexChild
 	for i := 0; i < len(entries); i += perRow {
@@ -2108,13 +2097,13 @@ func themeGrid(th *material.Theme, st *SettingsEditorState, gtx layout.Context) 
 		slice := entries[i:end]
 		rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			var cols []layout.FlexChild
-			for j, e := range slice {
-				j, e := j, e
+			for j, te := range slice {
+				j, te := j, te
 				var w layout.Widget
-				if e.isAdd {
-					w = themeTileFixedNew(th, e.btn, st.NewThemeDialogOpen, tileW, tileH)
+				if te.isAdd {
+					w = themeTileFixedNew(th, te.btn, e.NewThemeDialogOpen, tileW, tileH)
 				} else {
-					w = themeTileFixedCustom(th, e.btn, e.delBtn, e.def, st.Draft.Theme == e.def.ID, e.isCustom, tileW, tileH)
+					w = themeTileFixedCustom(th, te.btn, te.delBtn, te.def, e.Draft.Theme == te.def.ID, te.isCustom, tileW, tileH)
 				}
 				cols = append(cols, layout.Rigid(w))
 				if j < len(slice)-1 {

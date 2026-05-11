@@ -225,7 +225,7 @@ func TestLoadMorePreview(t *testing.T) {
 	tab.window = new(app.Window)
 	tab.respFile = tmpPath
 	tab.respSize = int64(len(content))
-	tab.previewLoaded = 6
+	tab.previewLoaded.Store(6)
 	tab.respIsJSON = false
 
 	tab.loadMorePreview()
@@ -251,6 +251,6 @@ func TestLoadMorePreview(t *testing.T) {
 	if !success {
 
 		data, _ := os.ReadFile(tmpPath)
-		t.Errorf("expected line2, got %q (respSize=%d, previewLoaded=%d, fileData=%q)", lastText, tab.respSize, tab.previewLoaded, string(data))
+		t.Errorf("expected line2, got %q (respSize=%d, previewLoaded=%d, fileData=%q)", lastText, tab.respSize, tab.previewLoaded.Load(), string(data))
 	}
 }

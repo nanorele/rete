@@ -19,18 +19,21 @@ import (
 
 func hsvToRGB(h, s, v float32) color.NRGBA {
 	if s <= 0 {
-		c := uint8(v * 255)
+		c := uint8(v*255 + 0.5)
 		return color.NRGBA{R: c, G: c, B: c, A: 255}
 	}
 	hh := h
-	if hh >= 360 {
+	for hh >= 360 {
 		hh -= 360
 	}
-	if hh < 0 {
+	for hh < 0 {
 		hh += 360
 	}
 	hh /= 60
 	i := int(hh)
+	if i > 5 {
+		i = 5
+	}
 	f := hh - float32(i)
 	p := v * (1 - s)
 	q := v * (1 - s*f)
@@ -51,9 +54,9 @@ func hsvToRGB(h, s, v float32) color.NRGBA {
 		r, g, b = v, p, q
 	}
 	return color.NRGBA{
-		R: uint8(r * 255),
-		G: uint8(g * 255),
-		B: uint8(b * 255),
+		R: uint8(r*255 + 0.5),
+		G: uint8(g*255 + 0.5),
+		B: uint8(b*255 + 0.5),
 		A: 255,
 	}
 }

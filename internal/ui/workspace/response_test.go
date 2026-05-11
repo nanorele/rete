@@ -55,6 +55,87 @@ func TestRuneIdxToByte(t *testing.T) {
 	}
 }
 
+func TestByteToRuneIdxRoundTrip(t *testing.T) {
+	inputs := []string{
+		"hello",
+		"Привет мир",
+		"🚀🔥",
+		"👨‍👩‍👧‍👦",
+		"你好",
+		"Mixed: abc Привет 🚀 你好",
+		"\xef\xbb\xbfBOM at start",
+		"",
+	}
+	for _, s := range inputs {
+		t.Run(s, func(t *testing.T) {
+			b := []byte(s)
+			totalRunes := 0
+			byteOf := []int{}
+			for i := 0; i < len(b); {
+				byteOf = append(byteOf, i)
+				_, sz := decodeOne(b[i:])
+				if sz < 1 {
+					sz = 1
+				}
+				i += sz
+				totalRunes++
+			}
+			byteOf = append(byteOf, len(b))
+
+			for r := 0; r <= totalRunes; r++ {
+				bi := runeIdxToByte(b, r)
+				if bi != byteOf[r] {
+					t.Errorf("runeIdxToByte(%q, %d) = %d, want %d", s, r, bi, byteOf[r])
+				}
+			}
+			for r := 0; r <= totalRunes; r++ {
+				bi := byteOf[r]
+				got := byteToRuneIdx(b, bi)
+				if got != r {
+					t.Errorf("byteToRuneIdx(%q, %d) = %d, want %d", s, bi, got, r)
+				}
+			}
+		})
+	}
+}
+
+func decodeOne(b []byte) (rune, int) {
+	if len(b) == 0 {
+		return 0, 0
+	}
+	if b[0] < 0x80 {
+		return rune(b[0]), 1
+	}
+	r, sz := decodeRune(b)
+	if sz == 0 {
+		sz = 1
+	}
+	return r, sz
+}
+
+func decodeRune(b []byte) (rune, int) {
+	type t struct {
+		r rune
+		s int
+	}
+	res := func() t {
+		switch {
+		case len(b) < 1:
+			return t{0, 0}
+		case b[0] < 0x80:
+			return t{rune(b[0]), 1}
+		case b[0]&0xE0 == 0xC0 && len(b) >= 2:
+			return t{rune(b[0]&0x1F)<<6 | rune(b[1]&0x3F), 2}
+		case b[0]&0xF0 == 0xE0 && len(b) >= 3:
+			return t{rune(b[0]&0x0F)<<12 | rune(b[1]&0x3F)<<6 | rune(b[2]&0x3F), 3}
+		case b[0]&0xF8 == 0xF0 && len(b) >= 4:
+			return t{rune(b[0]&0x07)<<18 | rune(b[1]&0x3F)<<12 | rune(b[2]&0x3F)<<6 | rune(b[3]&0x3F), 4}
+		}
+		return t{0xFFFD, 1}
+	}()
+	return res.r, res.s
+}
+
 func TestWordBoundsAt(t *testing.T) {
 	v := NewResponseViewer()
 	v.SetText("hello world\nfoo.bar")

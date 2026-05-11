@@ -40,7 +40,7 @@ func TestTabLayout(t *testing.T) {
 
 	tab.PreviewEnabled = true
 	tab.respSize = 1000
-	tab.previewLoaded = 500
+	tab.previewLoaded.Store(500)
 	tab.Layout(gtx, th, win, nil, nil, false, func() {}, func(*collections.ParsedCollection) {})
 
 	tab.MethodListOpen = true

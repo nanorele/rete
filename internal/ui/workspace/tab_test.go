@@ -222,6 +222,65 @@ func TestSearch(t *testing.T) {
 	}
 }
 
+func TestAsciiToLowerUnicode(t *testing.T) {
+	cases := []struct {
+		in   string
+		want string
+	}{
+		{"Hello", "hello"},
+		{"hello", "hello"},
+		{"HELLO WORLD", "hello world"},
+		{"Привет", "привет"},
+		{"ПРИВЕТ", "привет"},
+		{"ПрИвЕт", "привет"},
+		{"Hello Мир 🚀", "hello мир 🚀"},
+		{"你好", "你好"},
+		{"안녕", "안녕"},
+		{"🚀🔥", "🚀🔥"},
+		{"", ""},
+		{"123 ABC abc", "123 abc abc"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.in, func(t *testing.T) {
+			got := asciiToLower(tc.in)
+			if got != tc.want {
+				t.Errorf("asciiToLower(%q) = %q, want %q", tc.in, got, tc.want)
+			}
+			if len(got) != len(tc.want) {
+				t.Errorf("length changed: %d vs %d", len(got), len(tc.want))
+			}
+		})
+	}
+}
+
+func TestSearchUnicode(t *testing.T) {
+	tab := NewRequestTab("test")
+	tab.RespEditor.SetText("Привет мир! Это тест. Привет снова!")
+	tab.invalidateSearchCache()
+
+	tab.SearchEditor.SetText("привет")
+	tab.performSearch()
+	if len(tab.searchResults) != 2 {
+		t.Errorf("expected 2 unicode-case-insensitive matches, got %d (%v)", len(tab.searchResults), tab.searchResults)
+	}
+
+	tab.RespEditor.SetText("Hello 🚀 World 🚀 End")
+	tab.invalidateSearchCache()
+	tab.SearchEditor.SetText("🚀")
+	tab.performSearch()
+	if len(tab.searchResults) != 2 {
+		t.Errorf("expected 2 emoji matches, got %d (%v)", len(tab.searchResults), tab.searchResults)
+	}
+
+	tab.RespEditor.SetText("你好世界 你好朋友")
+	tab.invalidateSearchCache()
+	tab.SearchEditor.SetText("你好")
+	tab.performSearch()
+	if len(tab.searchResults) != 2 {
+		t.Errorf("expected 2 CJK matches, got %d (%v)", len(tab.searchResults), tab.searchResults)
+	}
+}
+
 func TestFormatSize(t *testing.T) {
 	tests := []struct {
 		input    int64

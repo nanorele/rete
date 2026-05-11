@@ -58,7 +58,13 @@ func Apply(th *material.Theme, s model.AppSettings) {
 	AcceptEncoding = s.DefaultAcceptEncoding
 	BracketColorization = s.BracketPairColorization
 	StackBreakpointDp = s.StackBreakpointDp
+	oldClient := HTTPClient
 	HTTPClient = buildHTTPClient(s)
+	if oldClient != nil && oldClient != HTTPClient {
+		if tr, ok := oldClient.Transport.(*http.Transport); ok {
+			tr.CloseIdleConnections()
+		}
+	}
 	if th != nil {
 		th.Bg = theme.Bg
 		th.Fg = theme.Fg
@@ -119,9 +125,12 @@ func buildHTTPClient(s model.AppSettings) *http.Client {
 		c.Timeout = time.Duration(s.RequestTimeoutSec) * time.Second
 	}
 	if s.CookieJarEnabled {
-		if jar, err := cookiejar.New(nil); err == nil {
-			c.Jar = jar
+		if persistentJar == nil {
+			if jar, err := cookiejar.New(nil); err == nil {
+				persistentJar = jar
+			}
 		}
+		c.Jar = persistentJar
 	}
 	switch {
 	case !s.FollowRedirects:

@@ -27,33 +27,27 @@ func TestTitleBarLayout(t *testing.T) {
 
 	ui.layoutTitleBar(gtx)
 
-	ui.BtnMinimize.Click()
+	ui.TitleBar.BtnMinimize.Click()
 	ui.layoutTitleBar(gtx)
 
-	ui.BtnMaximize.Click()
+	ui.TitleBar.BtnMaximize.Click()
 	ui.layoutTitleBar(gtx)
-	if !ui.IsMaximized {
+	if !ui.TitleBar.Maximized {
 		t.Errorf("expected maximized")
 	}
 
-	ui.BtnMaximize.Click()
+	ui.TitleBar.BtnMaximize.Click()
 	ui.layoutTitleBar(gtx)
-	if ui.IsMaximized {
+	if ui.TitleBar.Maximized {
 		t.Errorf("expected unmaximized")
 	}
 
-	ui.BtnClose.Click()
+	ui.TitleBar.BtnClose.Click()
 	ui.layoutTitleBar(gtx)
 
-	ui.layoutTitleBtn(gtx, &ui.BtnMinimize, 0)
-	ui.layoutTitleBtn(gtx, &ui.BtnMaximize, 1)
-	ui.IsMaximized = true
-	ui.layoutTitleBtn(gtx, &ui.BtnMaximize, 2)
-	ui.layoutTitleBtn(gtx, &ui.BtnClose, 3)
-
-	ui.IsMaximized = false
+	ui.TitleBar.Maximized = false
 	ui.SettingsOpen = false
-	ui.SettingsBtn.Click()
+	ui.TitleBar.SettingsBtn.Click()
 	ui.layoutTitleBar(gtx)
 	if !ui.SettingsOpen {
 		t.Errorf("expected SettingsOpen=true after click")
@@ -61,7 +55,7 @@ func TestTitleBarLayout(t *testing.T) {
 	if ui.SettingsState == nil {
 		t.Errorf("expected SettingsState to be initialized after first open")
 	}
-	ui.SettingsBtn.Click()
+	ui.TitleBar.SettingsBtn.Click()
 	ui.layoutTitleBar(gtx)
 	if ui.SettingsOpen {
 		t.Errorf("expected SettingsOpen=false after second click")

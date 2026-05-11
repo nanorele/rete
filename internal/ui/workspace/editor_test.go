@@ -204,3 +204,126 @@ func TestRequestEditorChangedFlag(t *testing.T) {
 		t.Fatalf("Changed() should be true after DeleteRange")
 	}
 }
+
+func TestRequestEditorUnicodeInsertDelete(t *testing.T) {
+	v := NewRequestEditor()
+
+	v.Insert(0, "Привет, мир!")
+	if v.Text() != "Привет, мир!" {
+		t.Errorf("unicode insert: got %q", v.Text())
+	}
+
+	v.Insert(v.Len(), "\n🚀 emoji")
+	if !strings.Contains(v.Text(), "🚀") {
+		t.Errorf("emoji insert missing: %q", v.Text())
+	}
+	if len(v.lineStarts) < 2 {
+		t.Errorf("expected lineStarts > 1 after newline insert, got %v", v.lineStarts)
+	}
+
+	v.Insert(0, "Hello ")
+	if !strings.HasPrefix(v.Text(), "Hello Привет") {
+		t.Errorf("prefix insert: %q", v.Text())
+	}
+}
+
+func TestRequestEditorASCIIFlagInvalidatesOnUnicodeInsert(t *testing.T) {
+	v := NewRequestEditor()
+	v.Insert(0, "plain ascii")
+	if !v.isASCIIOnly() {
+		t.Errorf("expected asciiOnly=true after ASCII insert")
+	}
+	if v.byteToRune(5) != 5 {
+		t.Errorf("byteToRune fast-path for ASCII broken")
+	}
+
+	v.Insert(v.Len(), " 🚀")
+	if v.isASCIIOnly() {
+		t.Errorf("expected asciiOnly=false after emoji insert")
+	}
+
+	want := 11 + 1 + 1
+	if v.byteToRune(v.Len()) != want {
+		t.Errorf("byteToRune after emoji: got %d, want %d", v.byteToRune(v.Len()), want)
+	}
+}
+
+func TestRequestEditorTotalRunesCacheUnicode(t *testing.T) {
+	v := NewRequestEditor()
+	v.Insert(0, "abc")
+	if v.totalRunes() != 3 {
+		t.Errorf("ascii total runes: got %d", v.totalRunes())
+	}
+
+	v.Insert(v.Len(), "🚀")
+	if v.totalRunes() != 4 {
+		t.Errorf("after emoji append: got %d, want 4", v.totalRunes())
+	}
+
+	v.DeleteRange(0, 3)
+	if v.totalRunes() != 1 {
+		t.Errorf("after delete ascii prefix: got %d, want 1", v.totalRunes())
+	}
+
+	v.Insert(v.Len(), "👨‍👩‍👧‍👦")
+	want := 1 + 7
+	if v.totalRunes() != want {
+		t.Errorf("after family emoji: got %d, want %d", v.totalRunes(), want)
+	}
+}
+
+func TestRequestEditorLineStartsUnicode(t *testing.T) {
+	v := NewRequestEditor()
+	v.Insert(0, "строка1\nстрока2\nстрока3")
+	if len(v.lineStarts) != 3 {
+		t.Errorf("expected 3 lineStarts, got %v", v.lineStarts)
+	}
+	validateLineStarts(t, v)
+
+	v.Insert(0, "\n")
+	if len(v.lineStarts) != 4 {
+		t.Errorf("expected 4 lineStarts after prepending newline, got %v", v.lineStarts)
+	}
+	validateLineStarts(t, v)
+
+	v.DeleteRange(0, 1)
+	if len(v.lineStarts) != 3 {
+		t.Errorf("expected 3 lineStarts after removing newline, got %v", v.lineStarts)
+	}
+	validateLineStarts(t, v)
+
+	emojiLine := "🚀 emoji line"
+	v.Insert(v.Len(), "\n"+emojiLine)
+	if !strings.HasSuffix(v.Text(), emojiLine) {
+		t.Errorf("expected suffix %q in %q", emojiLine, v.Text())
+	}
+	validateLineStarts(t, v)
+}
+
+func TestRequestEditorRandomInsertDelete(t *testing.T) {
+	v := NewRequestEditor()
+	v.Insert(0, "abcdef")
+
+	v.Insert(3, "Х")
+	v.Insert(v.Len(), "\n🔥тест")
+	v.Insert(2, "  ")
+	v.DeleteRange(0, 1)
+
+	totalBytes := 0
+	totalRunes := 0
+	for i := 0; i < len(v.text); {
+		_, sz := decodeOne(v.text[i:])
+		if sz < 1 {
+			sz = 1
+		}
+		i += sz
+		totalRunes++
+		totalBytes = i
+	}
+	if totalBytes != len(v.text) {
+		t.Errorf("byte count mismatch: %d vs %d", totalBytes, len(v.text))
+	}
+	if v.totalRunes() != totalRunes {
+		t.Errorf("rune count mismatch: cached %d vs computed %d", v.totalRunes(), totalRunes)
+	}
+}

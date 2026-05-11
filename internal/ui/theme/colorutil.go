@@ -2,6 +2,7 @@ package theme
 
 import (
 	"image/color"
+	"math"
 	"strconv"
 	"strings"
 )
@@ -38,12 +39,11 @@ func WithAlpha(c color.NRGBA, a uint8) color.NRGBA {
 
 func RelLuminance(c color.NRGBA) float32 {
 	chan01 := func(v uint8) float32 {
-		s := float32(v) / 255
+		s := float64(v) / 255
 		if s <= 0.03928 {
-			return s / 12.92
+			return float32(s / 12.92)
 		}
-		x := (s + 0.055) / 1.055
-		return x * x * x
+		return float32(math.Pow((s+0.055)/1.055, 2.4))
 	}
 	return 0.2126*chan01(c.R) + 0.7152*chan01(c.G) + 0.0722*chan01(c.B)
 }

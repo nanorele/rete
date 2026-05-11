@@ -11,6 +11,7 @@ var (
 	BgHover        = color.NRGBA{R: 42, G: 45, B: 46, A: 255}
 	BgSecondary    = color.NRGBA{R: 55, G: 55, B: 55, A: 255}
 	BgLoadMore     = color.NRGBA{R: 50, G: 50, B: 50, A: 255}
+	BgDragHolder   = color.NRGBA{R: 20, G: 20, B: 20, A: 255}
 	BgDragGhost    = color.NRGBA{R: 31, G: 31, B: 31, A: 240}
 	Border         = color.NRGBA{R: 43, G: 45, B: 49, A: 255}
 	BorderLight    = color.NRGBA{R: 60, G: 60, B: 60, A: 255}
@@ -116,6 +117,7 @@ func Apply(p Palette) {
 	BgHover = p.BgHover
 	BgSecondary = p.BgSecondary
 	BgLoadMore = p.BgLoadMore
+	BgDragHolder = p.BgDragHolder
 	BgDragGhost = p.BgDragGhost
 	Border = p.Border
 	BorderLight = p.BorderLight

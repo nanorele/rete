@@ -1,6 +1,7 @@
 package workspace
 
 import (
+	"bytes"
 	"image"
 	"image/color"
 	"io"
@@ -36,6 +37,14 @@ import (
 type RequestEditor struct {
 	text       []byte
 	lineStarts []int
+
+	cachedTotalRunes int
+	runesCacheDirty  bool
+	asciiOnly        bool
+	asciiKnown       bool
+
+	tokensDirty   bool
+	tokensChanged time.Time
 
 	chunkHeights      []int
 	chunkHeightsWrap  bool
@@ -154,6 +163,7 @@ func (v *RequestEditor) SetText(s string) bool {
 		v.text = make([]byte, 0, len(s))
 	}
 	v.text = append(v.text[:0], s...)
+	v.invalidateRuneCaches()
 	v.rebuildLineStartsFrom(0)
 	v.invalidateChunkHeights()
 	v.padChunkHeights()
@@ -253,6 +263,7 @@ func (v *RequestEditor) Append(s string) bool {
 	}
 	startIdx := len(v.text)
 	v.text = append(v.text, s...)
+	v.invalidateRuneCaches()
 	if last := len(v.chunkHeights) - 1; last >= 0 {
 		v.chunkHeights[last] = 0
 	}
@@ -303,12 +314,13 @@ func (v *RequestEditor) Insert(pos int, s string) {
 	}
 	selBefore, endBefore := v.selStart, v.selEnd
 	v.text = append(v.text[:pos], append([]byte(s), v.text[pos:]...)...)
+	v.invalidateRuneCaches()
 
 	shift := len(s)
 	v.shiftRanges(pos, shift)
 
 	v.invalidateChunkHeightsFrom(pos)
-	v.rebuildLineStartsFrom(pos)
+	v.lineStartsInsert(pos, len(s))
 	v.maxLineWidth = 0
 	v.padChunkHeights()
 	v.lastTotalH = 0
@@ -339,11 +351,12 @@ func (v *RequestEditor) DeleteRange(start, end int) {
 	deletedCopy := make([]byte, end-start)
 	copy(deletedCopy, v.text[start:end])
 	v.text = append(v.text[:start], v.text[end:]...)
+	v.invalidateRuneCaches()
 
 	v.shiftRanges(end, -(end - start))
 
 	v.invalidateChunkHeightsFrom(start)
-	v.rebuildLineStartsFrom(start)
+	v.lineStartsDelete(start, end-start)
 	v.maxLineWidth = 0
 	v.padChunkHeights()
 	v.lastTotalH = 0
@@ -522,29 +535,91 @@ func (v *RequestEditor) normSel() (int, int) {
 	return v.selEnd, v.selStart
 }
 
+func (v *RequestEditor) isASCIIOnly() bool {
+	if !v.asciiKnown {
+		v.asciiOnly = true
+		for _, b := range v.text {
+			if b >= 0x80 {
+				v.asciiOnly = false
+				break
+			}
+		}
+		v.asciiKnown = true
+	}
+	return v.asciiOnly
+}
+
+func (v *RequestEditor) byteToRune(byteIdx int) int {
+	if byteIdx > len(v.text) {
+		byteIdx = len(v.text)
+	}
+	if v.isASCIIOnly() {
+		return byteIdx
+	}
+	return byteToRuneIdx(v.text, byteIdx)
+}
+
+func (v *RequestEditor) totalRunes() int {
+	if v.runesCacheDirty {
+		if v.isASCIIOnly() {
+			v.cachedTotalRunes = len(v.text)
+		} else {
+			v.cachedTotalRunes = utf8.RuneCount(v.text)
+		}
+		v.runesCacheDirty = false
+	}
+	return v.cachedTotalRunes
+}
+
+func (v *RequestEditor) invalidateRuneCaches() {
+	v.runesCacheDirty = true
+	v.asciiKnown = false
+	v.tokensDirty = true
+	v.tokensChanged = time.Now()
+}
+
+const tokenizeDebounce = 40 * time.Millisecond
+
 func (v *RequestEditor) pushIMEState(gtx layout.Context) {
 	caretByte := v.selEnd
-	caretRune := byteToRuneIdx(v.text, caretByte)
-	selStartRune := byteToRuneIdx(v.text, v.selStart)
-	selEndRune := caretRune
+	const window = 256
+	startByte := caretByte
+	for steps := 0; steps < window && startByte > 0; steps++ {
+		_, sz := utf8.DecodeLastRune(v.text[:startByte])
+		if sz < 1 {
+			sz = 1
+		}
+		startByte -= sz
+	}
+	endByte := caretByte
+	for steps := 0; steps < window && endByte < len(v.text); steps++ {
+		_, sz := utf8.DecodeRune(v.text[endByte:])
+		if sz < 1 {
+			sz = 1
+		}
+		endByte += sz
+	}
+
+	caretRune := v.byteToRune(caretByte)
+	selStartRune := caretRune
+	if v.selStart != v.selEnd {
+		selStartRune = v.byteToRune(v.selStart)
+	}
 
 	gtx.Execute(key.SelectionCmd{
 		Tag:   v,
-		Range: key.Range{Start: selStartRune, End: selEndRune},
+		Range: key.Range{Start: selStartRune, End: caretRune},
 	})
 
-	const window = 256
-	startRune := caretRune - window
+	startRune := caretRune - countRunesBetween(v.text, startByte, caretByte)
 	if startRune < 0 {
 		startRune = 0
 	}
-	endRune := caretRune + window
-	totalRunes := utf8.RuneCount(v.text)
-	if endRune > totalRunes {
-		endRune = totalRunes
+	endRune := caretRune + countRunesBetween(v.text, caretByte, endByte)
+	total := v.totalRunes()
+	if endRune > total {
+		endRune = total
 	}
-	startByte := runeIdxToByte(v.text, startRune)
-	endByte := runeIdxToByte(v.text, endRune)
 	snip := key.Snippet{
 		Range: key.Range{Start: startRune, End: endRune},
 		Text:  string(v.text[startByte:endByte]),
@@ -554,6 +629,16 @@ func (v *RequestEditor) pushIMEState(gtx layout.Context) {
 	}
 	v.imeSentSnippet = snip
 	gtx.Execute(key.SnippetCmd{Tag: v, Snippet: snip})
+}
+
+func countRunesBetween(text []byte, fromByte, toByte int) int {
+	if toByte <= fromByte {
+		return 0
+	}
+	if toByte > len(text) {
+		toByte = len(text)
+	}
+	return utf8.RuneCount(text[fromByte:toByte])
 }
 
 func (v *RequestEditor) shiftRanges(from, delta int) {
@@ -709,6 +794,44 @@ func (v *RequestEditor) appendLineStartsFrom(startIdx int) {
 	v.scanChunks(v.lineStarts[len(v.lineStarts)-1])
 }
 
+func (v *RequestEditor) lineStartsInsert(pos, length int) {
+	if length <= 0 {
+		return
+	}
+	idx := sort.SearchInts(v.lineStarts, pos+1)
+	for i := idx; i < len(v.lineStarts); i++ {
+		v.lineStarts[i] += length
+	}
+	var newStarts []int
+	end := pos + length
+	for i := pos; i < end; i++ {
+		if v.text[i] == '\n' && i+1 <= len(v.text) {
+			newStarts = append(newStarts, i+1)
+		}
+	}
+	if len(newStarts) == 0 {
+		return
+	}
+	tail := append([]int{}, v.lineStarts[idx:]...)
+	v.lineStarts = append(v.lineStarts[:idx], newStarts...)
+	v.lineStarts = append(v.lineStarts, tail...)
+}
+
+func (v *RequestEditor) lineStartsDelete(start, length int) {
+	if length <= 0 {
+		return
+	}
+	end := start + length
+	lo := sort.SearchInts(v.lineStarts, start+1)
+	hi := sort.SearchInts(v.lineStarts, end+1)
+	for i := hi; i < len(v.lineStarts); i++ {
+		v.lineStarts[i] -= length
+	}
+	if hi > lo {
+		v.lineStarts = append(v.lineStarts[:lo], v.lineStarts[hi:]...)
+	}
+}
+
 func (v *RequestEditor) scanChunks(from int) {
 	lastBreak := from
 	for i := from; i < len(v.text); i++ {
@@ -767,10 +890,26 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 
 	tokenizing := s.Lang != syntax.LangPlain && len(v.text) <= requestEditorTokenizeMaxBytes
 	if tokenizing {
-		if s.Lang != v.tokensLang || len(v.text) != v.tokensTxt {
+		langChanged := s.Lang != v.tokensLang
+		sizeChanged := len(v.text) != v.tokensTxt
+		needsTokens := v.tokens == nil
+		if langChanged || needsTokens {
 			v.tokens = syntax.Tokenize(s.Lang, v.text)
 			v.tokensLang = s.Lang
 			v.tokensTxt = len(v.text)
+			v.tokensDirty = false
+		} else if v.tokensDirty || sizeChanged {
+			if !v.tokensDirty {
+				v.tokensDirty = true
+				v.tokensChanged = time.Now()
+			}
+			if time.Since(v.tokensChanged) >= tokenizeDebounce {
+				v.tokens = syntax.Tokenize(s.Lang, v.text)
+				v.tokensTxt = len(v.text)
+				v.tokensDirty = false
+			} else {
+				gtx.Execute(op.InvalidateCmd{At: v.tokensChanged.Add(tokenizeDebounce)})
+			}
 		}
 	} else if v.tokens != nil {
 		v.tokens = nil
@@ -903,7 +1042,7 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		if !ok {
 			break
 		}
-		if ev.Kind != gesture.KindPress || ev.Source != pointer.Mouse {
+		if ev.Kind != gesture.KindPress {
 			continue
 		}
 		off := v.coordToByteOffset(gtx, ev.Position.X-pad, ev.Position.Y-pad, charAdv, exactLineH, innerW, s.Wrap)
@@ -1128,7 +1267,13 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 			}
 		case key.NameLeftArrow:
 			pos := v.selEnd
-			if wordwise {
+			if !extend && v.selStart != v.selEnd && !wordwise {
+				if v.selStart < v.selEnd {
+					pos = v.selStart
+				} else {
+					pos = v.selEnd
+				}
+			} else if wordwise {
 				pos = v.wordLeft(pos)
 			} else {
 				pos = v.charLeft(pos)
@@ -1137,7 +1282,13 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 			v.ensureCaretVisible()
 		case key.NameRightArrow:
 			pos := v.selEnd
-			if wordwise {
+			if !extend && v.selStart != v.selEnd && !wordwise {
+				if v.selStart > v.selEnd {
+					pos = v.selStart
+				} else {
+					pos = v.selEnd
+				}
+			} else if wordwise {
 				pos = v.wordRight(pos)
 			} else {
 				pos = v.charRight(pos)
@@ -1886,7 +2037,7 @@ func bytesIndex(b []byte, sub string) int {
 	if len(sub) == 0 {
 		return 0
 	}
-	return strings.Index(string(b), sub)
+	return bytes.Index(b, []byte(sub))
 }
 
 func bytesContainsTwoBraces(b []byte) bool {

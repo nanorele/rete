@@ -1,7 +1,9 @@
 package workspace
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"image"
 	"image/color"
 	"io"
@@ -148,7 +150,7 @@ type RequestTab struct {
 	respFile        string
 	respIsJSON      bool
 	downloadedBytes atomic.Int64
-	previewLoaded   int64
+	previewLoaded   atomic.Int64
 
 	CancelBtn      widget.Clickable
 	SendMenuBtn    widget.Clickable
@@ -234,7 +236,7 @@ func NewRequestTab(title string) *RequestTab {
 		responseChan:     make(chan tabResponse, 1),
 		previewChan:      make(chan previewResult, 1),
 		FileSaveChan:     make(chan io.WriteCloser, 1),
-		appendChan:       make(chan string, 128),
+		appendChan:       make(chan string, 1024),
 		SplitRatio:       splitRatio,
 		VStackRatio:      0.5,
 		WrapEnabled:      true,
@@ -576,13 +578,23 @@ func (t *RequestTab) SaveToCollection() *collections.ParsedCollection {
 	req.Body = t.ReqEditor.Text()
 	req.Name = t.Title
 	req.Headers = make(map[string]string, len(t.Headers))
+	rawArr := make([]map[string]string, 0, len(t.Headers))
 	for _, h := range t.Headers {
-		if !h.IsGenerated {
-			k := h.Key.Text()
-			if k != "" {
-				req.Headers[k] = h.Value.Text()
-			}
+		if h.IsGenerated {
+			continue
 		}
+		k := h.Key.Text()
+		if k == "" {
+			continue
+		}
+		v := h.Value.Text()
+		req.Headers[k] = v
+		rawArr = append(rawArr, map[string]string{"key": k, "value": v})
+	}
+	if data, err := json.Marshal(rawArr); err == nil {
+		req.RawHeaders = data
+	} else {
+		req.RawHeaders = nil
 	}
 	req.BodyType = t.BodyType
 	req.BinaryPath = t.BinaryFilePath
@@ -643,12 +655,20 @@ func (t *RequestTab) invalidateSearchCache() {
 }
 
 func asciiToLower(s string) string {
+	asciiOnly := true
 	hasUpper := false
 	for i := 0; i < len(s); i++ {
-		if s[i] >= 'A' && s[i] <= 'Z' {
-			hasUpper = true
+		c := s[i]
+		if c >= 0x80 {
+			asciiOnly = false
 			break
 		}
+		if c >= 'A' && c <= 'Z' {
+			hasUpper = true
+		}
+	}
+	if !asciiOnly {
+		return strings.ToLower(s)
 	}
 	if !hasUpper {
 		return s
@@ -668,7 +688,7 @@ func (t *RequestTab) performSearch() {
 	query := t.SearchEditor.Text()
 	t.searchQuery = query
 	t.searchResults = t.searchResults[:0]
-	t.searchCurrent = 0
+	t.searchCurrent = -1
 	if query == "" {
 		return
 	}
@@ -744,14 +764,21 @@ func (t *RequestTab) UpdateSystemHeaders() {
 	case model.BodyURLEncoded:
 		sysHeaders["Content-Type"] = "application/x-www-form-urlencoded"
 	case model.BodyFormData:
-		sysHeaders["Content-Type"] = "multipart/form-data"
+		// Content-Type with boundary set by buildBody at send time; don't show stale auto-header here.
 	case model.BodyBinary:
 		sysHeaders["Content-Type"] = "application/octet-stream"
 	default:
 		autoCT := "text/plain"
 		if t.ReqEditor.Len() > 0 {
-			body := strings.TrimLeft(t.ReqEditor.Text(), "\ufeff \t\r\n")
-			if len(body) > 0 && (body[0] == '{' || body[0] == '[') {
+			body := t.ReqEditor.Bytes()
+			i := 0
+			if len(body) >= 3 && body[0] == 0xEF && body[1] == 0xBB && body[2] == 0xBF {
+				i = 3
+			}
+			for i < len(body) && (body[i] == ' ' || body[i] == '\t' || body[i] == '\r' || body[i] == '\n') {
+				i++
+			}
+			if i < len(body) && (body[i] == '{' || body[i] == '[') {
 				autoCT = "application/json"
 			}
 		}
@@ -847,13 +874,15 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 			t.Status = res.status
 			t.respSize = res.respSize
 			t.respFile = res.respFile
-			t.previewLoaded = res.previewLoaded
+			t.previewLoaded.Store(res.previewLoaded)
 			t.respIsJSON = res.isJSON
 			t.isRequesting = false
 			t.cancelFn = nil
 			t.invalidateSearchCache()
 			if t.PreviewEnabled && res.body != "" {
-				t.RespEditor.SetText(res.body)
+				if t.RespEditor.Len() != len(res.body) || !bytes.Equal(t.RespEditor.Bytes(), []byte(res.body)) {
+					t.RespEditor.SetText(res.body)
+				}
 			} else if !t.PreviewEnabled {
 				t.RespEditor.SetText("")
 			}
@@ -865,7 +894,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 	select {
 	case pr := <-t.previewChan:
 		t.previewLoading.Store(false)
-		t.previewLoaded = pr.previewLoaded
+		t.previewLoaded.Store(pr.previewLoaded)
 		t.respIsJSON = pr.isJSON
 		t.RespEditor.SetText(pr.body)
 		t.invalidateSearchCache()
@@ -970,7 +999,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 			}
 		}
 		if reader == nil {
-			reader = io.NopCloser(strings.NewReader(t.RespEditor.Text()))
+			reader = io.NopCloser(bytes.NewReader(t.RespEditor.Bytes()))
 		}
 		gtx.Execute(clipboard.WriteCmd{
 			Type: "application/text",
@@ -1682,12 +1711,13 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 														return t.layoutResponseBody(gtx, th, win, isDragging)
 													}),
 													layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-														if !t.PreviewEnabled || t.previewLoaded == 0 || t.previewLoaded >= t.respSize {
+														loaded := t.previewLoaded.Load()
+														if !t.PreviewEnabled || loaded == 0 || loaded >= t.respSize {
 															return layout.Dimensions{}
 														}
 														return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 															return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-																remaining := t.respSize - t.previewLoaded
+																remaining := t.respSize - loaded
 																label := "Load more (" + formatSize(remaining) + " remaining)"
 																btn := widgets.MonoButton(th, &t.LoadMoreBtn, label)
 																btn.TextSize = unit.Sp(11)

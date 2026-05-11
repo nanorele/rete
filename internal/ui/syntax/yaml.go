@@ -48,7 +48,7 @@ func TokenizeYAML(src []byte) []Token {
 			}
 		}
 
-		if atLineStart && c == '-' && (i+1 >= len(src) || src[i+1] == ' ' || src[i+1] == '\t' || src[i+1] == '\n') {
+		if atLineStart && c == '-' && (i+1 >= len(src) || src[i+1] == ' ' || src[i+1] == '\t' || src[i+1] == '\n' || src[i+1] == '\r') {
 			emit(i, i+1, TokPunctuation, 0)
 			i++
 			atLineStart = false

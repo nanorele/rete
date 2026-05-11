@@ -1,6 +1,13 @@
 package syntax
 
-import "testing"
+import (
+	"testing"
+	"time"
+)
+
+func timeout() <-chan time.Time {
+	return time.After(2 * time.Second)
+}
 
 func TestTokenizeXML_Simple(t *testing.T) {
 	src := []byte(`<root><item id="1">hello</item></root>`)
@@ -61,6 +68,34 @@ func TestTokenizeXML_Comment(t *testing.T) {
 	}
 }
 
+func TestTokenizeYAML_CRLF_List(t *testing.T) {
+	src := []byte("items:\r\n- apple\r\n- banana\r\n")
+	tokens := TokenizeYAML(src)
+	var dashes int
+	for _, tok := range tokens {
+		if tok.Kind == TokPunctuation && tok.End-tok.Start == 1 && src[tok.Start] == '-' {
+			dashes++
+		}
+	}
+	if dashes != 2 {
+		t.Errorf("expected 2 dashes (list items), got %d", dashes)
+	}
+}
+
+func TestTokenizeYAML_Unicode(t *testing.T) {
+	src := []byte("имя: Алиса\nemoji: 🚀\nkey: \"привет\"\n")
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = TokenizeYAML(src)
+	}()
+	select {
+	case <-done:
+	case <-timeout():
+		t.Fatalf("TokenizeYAML hung on UTF-8")
+	}
+}
+
 func TestTokenizeYAML_Basic(t *testing.T) {
 	src := []byte("name: Alice\nage: 30\nactive: true\nitems:\n  - apple\n  - banana\n# comment\n")
 	tokens := TokenizeYAML(src)
@@ -80,6 +115,49 @@ func TestTokenizeYAML_Basic(t *testing.T) {
 	}
 	if kinds[TokComment] < 1 {
 		t.Errorf("expected >=1 comment, got %d", kinds[TokComment])
+	}
+}
+
+func TestTokenizeXML_TruncatedTagDoesNotHang(t *testing.T) {
+	cases := [][]byte{
+		[]byte(`<a`),
+		[]byte(`<a x`),
+		[]byte(`<a x=`),
+		[]byte(`<a x=`),
+		[]byte(`<a /`),
+		[]byte(`<!--`),
+		[]byte(`<!--unclosed`),
+		[]byte(`<![CDATA[`),
+		[]byte(`<a>bcd`),
+		[]byte(`<a x=y`),
+		[]byte(``),
+		[]byte(`<`),
+	}
+	for _, src := range cases {
+		done := make(chan struct{})
+		go func(s []byte) {
+			defer close(done)
+			_ = TokenizeXML(s)
+		}(src)
+		select {
+		case <-done:
+		case <-timeout():
+			t.Fatalf("TokenizeXML hung on %q", src)
+		}
+	}
+}
+
+func TestTokenizeXML_UTF8Tags(t *testing.T) {
+	src := []byte(`<товар id="🚀">тест</товар>`)
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_ = TokenizeXML(src)
+	}()
+	select {
+	case <-done:
+	case <-timeout():
+		t.Fatalf("TokenizeXML hung on UTF-8 input")
 	}
 }
 

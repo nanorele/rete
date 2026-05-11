@@ -222,8 +222,12 @@ func CaretXYInWrap(glyphs []WrapGlyph, byteOff int) (xPx, subLine int) {
 	if byteOff <= 0 {
 		return glyphs[0].x.Round(), glyphs[0].line
 	}
-	for _, g := range glyphs {
+	for i, g := range glyphs {
 		if byteOff <= g.byteStart {
+			if byteOff == g.byteStart && i > 0 && glyphs[i-1].isBreak {
+				prev := glyphs[i-1]
+				return (prev.x + prev.advance).Round(), prev.line
+			}
 			return g.x.Round(), g.line
 		}
 	}

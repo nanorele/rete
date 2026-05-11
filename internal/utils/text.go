@@ -8,11 +8,15 @@ import (
 func SanitizeBytes(data []byte) string {
 	allASCII := true
 	for _, b := range data {
-		if b < 0x20 && b != '\n' {
+		if (b < 0x20 && b != '\n') || b == 0x7F {
 			return sanitizeFromBytes(data)
 		}
 		if b >= 0x80 {
 			allASCII = false
+			switch b {
+			case 0xC2, 0xE2, 0xEF:
+				return sanitizeFromBytes(data)
+			}
 		}
 	}
 	if !allASCII && !utf8.Valid(data) {

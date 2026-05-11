@@ -21,7 +21,10 @@ type EnvironmentFile struct {
 func SaveCollectionRaw(data []byte) (string, error) {
 	id := NewRandomID()
 	path := filepath.Join(CollectionsDir(), id+".json")
-	return id, AtomicWriteFile(path, data)
+	if err := AtomicWriteFile(path, data); err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 func WriteCollectionFile(id string, data []byte) error {
@@ -57,7 +60,10 @@ func LoadCollectionFiles() []CollectionFile {
 func SaveEnvironmentRaw(data []byte) (string, error) {
 	id := NewRandomID()
 	path := filepath.Join(EnvironmentsDir(), id+".json")
-	return id, AtomicWriteFile(path, data)
+	if err := AtomicWriteFile(path, data); err != nil {
+		return "", err
+	}
+	return id, nil
 }
 
 func SaveEnvironment(env *model.ParsedEnvironment) error {

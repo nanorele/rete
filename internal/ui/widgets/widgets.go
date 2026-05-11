@@ -4,8 +4,10 @@ import (
 	"image"
 	"image/color"
 	"strings"
+	"time"
 	"tracto/internal/ui/theme"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/font"
@@ -93,7 +95,8 @@ type cachedMetrics struct {
 	spacing int
 }
 
-var metricsCache [4]cachedMetrics
+var metricsCache [16]cachedMetrics
+var metricsLRU uint32
 
 func LineMetrics(gtx layout.Context, th *material.Theme, textSize unit.Sp) (int, int) {
 	pxPerEm := gtx.Sp(textSize)
@@ -148,7 +151,9 @@ func LineMetrics(gtx layout.Context, th *material.Theme, textSize unit.Sp) (int,
 			return lineHeight, lineSpacing
 		}
 	}
-	metricsCache[0] = cachedMetrics{pxPerEm, lineHeight, lineSpacing}
+	idx := metricsLRU % uint32(len(metricsCache))
+	metricsLRU++
+	metricsCache[idx] = cachedMetrics{pxPerEm, lineHeight, lineSpacing}
 	return lineHeight, lineSpacing
 }
 
@@ -172,26 +177,28 @@ func CaretIndexAtX(gtx layout.Context, th *material.Theme, textSize unit.Sp, s s
 	if x <= 0 || s == "" {
 		return 0
 	}
-	runes := []rune(s)
-	lo, hi := 0, len(runes)
-	for lo < hi {
-		mid := (lo + hi + 1) / 2
-		w := MeasureTextWidthCached(gtx, th, textSize, MonoFont, string(runes[:mid]))
-		if w <= x {
-			lo = mid
-		} else {
-			hi = mid - 1
+	th.Shaper.LayoutString(text.Parameters{
+		Font:     MonoFont,
+		PxPerEm:  fixed.I(gtx.Sp(textSize)),
+		MaxWidth: 1 << 24,
+		Locale:   gtx.Locale,
+	}, s)
+	target := fixed.I(x)
+	runeIdx := 0
+	for {
+		g, ok := th.Shaper.NextGlyph()
+		if !ok {
+			break
 		}
+		if g.Advance > 0 {
+			mid := g.X + g.Advance/2
+			if target < mid {
+				return runeIdx
+			}
+		}
+		runeIdx += int(g.Runes)
 	}
-	if lo >= len(runes) {
-		return len(runes)
-	}
-	wLo := MeasureTextWidthCached(gtx, th, textSize, MonoFont, string(runes[:lo]))
-	wLoNext := MeasureTextWidthCached(gtx, th, textSize, MonoFont, string(runes[:lo+1]))
-	if x-wLo > wLoNext-x {
-		lo++
-	}
-	return lo
+	return runeIdx
 }
 
 func HandleFieldFallbackClick(gtx layout.Context, th *material.Theme, ed *widget.Editor,
@@ -245,16 +252,29 @@ type hScrollState struct {
 	prevCaret   int
 	prevTextLen int
 	initialized bool
+	lastSeen    time.Time
 }
 
 var editorHScrolls = make(map[*widget.Editor]*hScrollState)
+
+const hScrollMaxAge = 5 * time.Minute
+const hScrollCleanupThreshold = 64
 
 func GetHScroll(ed *widget.Editor) *hScrollState {
 	s, ok := editorHScrolls[ed]
 	if !ok {
 		s = &hScrollState{}
 		editorHScrolls[ed] = s
+		if len(editorHScrolls) > hScrollCleanupThreshold {
+			cutoff := time.Now().Add(-hScrollMaxAge)
+			for k, v := range editorHScrolls {
+				if k != ed && v.lastSeen.Before(cutoff) {
+					delete(editorHScrolls, k)
+				}
+			}
+		}
 	}
+	s.lastSeen = time.Now()
 	return s
 }
 
@@ -920,7 +940,7 @@ func DrawHScrollbar(gtx layout.Context, ed *widget.Editor, contentW, scrollX int
 		posOffset = max
 	}
 
-	hitH := gtx.Dp(unit.Dp(12))
+	hitH := h + gtx.Dp(unit.Dp(4))
 	if hitH < h {
 		hitH = h
 	}
@@ -1019,43 +1039,69 @@ func IsSeparator(r rune) bool {
 }
 
 func MoveWord(s string, pos int, dir int) int {
-	runes := []rune(s)
 	if dir > 0 {
-		if pos >= len(runes) {
-			return len(runes)
+		if pos < 0 {
+			pos = 0
 		}
-		i := pos
-
-		for i < len(runes) && IsSeparator(runes[i]) {
-			i++
+		bi := 0
+		ri := 0
+		for ri < pos && bi < len(s) {
+			_, size := utf8.DecodeRuneInString(s[bi:])
+			bi += size
+			ri++
 		}
-
-		for i < len(runes) && !IsSeparator(runes[i]) {
-			i++
+		for bi < len(s) {
+			r, size := utf8.DecodeRuneInString(s[bi:])
+			if !IsSeparator(r) {
+				break
+			}
+			bi += size
+			ri++
 		}
-		return i
-	} else {
-		if pos <= 0 {
-			return 0
+		for bi < len(s) {
+			r, size := utf8.DecodeRuneInString(s[bi:])
+			if IsSeparator(r) {
+				break
+			}
+			bi += size
+			ri++
 		}
-		i := pos - 1
-
-		for i >= 0 && IsSeparator(runes[i]) {
-			i--
-		}
-
-		for i >= 0 && !IsSeparator(runes[i]) {
-			i--
-		}
-		return i + 1
+		return ri
 	}
+	if pos <= 0 {
+		return 0
+	}
+	bi := 0
+	ri := 0
+	for ri < pos && bi < len(s) {
+		_, size := utf8.DecodeRuneInString(s[bi:])
+		bi += size
+		ri++
+	}
+	for bi > 0 {
+		r, size := utf8.DecodeLastRuneInString(s[:bi])
+		if size == 0 || !IsSeparator(r) {
+			break
+		}
+		bi -= size
+		ri--
+	}
+	for bi > 0 {
+		r, size := utf8.DecodeLastRuneInString(s[:bi])
+		if size == 0 || IsSeparator(r) {
+			break
+		}
+		bi -= size
+		ri--
+	}
+	return ri
 }
 
 func HandleEditorShortcuts(gtx layout.Context, ed *widget.Editor) {
 	for {
 		ev, ok := gtx.Event(
-			key.Filter{Focus: ed, Name: key.NameLeftArrow, Required: key.ModShortcut},
-			key.Filter{Focus: ed, Name: key.NameRightArrow, Required: key.ModShortcut},
+			key.Filter{Focus: ed, Name: key.NameLeftArrow, Required: key.ModShortcut, Optional: key.ModShift},
+			key.Filter{Focus: ed, Name: key.NameRightArrow, Required: key.ModShortcut, Optional: key.ModShift},
 		)
 		if !ok {
 			break
@@ -1065,15 +1111,23 @@ func HandleEditorShortcuts(gtx layout.Context, ed *widget.Editor) {
 			continue
 		}
 
+		extend := e.Modifiers.Contain(key.ModShift)
+		start, end := ed.Selection()
 		switch e.Name {
 		case key.NameLeftArrow:
-			start, _ := ed.Selection()
-			newPos := MoveWord(ed.Text(), start, -1)
-			ed.SetCaret(newPos, newPos)
+			newPos := MoveWord(ed.Text(), end, -1)
+			if extend {
+				ed.SetCaret(start, newPos)
+			} else {
+				ed.SetCaret(newPos, newPos)
+			}
 		case key.NameRightArrow:
-			_, end := ed.Selection()
 			newPos := MoveWord(ed.Text(), end, 1)
-			ed.SetCaret(newPos, newPos)
+			if extend {
+				ed.SetCaret(start, newPos)
+			} else {
+				ed.SetCaret(newPos, newPos)
+			}
 		}
 	}
 }
