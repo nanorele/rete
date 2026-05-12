@@ -1467,11 +1467,28 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		gtx.Constraints.Min = image.Pt(gutterW, h)
 		gtx.Constraints.Max = image.Pt(gutterW, h)
 		btnH := gtx.Dp(unit.Dp(52))
+		secBtnH := gtx.Dp(unit.Dp(40))
 		layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min = image.Pt(gutterW, btnH)
 				gtx.Constraints.Max = image.Pt(gutterW, btnH)
 				return host.LayoutToggleBtn(gtx)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if host.LayoutSectionRequests == nil {
+					return layout.Dimensions{}
+				}
+				gtx.Constraints.Min = image.Pt(gutterW, secBtnH)
+				gtx.Constraints.Max = image.Pt(gutterW, secBtnH)
+				return host.LayoutSectionRequests(gtx)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if host.LayoutSectionMITM == nil {
+					return layout.Dimensions{}
+				}
+				gtx.Constraints.Min = image.Pt(gutterW, secBtnH)
+				gtx.Constraints.Max = image.Pt(gutterW, secBtnH)
+				return host.LayoutSectionMITM(gtx)
 			}),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Constraints.Max.Y)}

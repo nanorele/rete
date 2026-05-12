@@ -92,7 +92,10 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 			ui.deletedCollections[colID] = struct{}{}
 			_ = os.Remove(filepath.Join(persist.CollectionsDir(), colID+".json"))
 		},
-		LayoutToggleBtn: ui.layoutSidebarToggleBtn,
+		LayoutToggleBtn:        ui.layoutSidebarToggleBtn,
+		LayoutSectionRequests:  ui.layoutSidebarSectionRequestsBtn,
+		LayoutSectionMITM:      ui.layoutSidebarSectionMITMBtn,
+		SidebarSection:         &ui.SidebarSection,
 	}
 }
 

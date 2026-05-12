@@ -1193,18 +1193,24 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 
 	isDragging := isAppDragging || t.IsDraggingSplit
 
-	// NOTE: do NOT add a root pointer.CursorDefault.Add(gtx.Ops) here.
-	// nanorele/gio uses cursorUnset (0xFF) as a sentinel distinct from
-	// CursorDefault: when an area has cursor=unset, hit-test walks up
-	// the parent chain, and if no ancestor set a cursor, the final
-	// fallback is CursorDefault (pointer.go:562-564). A root anchor
-	// sets the WHOLE tab area's cursor to CursorDefault, which then
-	// wins the first non-unset slot of hit's parent-chain walk for
-	// every full-screen press-catcher hitNode added later (popup
-	// backdrop, fallback click catcher, etc.). The effect: their
-	// area.cursor stays unset but the chain immediately resolves to
-	// CursorDefault — masking CursorText from widget.Editor below.
-	// The natural unset → CursorDefault fallback is what we want.
+	// Root cursor anchor for the tab area. Mirrors what Settings does
+	// at settings/editor.go:1011-1012 and Sidebar at sidebar/sidebar.go:54-55.
+	// Without it, hits over non-editor tab regions (mode bar, header
+	// inset, splitter gutter, body type selector) fall through to the
+	// ultimate cursorUnset → CursorDefault fallback — which works only
+	// while no other widget has set state.cursor on the same frame.
+	// Editor's own CursorText.Add (inside its narrower clip) still wins
+	// for the editor area because gio's hit() takes the first non-unset
+	// cursor in the parent chain, innermost first.
+	//
+	// Full-screen press-catcher backdrops (popup-close in app.go,
+	// varpopup, color picker) MUST be wrapped in pointer.PassOp, or
+	// their non-pass hit-node will short-circuit the reverse hitTree
+	// walk before the editor's cursor.Add is consulted. See PassOp
+	// fixes in app.go and varpopup.go.
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+	pointer.CursorDefault.Add(gtx.Ops)
+
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: unit.Dp(1), Bottom: unit.Dp(8), Left: unit.Dp(4), Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

@@ -81,6 +81,9 @@ type Host struct {
 	PushEnvLoaded       func(*environments.EnvironmentUI)
 	CommitEditingEnv    func()
 	CloseTab            func(int)
-	DeleteCollection    func(colID string)
-	LayoutToggleBtn     func(gtx layout.Context) layout.Dimensions
+	DeleteCollection      func(colID string)
+	LayoutToggleBtn       func(gtx layout.Context) layout.Dimensions
+	LayoutSectionRequests func(gtx layout.Context) layout.Dimensions
+	LayoutSectionMITM     func(gtx layout.Context) layout.Dimensions
+	SidebarSection        *string
 }

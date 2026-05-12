@@ -17,6 +17,7 @@ import (
 	"tracto/internal/ui/collections"
 	"tracto/internal/ui/colorpicker"
 	"tracto/internal/ui/environments"
+	"tracto/internal/ui/mitm"
 	"tracto/internal/ui/settings"
 	"tracto/internal/ui/tabbar"
 	"tracto/internal/ui/theme"
@@ -106,6 +107,12 @@ type AppUI struct {
 	ColsHeaderClick widget.Clickable
 	EnvsExpanded    bool
 	EnvsHeaderClick widget.Clickable
+
+	SidebarSection  string
+	BtnSecRequests  widget.Clickable
+	BtnSecMITM      widget.Clickable
+
+	MITM mitm.UIState
 
 	Settings      model.AppSettings
 	SettingsOpen  bool
@@ -236,6 +243,7 @@ func NewAppUI() *AppUI {
 		activeEnvDirty:   true,
 		ColsExpanded:     true,
 		EnvsExpanded:     true,
+		SidebarSection:   "requests",
 		dirtyCollections: make(map[string]*dirtyCollection),
 		Settings:         model.DefaultSettings(),
 	}
@@ -1385,6 +1393,9 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 			}
 			horizChildren = append(horizChildren,
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					if ui.SidebarSection != "requests" {
+						return ui.layoutMITMSection(gtx)
+					}
 					if ui.EditingEnv != nil {
 						return ui.layoutEnvEditor(gtx)
 					}
@@ -1587,4 +1598,45 @@ func (ui *AppUI) layoutSidebarToggleBtn(gtx layout.Context) layout.Dimensions {
 			return ic.Layout(gtx, theme.FgMuted)
 		})
 	})
+}
+
+func (ui *AppUI) layoutSidebarSectionBtn(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, id string) layout.Dimensions {
+	for clk.Clicked(gtx) {
+		ui.SidebarSection = id
+		ui.saveState()
+	}
+	active := ui.SidebarSection == id
+	return clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		size := gtx.Constraints.Min
+		bg := theme.BgDark
+		switch {
+		case active:
+			bg = theme.BgHover
+		case clk.Hovered():
+			bg = theme.BgHover
+		}
+		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
+		if active {
+			indW := gtx.Dp(unit.Dp(2))
+			paint.FillShape(gtx.Ops, theme.Accent, clip.Rect{Max: image.Pt(indW, size.Y)}.Op())
+		}
+		col := theme.FgMuted
+		if active {
+			col = theme.Fg
+		}
+		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			s := gtx.Dp(unit.Dp(22))
+			gtx.Constraints.Min = image.Pt(s, s)
+			gtx.Constraints.Max = gtx.Constraints.Min
+			return ic.Layout(gtx, col)
+		})
+	})
+}
+
+func (ui *AppUI) layoutSidebarSectionRequestsBtn(gtx layout.Context) layout.Dimensions {
+	return ui.layoutSidebarSectionBtn(gtx, &ui.BtnSecRequests, widgets.IconRequests, "requests")
+}
+
+func (ui *AppUI) layoutSidebarSectionMITMBtn(gtx layout.Context) layout.Dimensions {
+	return ui.layoutSidebarSectionBtn(gtx, &ui.BtnSecMITM, widgets.IconMITM, "mitm")
 }

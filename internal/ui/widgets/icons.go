@@ -22,6 +22,11 @@ var (
 	IconChevronL *widget.Icon
 	IconChevronD *widget.Icon
 	IconRefresh  *widget.Icon
+	IconRequests *widget.Icon
+	IconMITM     *widget.Icon
+	IconShield   *widget.Icon
+	IconPlay     *widget.Icon
+	IconStop     *widget.Icon
 )
 
 func mustIcon(data []byte) *widget.Icon {
@@ -49,4 +54,9 @@ func init() {
 	IconChevronL = mustIcon(icons.NavigationChevronLeft)
 	IconChevronD = mustIcon(icons.HardwareKeyboardArrowDown)
 	IconRefresh = mustIcon(icons.NavigationRefresh)
+	IconRequests = mustIcon(icons.ActionCompareArrows)
+	IconMITM = mustIcon(icons.ActionSwapHoriz)
+	IconShield = mustIcon(icons.ActionVerifiedUser)
+	IconPlay = mustIcon(icons.AVPlayArrow)
+	IconStop = mustIcon(icons.AVStop)
 }
