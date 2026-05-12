@@ -10,6 +10,12 @@ func (ui *AppUI) closeTab(idx int) {
 	if idx < 0 || idx >= len(ui.Tabs) {
 		return
 	}
+	// Dismiss any pending var hover/click referencing this tab's editors
+	// before they get torn down — pointer.Leave will never arrive for an
+	// editor that's no longer mounted, so the global state would leak.
+	widgets.GlobalVarHover = nil
+	widgets.GlobalVarClick = nil
+	ui.VarPopup.Close()
 	tab := ui.Tabs[idx]
 	tab.CancelRequest()
 	tab.MarkClosed()

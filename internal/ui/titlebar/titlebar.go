@@ -52,6 +52,7 @@ func (b *Bar) layoutBtn(gtx layout.Context, th *material.Theme, btn *widget.Clic
 		}
 
 		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: btnSize}.Op())
+		pointer.CursorPointer.Add(gtx.Ops)
 
 		cx := float32(int(float32(btnSize.X)/2)) + 0.5
 		cy := float32(int(float32(btnSize.Y)/2)) + 0.5
@@ -133,6 +134,7 @@ func (b *Bar) layoutSettingsBtn(gtx layout.Context, th *material.Theme, win *app
 			bg = theme.BgHover
 		}
 		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: btnSize}.Op())
+		pointer.CursorPointer.Add(gtx.Ops)
 
 		layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
@@ -176,6 +178,7 @@ func (b *Bar) layoutBugBtn(gtx layout.Context, th *material.Theme, bugReportURL 
 			bg = theme.BgHover
 		}
 		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: btnSize}.Op())
+		pointer.CursorPointer.Add(gtx.Ops)
 
 		col := theme.FgMuted
 		if b.BugReportBtn.Hovered() {

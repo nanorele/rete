@@ -783,6 +783,16 @@ func (ui *AppUI) flushCollectionSavesSync() {
 }
 
 func (ui *AppUI) openRequestInTab(node *collections.CollectionNode) {
+	// Switching tabs invalidates any pending var hover/click — those
+	// reference editors from the previously active tab, and their Leave
+	// events will never fire if the originating editor is no longer in
+	// the tree. Without this reset, a stale GlobalVarClick from the old
+	// tab can re-open VarPopup on the very next frame and paint its
+	// full-screen press-catcher backdrop over the new tab (or Settings).
+	widgets.GlobalVarHover = nil
+	widgets.GlobalVarClick = nil
+	ui.VarPopup.Close()
+
 	for i, t := range ui.Tabs {
 		if t.LinkedNode == node {
 			ui.ActiveIdx = i
@@ -941,13 +951,19 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 					}
 				}
 				event.Op(gtx.Ops, &ui.PopupCloseTag)
-				pointer.CursorDefault.Add(gtx.Ops)
+				// Intentionally do NOT call pointer.CursorDefault.Add here:
+				// this is a full-screen press-catcher backdrop drawn AFTER
+				// the rest of the UI, so in Gio's reverse hit-test it would
+				// otherwise win cursor resolution for every pixel in the
+				// window, masking CursorText over editors, CursorPointer
+				// over buttons and {{env}} chips, and CursorRowResize over
+				// the splitter while any of the popup-menu flags are set.
 				return layout.Dimensions{Size: gtx.Constraints.Max}
 			}),
 		)
 	}
 
-	if widgets.GlobalVarHover != nil && !ui.VarPopup.Open {
+	if widgets.GlobalVarHover != nil && !ui.VarPopup.Open && !ui.SettingsOpen {
 		var val string
 		found := false
 		if ui.activeEnvVars != nil {
@@ -968,6 +984,11 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 					Path:  clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Path(gtx.Ops),
 					Width: float32(bw),
 				}.Op())
+				// Anchor a default cursor for the hover popup; it floats
+				// over chips that set CursorPointer, and without this the
+				// pointer cursor leaks through under the popup rect.
+				defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
+				pointer.CursorDefault.Add(gtx.Ops)
 				return layout.Dimensions{Size: gtx.Constraints.Min}
 			}),
 			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
@@ -1017,7 +1038,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		op.Defer(gtx.Ops, deferMacro.Stop())
 	}
 
-	if widgets.GlobalVarClick != nil {
+	if widgets.GlobalVarClick != nil && !ui.SettingsOpen {
 		var val string
 		if ui.activeEnvVars != nil {
 			val = ui.activeEnvVars[widgets.GlobalVarClick.Name]
@@ -1034,7 +1055,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		widgets.GlobalVarClick = nil
 	}
 
-	if ui.VarPopup.Open {
+	if ui.VarPopup.Open && !ui.SettingsOpen {
 		ui.VarPopup.Layout(gtx, ui.varPopupHost())
 	}
 
@@ -1042,12 +1063,12 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		ui.layoutColorPickerOverlay(gtx)
 	}
 
-	if ui.EnvColorPicker.IsOpen() {
+	if ui.EnvColorPicker.IsOpen() && !ui.SettingsOpen {
 		for ui.EnvColorPicker.CloseBtn.Clicked(gtx) {
 			ui.EnvColorPicker.Close()
 		}
 	}
-	if ui.EnvColorPicker.IsOpen() {
+	if ui.EnvColorPicker.IsOpen() && !ui.SettingsOpen {
 		cur := [3]float32{ui.EnvColorPicker.H, ui.EnvColorPicker.S, ui.EnvColorPicker.V}
 		if cur != ui.EnvColorPicker.LastHSV {
 			for _, e := range ui.Environments {
@@ -1112,7 +1133,10 @@ func (ui *AppUI) renderColorPickerOverlay(gtx layout.Context, p *colorpicker.Sta
 		p.Close()
 	}
 	event.Op(gtx.Ops, &p.Backdrop)
-	pointer.CursorDefault.Add(gtx.Ops)
+	// See varpopup.go: a full-screen press-catcher must NOT add a cursor
+	// op, or it wins Gio's reverse hit-test for every pixel and masks
+	// CursorText/CursorPointer of widgets underneath (including those on
+	// the Settings screen if EnvColorPicker is left open).
 	backdropStack.Pop()
 
 	pickerOff := op.Offset(image.Pt(px, py)).Push(gtx.Ops)

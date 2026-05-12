@@ -206,6 +206,11 @@ func HandleFieldFallbackClick(gtx layout.Context, th *material.Theme, ed *widget
 	tag := FieldFallbackClickTag{ed: ed}
 	pass := pointer.PassOp{}.Push(gtx.Ops)
 	stack := clip.Rect{Max: finalSize}.Push(gtx.Ops)
+	// Without this CursorText.Add the fallback hit-node has cursor=unset
+	// and, being the LAST node in op-stream for this field's rect, wins
+	// Gio's reverse hit-test; its parent-chain walk then bubbles up to
+	// the tab root's CursorDefault, hiding the editor's CursorText.
+	pointer.CursorText.Add(gtx.Ops)
 	event.Op(gtx.Ops, tag)
 	stack.Pop()
 	pass.Pop()
@@ -496,6 +501,12 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 	gestureClip.Pop()
 
 	textClip := clip.Rect{Max: finalSize}.Push(gtx.Ops)
+	// Anchor CursorText on the full field rect: the inner widget.Editor
+	// clip is sized to visibleDims (text glyphs) and offset by extraY, so
+	// it doesn't cover the padding/centering gap around the text. Without
+	// this anchor that gap shows the root CursorDefault even though the
+	// pixels look like text.
+	pointer.CursorText.Add(gtx.Ops)
 	scrollOffset := op.Offset(image.Pt(-scrollX, extraY)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	scrollOffset.Pop()
@@ -704,6 +715,7 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 	gestureClip.Pop()
 
 	textClip := clip.Rect{Max: finalSize}.Push(gtx.Ops)
+	pointer.CursorText.Add(gtx.Ops)
 	scrollOffset := op.Offset(image.Pt(-scrollX, 0)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	scrollOffset.Pop()
@@ -877,6 +889,7 @@ func InlineRenameField(gtx layout.Context, th *material.Theme, ed *widget.Editor
 	gestureClip.Pop()
 
 	textClip := clip.Rect{Max: finalSize}.Push(gtx.Ops)
+	pointer.CursorText.Add(gtx.Ops)
 	scrollOffset := op.Offset(image.Pt(-scrollX, 0)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	scrollOffset.Pop()
@@ -991,6 +1004,7 @@ func SquareBtnSized(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, 
 		}
 		paint.FillShape(gtx.Ops, bg, rect.Op(gtx.Ops))
 		PaintBorder1px(gtx, gtx.Constraints.Min, theme.Border)
+		pointer.CursorPointer.Add(gtx.Ops)
 
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Point{X: gtx.Dp(unit.Dp(float32(dpIcon))), Y: gtx.Dp(unit.Dp(float32(dpIcon)))}
@@ -1013,6 +1027,7 @@ func MenuOptionStyled(gtx layout.Context, th *material.Theme, clk *widget.Clicka
 		if clk.Hovered() {
 			paint.FillShape(gtx.Ops, theme.BgHover, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
 		}
+		pointer.CursorPointer.Add(gtx.Ops)
 		return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {

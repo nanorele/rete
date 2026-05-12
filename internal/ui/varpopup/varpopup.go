@@ -123,7 +123,11 @@ func (s *State) Layout(gtx layout.Context, host *Host) {
 				s.EnvMenuOpen = false
 			}
 			event.Op(gtx.Ops, &s.tag)
-			pointer.CursorDefault.Add(gtx.Ops)
+			// Intentionally do NOT call pointer.CursorDefault.Add: this is a
+			// full-screen press-catcher backdrop, and Gio's reverse hit-test
+			// would otherwise make this overlay win cursor resolution for
+			// every pixel — including pixels of any underlying screen
+			// (workspace OR Settings) if Open is left true.
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
@@ -192,6 +196,7 @@ func (s *State) layoutEnvSelect(gtx layout.Context, host *Host) layout.Dimension
 				gtx.Constraints.Min = size
 				gtx.Constraints.Max = size
 				paint.FillShape(gtx.Ops, theme.BgField, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
+				pointer.CursorPointer.Add(gtx.Ops)
 				borderC := theme.BorderLight
 				if s.EnvMenuOpen {
 					borderC = theme.Accent
@@ -284,6 +289,7 @@ func (s *State) layoutEnvSelect(gtx layout.Context, host *Host) layout.Dimension
 							}
 							rowH := gtx.Dp(unit.Dp(28))
 							paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: image.Pt(gtx.Constraints.Max.X, rowH)}, 4).Op(gtx.Ops))
+							pointer.CursorPointer.Add(gtx.Ops)
 							return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 									layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {

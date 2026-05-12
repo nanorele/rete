@@ -2,6 +2,7 @@ package ui
 
 import (
 	"tracto/internal/ui/settings"
+	"tracto/internal/ui/widgets"
 
 	"github.com/nanorele/gio/layout"
 )
@@ -12,6 +13,15 @@ func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
 		if ui.SettingsOpen && ui.SettingsState == nil {
 			ui.SettingsState = settings.NewEditor(ui.Settings)
 		}
+		// Dismiss workspace-only overlays whenever we toggle Settings.
+		// Their full-screen press-catcher backdrops would otherwise paint
+		// over Settings (and vice versa for the closing direction), and
+		// stale GlobalVarHover/Click would re-open VarPopup on the very
+		// next frame after returning from Settings.
+		ui.VarPopup.Close()
+		ui.EnvColorPicker.Close()
+		widgets.GlobalVarHover = nil
+		widgets.GlobalVarClick = nil
 	})
 }
 

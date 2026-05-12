@@ -885,6 +885,10 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 	size := gtx.Constraints.Max
 	if size.X <= 0 || size.Y <= 0 {
 		event.Op(gtx.Ops, v)
+		// Reset cursor for the (collapsed) editor area so the previous
+		// frame's CursorText doesn't outlive the editor when it's been
+		// resized to zero (splitter drag, hidden pane).
+		pointer.CursorDefault.Add(gtx.Ops)
 		return layout.Dimensions{Size: size}
 	}
 

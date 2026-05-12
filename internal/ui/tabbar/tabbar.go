@@ -417,6 +417,7 @@ func (s *Strip) Layout(
 											gtx.Constraints.Min.X = gtx.Constraints.Max.X
 											return material.Clickable(gtx, &tab.TabBtn, func(gtx layout.Context) layout.Dimensions {
 												gtx.Constraints.Min = gtx.Constraints.Max
+												pointer.CursorPointer.Add(gtx.Ops)
 												return layout.W.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 													topPad, bottomPad := unit.Dp(2), unit.Dp(2)
 													if idx == *activeIdx {
@@ -442,6 +443,7 @@ func (s *Strip) Layout(
 											gtx.Constraints.Min.Y = gtx.Constraints.Max.Y
 											return material.Clickable(gtx, &tab.CloseBtn, func(gtx layout.Context) layout.Dimensions {
 												gtx.Constraints.Min = gtx.Constraints.Max
+												pointer.CursorPointer.Add(gtx.Ops)
 												return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 													size := gtx.Dp(unit.Dp(16))
 													gtx.Constraints.Min = image.Point{X: size, Y: size}
@@ -488,6 +490,8 @@ func (s *Strip) Layout(
 									btn.CornerRadius = unit.Dp(0)
 									btn.Inset = layout.Inset{}
 									gtx.Constraints.Min = gtx.Constraints.Max
+									defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+									pointer.CursorPointer.Add(gtx.Ops)
 									return btn.Layout(gtx)
 								}),
 								layout.Expanded(func(gtx layout.Context) layout.Dimensions {

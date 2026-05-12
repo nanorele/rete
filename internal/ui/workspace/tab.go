@@ -27,7 +27,6 @@ import (
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/io/clipboard"
-	"github.com/nanorele/gio/io/event"
 	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
@@ -343,6 +342,7 @@ func (t *RequestTab) layoutBodyTypeSelector(gtx layout.Context, th *material.The
 										if t.BodyTypeChoices[idx].Hovered() {
 											paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: image.Pt(rowW, gtx.Dp(unit.Dp(28)))}.Op())
 										}
+										pointer.CursorPointer.Add(gtx.Ops)
 										return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 											name := typ.String()
 											if t.BodyType == typ {
@@ -370,6 +370,7 @@ func (t *RequestTab) layoutBodyTypeSelector(gtx layout.Context, th *material.The
 				if t.BodyTypeBtn.Hovered() {
 					bg = theme.BgHover
 				}
+				pointer.CursorPointer.Add(gtx.Ops)
 				macro := op.Record(gtx.Ops)
 				dim := layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
@@ -436,6 +437,7 @@ func (t *RequestTab) layoutModeBtn(gtx layout.Context, btn *widget.Clickable, ve
 		}
 		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: gtx.Constraints.Min}.Op())
 		widgets.PaintBorder1px(gtx, gtx.Constraints.Min, theme.Border)
+		pointer.CursorPointer.Add(gtx.Ops)
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			isz := gtx.Dp(unit.Dp(12))
 			gtx.Constraints.Min = image.Pt(isz, isz)
@@ -1050,6 +1052,14 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		} else {
 			t.LayoutMode = LayoutModeHoriz
 		}
+		// Reset the splitter gesture so any in-flight Press/Drag state
+		// from the previous axis can't leak into the new one — the same
+		// gesture.Drag is reused across both axes, and a stale dragging
+		// state holds onto its resize cursor (and IsDraggingSplit stays
+		// true) until the next Release on the new axis, which may never
+		// land inside the relocated 4dp splitter strip.
+		t.IsDraggingSplit = false
+		t.SplitDrag = gesture.Drag{}
 		win.Invalidate()
 	}
 	for t.LayoutVertBtn.Clicked(gtx) {
@@ -1058,6 +1068,8 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		} else {
 			t.LayoutMode = LayoutModeVert
 		}
+		t.IsDraggingSplit = false
+		t.SplitDrag = gesture.Drag{}
 		win.Invalidate()
 	}
 
@@ -1181,6 +1193,18 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 
 	isDragging := isAppDragging || t.IsDraggingSplit
 
+	// NOTE: do NOT add a root pointer.CursorDefault.Add(gtx.Ops) here.
+	// nanorele/gio uses cursorUnset (0xFF) as a sentinel distinct from
+	// CursorDefault: when an area has cursor=unset, hit-test walks up
+	// the parent chain, and if no ancestor set a cursor, the final
+	// fallback is CursorDefault (pointer.go:562-564). A root anchor
+	// sets the WHOLE tab area's cursor to CursorDefault, which then
+	// wins the first non-unset slot of hit's parent-chain walk for
+	// every full-screen press-catcher hitNode added later (popup
+	// backdrop, fallback click catcher, etc.). The effect: their
+	// area.cursor stays unset but the chain immediately resolves to
+	// CursorDefault — masking CursorText from widget.Editor below.
+	// The natural unset → CursorDefault fallback is what we want.
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: unit.Dp(1), Bottom: unit.Dp(8), Left: unit.Dp(4), Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1223,6 +1247,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 															if t.MethodClickables[idx].Hovered() {
 																paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: image.Pt(rowW, gtx.Dp(unit.Dp(34)))}.Op())
 															}
+															pointer.CursorPointer.Add(gtx.Ops)
 															return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8), Left: unit.Dp(12), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 																lbl := widgets.MonoLabel(th, unit.Sp(12), methodName)
 																lbl.Color = theme.MethodColor(methodName)
@@ -1314,6 +1339,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 						sendDims := layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return material.Clickable(gtx, &t.SendBtn, func(gtx layout.Context) layout.Dimensions {
+									pointer.CursorPointer.Add(gtx.Ops)
 									return layout.Inset{Top: unit.Dp(7), Bottom: unit.Dp(6), Left: unit.Dp(16), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										lbl := material.Label(th, unit.Sp(12), "SEND")
 										lbl.Color = th.Fg
@@ -1329,6 +1355,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return material.Clickable(gtx, &t.SendMenuBtn, func(gtx layout.Context) layout.Dimensions {
+									pointer.CursorPointer.Add(gtx.Ops)
 									return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(0), Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										is := gtx.Dp(unit.Dp(20))
 										gtx.Constraints.Min = image.Point{X: is, Y: is}
@@ -1353,6 +1380,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 							rec := op.Record(gtx.Ops)
 							menuDims := layout.UniformInset(unit.Dp(4)).Layout(menuGtx, func(gtx layout.Context) layout.Dimensions {
 								return material.Clickable(gtx, &t.SaveToFileBtn, func(gtx layout.Context) layout.Dimensions {
+									pointer.CursorPointer.Add(gtx.Ops)
 									return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										gtx.Constraints.Min.X = gtx.Dp(unit.Dp(130))
 										lbl := widgets.MonoLabel(th, unit.Sp(12), "Save to file...")
@@ -1580,8 +1608,13 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 								rect := clip.Rect{Max: size}
 								defer rect.Push(gtx.Ops).Pop()
 								cursor.Add(gtx.Ops)
+								// gesture.Drag.Add already calls event.Op(ops, d)
+								// internally; an extra event.Op for the same
+								// target double-registers the hit-area, which
+								// can confuse Gio's pointer router into
+								// retaining a stale cursor (e.g. the splitter's
+								// row/col resize) after a layout-mode flip.
 								t.SplitDrag.Add(gtx.Ops)
-								event.Op(gtx.Ops, &t.SplitDrag)
 								for {
 									_, ok := gtx.Event(pointer.Filter{Target: &t.SplitDrag, Kinds: pointer.Move | pointer.Enter | pointer.Leave})
 									if !ok {
