@@ -100,6 +100,11 @@ func (s *State) Layout(gtx layout.Context, host *Host) {
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			paint.FillShape(gtx.Ops, color.NRGBA{A: 80}, clip.Rect{Max: gtx.Constraints.Max}.Op())
 			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+			// Pass-through: see app.go popup-close backdrop. Without PassOp,
+			// this full-screen press-catcher's non-pass hit-node short-
+			// circuits Gio's cursor hit-test walk, leaving every widget
+			// below at the unset → CursorDefault fallback.
+			passStack := pointer.PassOp{}.Push(gtx.Ops)
 			for {
 				ev, ok := gtx.Event(pointer.Filter{
 					Target: &s.tag,
@@ -123,11 +128,7 @@ func (s *State) Layout(gtx layout.Context, host *Host) {
 				s.EnvMenuOpen = false
 			}
 			event.Op(gtx.Ops, &s.tag)
-			// Intentionally do NOT call pointer.CursorDefault.Add: this is a
-			// full-screen press-catcher backdrop, and Gio's reverse hit-test
-			// would otherwise make this overlay win cursor resolution for
-			// every pixel — including pixels of any underlying screen
-			// (workspace OR Settings) if Open is left true.
+			passStack.Pop()
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {

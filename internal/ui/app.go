@@ -933,6 +933,14 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		layout.Stack{}.Layout(gtx,
 			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+				// Pass-through: the popup-close backdrop covers the whole
+				// window, but its event.Op handler must NOT block Gio's
+				// cursor hit-test walk. Without PassOp, the backdrop's
+				// non-pass hit-node short-circuits the reverse hitTree
+				// traversal (idx = n.next jump) — leaving cursor at unset
+				// → fallback CursorDefault, masking CursorText/CursorPointer
+				// of every widget below.
+				passStack := pointer.PassOp{}.Push(gtx.Ops)
 				for {
 					ev, ok := gtx.Event(
 						pointer.Filter{Target: &ui.PopupCloseTag, Kinds: pointer.Press},
@@ -951,6 +959,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 					}
 				}
 				event.Op(gtx.Ops, &ui.PopupCloseTag)
+				passStack.Pop()
 				// Intentionally do NOT call pointer.CursorDefault.Add here:
 				// this is a full-screen press-catcher backdrop drawn AFTER
 				// the rest of the UI, so in Gio's reverse hit-test it would
@@ -1114,6 +1123,11 @@ func (ui *AppUI) renderColorPickerOverlay(gtx layout.Context, p *colorpicker.Sta
 	macro := op.Record(gtx.Ops)
 
 	backdropStack := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
+	// Pass-through (see popup-close backdrop in layoutApp for rationale):
+	// without PassOp, this full-screen press-catcher's non-pass hit-node
+	// short-circuits Gio's cursor hit-test walk, masking every widget's
+	// cursor underneath.
+	backdropPass := pointer.PassOp{}.Push(gtx.Ops)
 	for {
 		ev, ok := gtx.Event(pointer.Filter{
 			Target: &p.Backdrop,
@@ -1133,10 +1147,7 @@ func (ui *AppUI) renderColorPickerOverlay(gtx layout.Context, p *colorpicker.Sta
 		p.Close()
 	}
 	event.Op(gtx.Ops, &p.Backdrop)
-	// See varpopup.go: a full-screen press-catcher must NOT add a cursor
-	// op, or it wins Gio's reverse hit-test for every pixel and masks
-	// CursorText/CursorPointer of widgets underneath (including those on
-	// the Settings screen if EnvColorPicker is left open).
+	backdropPass.Pop()
 	backdropStack.Pop()
 
 	pickerOff := op.Offset(image.Pt(px, py)).Push(gtx.Ops)
