@@ -1,6 +1,10 @@
 package mitm
 
 import (
+	"os"
+
+	"tracto/internal/persist"
+
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/widget"
 )
@@ -32,6 +36,18 @@ type UIState struct {
 	RespHeadersList widget.List
 
 	BindAddr widget.Editor
+
+	// CA management
+	GenCABtn        widget.Clickable
+	InstallCABtn    widget.Clickable
+	RemoveCABtn     widget.Clickable
+	InterceptBtn    widget.Clickable
+	HelpBtn         widget.Clickable
+	RevealBtn       widget.Clickable
+	CopyPathBtn     widget.Clickable
+	CABanner        string
+	HelpOpen        bool
+	caLoadAttempted bool
 }
 
 func (s *UIState) Ensure() {
@@ -48,4 +64,18 @@ func (s *UIState) Ensure() {
 		s.BindAddr.SetText(DefaultAddr)
 	}
 	s.BindAddr.SingleLine = true
+
+	if !s.caLoadAttempted {
+		s.caLoadAttempted = true
+		dir := persist.MITMDir()
+		if _, err := os.Stat(CACertPath(dir)); err == nil {
+			if ca, err := LoadCA(dir); err == nil {
+				s.Proxy.SetCA(ca)
+			}
+		}
+	}
 }
+
+// MITMDir is exposed so UI code can pass a deterministic directory to
+// CA save/load helpers without re-importing persist itself.
+func MITMDir() string { return persist.MITMDir() }

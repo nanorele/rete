@@ -7,7 +7,7 @@ import (
 	"github.com/nanorele/gio/app"
 )
 
-const appTitle = "Rete 0.5.0"
+const appTitle = "Rete 0.5.1"
 const bugReportURL = "https://github.com/nanorele/rete/issues/new"
 
 func main() {
@@ -15,10 +15,27 @@ func main() {
 		uiApp := ui.NewAppUI()
 		uiApp.Title = appTitle
 		uiApp.BugReportURL = bugReportURL
+		applyStartupArgs(uiApp, os.Args[1:])
 		if err := uiApp.Run(); err != nil {
 			os.Exit(1)
 		}
 		os.Exit(0)
 	}()
 	app.Main()
+}
+
+func applyStartupArgs(u *ui.AppUI, args []string) {
+	for _, a := range args {
+		switch a {
+		case "--mitm-start":
+			u.SidebarSection = "mitm"
+			u.MITMAutoStart = true
+		case "--mitm-install-ca":
+			u.SidebarSection = "mitm"
+			u.MITMAutoInstallCA = true
+		case "--mitm-remove-ca":
+			u.SidebarSection = "mitm"
+			u.MITMAutoRemoveCA = true
+		}
+	}
 }

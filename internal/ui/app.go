@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"tracto/internal/ui/workspace"
 	"bytes"
 	"context"
 	"embed"
@@ -24,6 +23,7 @@ import (
 	"tracto/internal/ui/titlebar"
 	"tracto/internal/ui/varpopup"
 	"tracto/internal/ui/widgets"
+	"tracto/internal/ui/workspace"
 
 	"github.com/nanorele/gio-x/explorer"
 	"github.com/nanorele/gio/app"
@@ -45,7 +45,6 @@ import (
 	"github.com/nanorele/gio/widget"
 	"github.com/nanorele/gio/widget/material"
 )
-
 
 type AppUI struct {
 	Theme           *material.Theme
@@ -108,11 +107,18 @@ type AppUI struct {
 	EnvsExpanded    bool
 	EnvsHeaderClick widget.Clickable
 
-	SidebarSection  string
-	BtnSecRequests  widget.Clickable
-	BtnSecMITM      widget.Clickable
+	SidebarSection string
+	BtnSecRequests widget.Clickable
+	BtnSecMITM     widget.Clickable
 
 	MITM mitm.UIState
+
+	// Startup flags inherited from os.Args after an elevation relaunch.
+	// Consumed once on first MITM-section frame to auto-execute the
+	// action that originally triggered the UAC prompt.
+	MITMAutoStart     bool
+	MITMAutoInstallCA bool
+	MITMAutoRemoveCA  bool
 
 	Settings      model.AppSettings
 	SettingsOpen  bool
@@ -378,7 +384,6 @@ func (ui *AppUI) activeEnvSnapshot() map[string]string {
 	}
 	return snap
 }
-
 
 func (ui *AppUI) importDroppedData(data []byte) {
 	go func() {
@@ -1166,7 +1171,6 @@ func (ui *AppUI) renderColorPickerOverlay(gtx layout.Context, p *colorpicker.Sta
 	pickerOff.Pop()
 	op.Defer(gtx.Ops, macro.Stop())
 }
-
 
 func (ui *AppUI) closeAllSidebarMenus() {
 	for _, n := range ui.VisibleCols {

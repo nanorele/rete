@@ -1,8 +1,13 @@
 package ui
 
 import (
+	"bytes"
 	"image"
+	"image/color"
+	"image/png"
+	"sync"
 
+	"tracto/internal/ui/mitm"
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/widgets"
 
@@ -11,6 +16,7 @@ import (
 	"github.com/nanorele/gio/op/clip"
 	"github.com/nanorele/gio/op/paint"
 	"github.com/nanorele/gio/unit"
+	"github.com/nanorele/gio/widget"
 )
 
 func mitmHLine(gtx layout.Context) layout.Dimensions {
@@ -30,6 +36,54 @@ func mitmBoxed(gtx layout.Context, w layout.Widget) layout.Dimensions {
 	return dims
 }
 
+// mitmBgBar lays out content first, then paints a background filling
+// the actual content height (full width). Use for toolbars/status bars
+// whose height depends on the content (banners, wrapped text), so the
+// background never lags behind the layout.
+func mitmBgBar(gtx layout.Context, bg color.NRGBA, content layout.Widget) layout.Dimensions {
+	macro := op.Record(gtx.Ops)
+	dims := content(gtx)
+	call := macro.Stop()
+	sz := image.Pt(gtx.Constraints.Max.X, dims.Size.Y)
+	paint.FillShape(gtx.Ops, bg, clip.Rect{Max: sz}.Op())
+	call.Add(gtx.Ops)
+	dims.Size = sz
+	return dims
+}
+
 func mitmRecord(gtx layout.Context) op.MacroOp {
 	return op.Record(gtx.Ops)
+}
+
+var (
+	uacShieldOnce sync.Once
+	uacShieldOp   paint.ImageOp
+	uacShieldOK   bool
+)
+
+func loadUACShield() {
+	data, err := mitm.UACShieldPNG()
+	if err != nil {
+		return
+	}
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		return
+	}
+	uacShieldOp = paint.NewImageOp(img)
+	uacShieldOK = true
+}
+
+// paintUACShield renders the native Windows UAC shield at the given dp
+// size. Falls back to material shield-with-checkmark when the system
+// icon is unavailable (non-Windows, or shell32 call failed).
+func paintUACShield(gtx layout.Context, sz int) layout.Dimensions {
+	uacShieldOnce.Do(loadUACShield)
+	gtx.Constraints.Min = image.Pt(sz, sz)
+	gtx.Constraints.Max = gtx.Constraints.Min
+	if !uacShieldOK {
+		return widgets.IconShield.Layout(gtx, theme.Accent)
+	}
+	im := widget.Image{Src: uacShieldOp, Fit: widget.Contain}
+	return im.Layout(gtx)
 }

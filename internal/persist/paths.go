@@ -42,6 +42,12 @@ func EnvironmentsDir() string {
 	return envDir
 }
 
+func MITMDir() string {
+	dir := filepath.Join(ConfigDir(), "mitm")
+	_ = os.MkdirAll(dir, 0755)
+	return dir
+}
+
 func AtomicWriteFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0755); err != nil {

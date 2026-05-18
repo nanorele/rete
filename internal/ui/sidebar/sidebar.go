@@ -1019,7 +1019,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 		var envToDelete *environments.EnvironmentUI
 		envList := material.List(host.Theme, host.EnvList)
-		envList.AnchorStrategy = material.Overlay
 		dim := envList.Layout(gtx, len(envSnapshot), func(gtx layout.Context, idx int) layout.Dimensions {
 			if idx >= len(envSnapshot) {
 				return layout.Dimensions{}
