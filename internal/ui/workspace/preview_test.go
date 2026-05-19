@@ -143,7 +143,7 @@ func TestLoadPreviewFromFile(t *testing.T) {
 	content := `{"a": 1}`
 	_ = os.WriteFile(tmpPath, []byte(content), 0644)
 
-	result, n, isJSON := loadPreviewFromFile(tmpPath, int64(len(content)), &JSONFormatterState{})
+	result, n, isJSON := loadPreviewFromFile(tmpPath, int64(len(content)), &JSONFormatterState{}, "")
 
 	if result != "{\n  \"a\": 1\n}" {
 		t.Errorf("expected formatted JSON, got %q", result)
@@ -179,7 +179,7 @@ func TestLoadPreviewFromFile_LargeJSONStaysFormatted(t *testing.T) {
 	}
 	_ = os.WriteFile(tmpPath, []byte(content), 0644)
 
-	result, _, isJSON := loadPreviewFromFile(tmpPath, int64(len(content)), &JSONFormatterState{})
+	result, _, isJSON := loadPreviewFromFile(tmpPath, int64(len(content)), &JSONFormatterState{}, "")
 	if !isJSON {
 		t.Fatalf("expected isJSON=true for >1 MB JSON body")
 	}

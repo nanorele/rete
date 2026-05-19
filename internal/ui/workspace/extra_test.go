@@ -127,7 +127,7 @@ func TestLooksLikeJSON_BOM(t *testing.T) {
 }
 
 func TestLoadPreviewFromFile_Missing(t *testing.T) {
-	result, n, isJSON := loadPreviewFromFile(filepath.Join(t.TempDir(), "nope"), 100, &JSONFormatterState{})
+	result, n, isJSON := loadPreviewFromFile(filepath.Join(t.TempDir(), "nope"), 100, &JSONFormatterState{}, "")
 	if result != "" || n != 0 || isJSON {
 		t.Errorf("expected zero values on missing file, got (%q,%d,%v)", result, n, isJSON)
 	}
@@ -138,7 +138,7 @@ func TestLoadPreviewFromFile_EmptyFile(t *testing.T) {
 	_ = tmp.Close()
 	defer os.Remove(tmp.Name())
 
-	result, n, isJSON := loadPreviewFromFile(tmp.Name(), 0, &JSONFormatterState{})
+	result, n, isJSON := loadPreviewFromFile(tmp.Name(), 0, &JSONFormatterState{}, "")
 	if result != "" || n != 0 || isJSON {
 		t.Errorf("empty file should return zero values, got (%q,%d,%v)", result, n, isJSON)
 	}
@@ -155,7 +155,7 @@ func TestLoadPreviewFromFile_AutoFormatDisabled(t *testing.T) {
 	body := `{"a":1}`
 	_ = os.WriteFile(tmpPath, []byte(body), 0644)
 
-	result, _, isJSON := loadPreviewFromFile(tmpPath, int64(len(body)), &JSONFormatterState{})
+	result, _, isJSON := loadPreviewFromFile(tmpPath, int64(len(body)), &JSONFormatterState{}, "")
 	if isJSON {
 		t.Errorf("with AutoFormatJSON=false, isJSON should be false")
 	}
@@ -909,6 +909,108 @@ func TestBytesAndTextAlignment(t *testing.T) {
 	}
 	if tab.ReqEditor.Len() != len("hello") {
 		t.Errorf("Len mismatch: %d vs %d", tab.ReqEditor.Len(), len("hello"))
+	}
+}
+
+func TestMoveURLWord(t *testing.T) {
+	s := "https://example.com/api/v1?key=val&x=y"
+	n := len([]rune(s))
+
+	cases := []struct {
+		name string
+		pos  int
+		dir  int
+		want int
+	}{
+		{"from-end-back-to-start-of-trailing-y", n, -1, 37},
+		{"from-y-back-to-start-of-x", 37, -1, 35},
+		{"from-x-back-to-start-of-val", 35, -1, 31},
+		{"from-val-back-to-start-of-key", 31, -1, 27},
+		{"from-0-forward-to-end-of-https", 0, 1, 5},
+		{"forward-past-protocol-sep", 5, 1, len("https://")+len("example")},
+		{"forward-stops-at-slash-boundary", len("https://example.com"), 1, len("https://example.com/")+len("api")},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := moveURLWord(s, c.pos, c.dir)
+			if got != c.want {
+				t.Errorf("moveURLWord(%q, %d, %d) = %d, want %d", s, c.pos, c.dir, got, c.want)
+			}
+		})
+	}
+
+	if got := moveURLWord("", 0, 1); got != 0 {
+		t.Errorf("empty forward: got %d, want 0", got)
+	}
+	if got := moveURLWord("", 0, -1); got != 0 {
+		t.Errorf("empty backward: got %d, want 0", got)
+	}
+	if got := moveURLWord("abc", 100, 1); got != 3 {
+		t.Errorf("oob forward: got %d, want 3", got)
+	}
+	if got := moveURLWord("abc", -5, 1); got != 3 {
+		t.Errorf("negative pos forward: got %d, want 3", got)
+	}
+}
+
+func TestMoveURLWord_Variables(t *testing.T) {
+	s := "http://{{host}}/api/{{path}}?k={{val}}"
+
+	cases := []struct {
+		name string
+		pos  int
+		dir  int
+		want int
+	}{
+		{"forward-from-protocol-jumps-over-whole-var", 4, 1, 15},
+		{"forward-from-inside-var-jumps-to-end-of-var", 10, 1, 15},
+		{"forward-from-var-start-jumps-to-var-end", 7, 1, 15},
+		{"forward-after-var-into-next-word", 15, 1, 19},
+		{"backward-from-after-var-jumps-to-var-start", 15, -1, 7},
+		{"backward-from-inside-var-jumps-to-var-start", 11, -1, 7},
+		{"backward-from-var-end-jumps-to-var-start", 14, -1, 7},
+		{"forward-skips-into-second-var", 19, 1, 28},
+		{"backward-from-third-var-end", 38, -1, 31},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			got := moveURLWord(s, c.pos, c.dir)
+			if got != c.want {
+				t.Errorf("moveURLWord(%q, %d, %d) = %d, want %d", s, c.pos, c.dir, got, c.want)
+			}
+		})
+	}
+
+	if got := moveURLWord("{{a}}{{b}}", 0, 1); got != 5 {
+		t.Errorf("adjacent vars forward from 0: got %d, want 5", got)
+	}
+	if got := moveURLWord("{{a}}{{b}}", 5, 1); got != 10 {
+		t.Errorf("adjacent vars forward from 5: got %d, want 10", got)
+	}
+	if got := moveURLWord("{{a}}{{b}}", 10, -1); got != 5 {
+		t.Errorf("adjacent vars backward from 10: got %d, want 5", got)
+	}
+	if got := moveURLWord("{{a}}{{b}}", 5, -1); got != 0 {
+		t.Errorf("adjacent vars backward from 5: got %d, want 0", got)
+	}
+
+	if got := moveURLWord("{{abc", 0, 1); got != 5 {
+		t.Errorf("unmatched {{ forward: got %d, want 5", got)
+	}
+}
+
+func TestIsURLWordSep(t *testing.T) {
+	seps := []rune{'/', ':', '?', '#', '&', '=', '.', ' ', '\t', '@', ','}
+	for _, r := range seps {
+		if !isURLWordSep(r) {
+			t.Errorf("expected %q to be separator", r)
+		}
+	}
+	nonSeps := []rune{'a', 'Z', '0', '9', '-', '_', 'ё'}
+	for _, r := range nonSeps {
+		if isURLWordSep(r) {
+			t.Errorf("did not expect %q to be separator", r)
+		}
 	}
 }
 

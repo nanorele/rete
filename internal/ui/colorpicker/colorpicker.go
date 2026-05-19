@@ -236,7 +236,6 @@ func Render(gtx layout.Context, th *material.Theme, p *State) layout.Dimensions 
 
 	{
 		stack := clip.Rect(svRect).Push(gtx.Ops)
-		pointer.CursorCrosshair.Add(gtx.Ops)
 		p.svDrag.Add(gtx.Ops)
 		for {
 			ev, ok := p.svDrag.Update(gtx.Metric, gtx.Source, gesture.Both)
@@ -244,8 +243,10 @@ func Render(gtx layout.Context, th *material.Theme, p *State) layout.Dimensions 
 				break
 			}
 			if ev.Kind == pointer.Press || ev.Kind == pointer.Drag {
-				x := int(ev.Position.X)
-				y := int(ev.Position.Y)
+				// ev.Position is picker-local (no op.Offset around svDrag.Add),
+				// so subtract svRect.Min to get coords inside the SV square.
+				x := int(ev.Position.X - float32(svRect.Min.X) + 0.5)
+				y := int(ev.Position.Y - float32(svRect.Min.Y) + 0.5)
 				if x < 0 {
 					x = 0
 				}
@@ -314,7 +315,6 @@ func Render(gtx layout.Context, th *material.Theme, p *State) layout.Dimensions 
 
 	{
 		stack := clip.Rect(hueRect).Push(gtx.Ops)
-		pointer.CursorCrosshair.Add(gtx.Ops)
 		p.hueDrag.Add(gtx.Ops)
 		for {
 			ev, ok := p.hueDrag.Update(gtx.Metric, gtx.Source, gesture.Horizontal)
@@ -322,7 +322,7 @@ func Render(gtx layout.Context, th *material.Theme, p *State) layout.Dimensions 
 				break
 			}
 			if ev.Kind == pointer.Press || ev.Kind == pointer.Drag {
-				x := int(ev.Position.X)
+				x := int(ev.Position.X - float32(hueRect.Min.X) + 0.5)
 				if x < 0 {
 					x = 0
 				}

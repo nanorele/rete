@@ -172,7 +172,7 @@ func looksLikeJSON(data []byte) bool {
 	return false
 }
 
-func loadPreviewFromFile(path string, totalSize int64, state *JSONFormatterState) (string, int64, bool) {
+func loadPreviewFromFile(path string, totalSize int64, state *JSONFormatterState, contentType string) (string, int64, bool) {
 	f, err := os.Open(path)
 	if err != nil {
 		return "", 0, false
@@ -197,11 +197,13 @@ func loadPreviewFromFile(path string, totalSize int64, state *JSONFormatterState
 	n, _ := io.ReadFull(f, data)
 	data = data[:n]
 
+	decoded := utils.DecodeBody(data, contentType)
+
 	var result string
 	if isJSON {
-		result = formatJSON(data, state)
+		result = formatJSON(decoded, state)
 	} else {
-		result = utils.SanitizeBytes(data)
+		result = utils.SanitizeBytes(decoded)
 	}
 	release()
 	return result, int64(n), isJSON
@@ -228,6 +230,7 @@ func (t *RequestTab) loadMorePreview() {
 	}
 	win := t.window
 	isJSON := t.respIsJSON
+	contentType := t.respContentType
 
 	go func() {
 		defer t.previewLoading.Store(false)
@@ -242,13 +245,20 @@ func (t *RequestTab) loadMorePreview() {
 		n, _ := io.ReadFull(f, data)
 		data = data[:n]
 
+		// Non-UTF-8 charsets are decoded as a whole batch here. Splitting
+		// a multi-byte sequence across batches would surface as a single
+		// replacement char at the join — acceptable for the "load more"
+		// follow-up reads, which are far less visible than the live
+		// preview during the request.
+		decoded := utils.DecodeBody(data, contentType)
+
 		var extra string
 		if isJSON {
 			t.jsonStateMu.Lock()
-			extra = formatJSON(data, t.jsonFmtState)
+			extra = formatJSON(decoded, t.jsonFmtState)
 			t.jsonStateMu.Unlock()
 		} else {
-			extra = utils.SanitizeBytes(data)
+			extra = utils.SanitizeBytes(decoded)
 		}
 		release()
 		t.previewLoaded.Add(int64(n))

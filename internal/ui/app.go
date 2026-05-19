@@ -3,7 +3,7 @@ package ui
 import (
 	"bytes"
 	"context"
-	"embed"
+	_ "embed"
 	"encoding/json"
 	"image"
 	"io"
@@ -148,16 +148,53 @@ type AppUI struct {
 	Title string
 }
 
-//go:embed assets/fonts/ttf
-var ttfFS embed.FS
+// Per-file embeds (rather than embedding the whole directory) so stray
+// files dropped into assets/fonts/ttf can't silently bloat the binary,
+// and so the set of bundled faces is reviewable here.
+//
+// Twemoji.Mozilla.ttf is the sole emoji face — Inter and JetBrainsMono
+// have no emoji coverage, so the shaper always falls back to Twemoji
+// for emoji codepoints. COLRv0 vector was chosen over bitmap
+// NotoColorEmoji (CBDT/CBLC, also supported by Gio) for ~3× smaller
+// binary and clean scaling at any size.
+
+//go:embed assets/fonts/ttf/Inter-Regular.ttf
+var fontInterRegular []byte
+
+//go:embed assets/fonts/ttf/Inter-Bold.ttf
+var fontInterBold []byte
+
+//go:embed assets/fonts/ttf/JetBrainsMono-Regular.ttf
+var fontJBMRegular []byte
+
+//go:embed assets/fonts/ttf/JetBrainsMono-Bold.ttf
+var fontJBMBold []byte
+
+//go:embed assets/fonts/ttf/JetBrainsMono-Italic.ttf
+var fontJBMItalic []byte
+
+//go:embed assets/fonts/ttf/JetBrainsMono-BoldItalic.ttf
+var fontJBMBoldItalic []byte
+
+//go:embed assets/fonts/ttf/Twemoji.Mozilla.ttf
+var fontTwemoji []byte
+
+var embeddedFonts = map[string][]byte{
+	"Inter-Regular.ttf":            fontInterRegular,
+	"Inter-Bold.ttf":               fontInterBold,
+	"JetBrainsMono-Regular.ttf":    fontJBMRegular,
+	"JetBrainsMono-Bold.ttf":       fontJBMBold,
+	"JetBrainsMono-Italic.ttf":     fontJBMItalic,
+	"JetBrainsMono-BoldItalic.ttf": fontJBMBoldItalic,
+	"Twemoji.Mozilla.ttf":          fontTwemoji,
+}
 
 func loadEmbeddedTTF(name string) ([]byte, error) {
-	f, err := ttfFS.Open("assets/fonts/ttf/" + name)
-	if err != nil {
-		return nil, err
+	b, ok := embeddedFonts[name]
+	if !ok {
+		return nil, os.ErrNotExist
 	}
-	defer func() { _ = f.Close() }()
-	return io.ReadAll(f)
+	return b, nil
 }
 
 func NewAppUI() *AppUI {
@@ -185,15 +222,6 @@ func NewAppUI() *AppUI {
 		fonts = gofont.Collection()
 	}
 
-	if b, err := loadEmbeddedTTF("NotoColorEmoji.ttf"); err == nil {
-		if emojiFace, err := opentype.Parse(b); err == nil {
-			fonts = append(fonts, font.FontFace{
-				Font: font.Font{},
-				Face: emojiFace,
-			})
-		}
-	}
-
 	addJBM := func(name string, style font.Style, weight font.Weight) {
 		b, err := loadEmbeddedTTF(name)
 		if err != nil {
@@ -212,6 +240,11 @@ func NewAppUI() *AppUI {
 			Face: face,
 		})
 	}
+	// Inserted before JBM so the fallback walk reaches Twemoji
+	// immediately after Inter, regardless of whether the primary face
+	// for a text run is Inter (UI) or JBM (request/response bodies).
+	addUIFace("Twemoji.Mozilla.ttf")
+
 	addJBM("JetBrainsMono-Regular.ttf", font.Regular, font.Normal)
 	addJBM("JetBrainsMono-Bold.ttf", font.Regular, font.Bold)
 	addJBM("JetBrainsMono-Italic.ttf", font.Italic, font.Normal)
@@ -1097,9 +1130,13 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 	if ui.EnvColorPicker.IsOpen() && !ui.SettingsOpen {
 		cur := [3]float32{ui.EnvColorPicker.H, ui.EnvColorPicker.S, ui.EnvColorPicker.V}
 		if cur != ui.EnvColorPicker.LastHSV {
+			hex := theme.HexFromColor(ui.EnvColorPicker.Color())
 			for _, e := range ui.Environments {
 				if e.Data != nil && e.Data.ID == ui.EnvColorEnvID {
-					e.Data.HighlightColor = theme.HexFromColor(ui.EnvColorPicker.Color())
+					e.Data.HighlightColor = hex
+					if ui.EditingEnv == e && e.ColorEditor.Text() != hex {
+						e.ColorEditor.SetText(hex)
+					}
 					_ = persist.SaveEnvironment(e.Data)
 					break
 				}

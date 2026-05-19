@@ -125,6 +125,18 @@ func (b *Bar) layoutSettingsBtn(gtx layout.Context, th *material.Theme, win *app
 	}
 
 	return b.SettingsBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		// Mark the button area as an input control. With app.Decorated(false)
+		// the title bar is a drag region (see the &b.titleTag handler in
+		// Layout), so without ActionInputOp the Press/Release events for
+		// this sub-area are absorbed by the drag region and Clickable
+		// never fires — hover also stops working because pointer.Move
+		// gets routed away. Close/Min/Max sit in the system-button strip
+		// which Gio carves out automatically; Settings/Bug sit inside the
+		// drag region proper and must opt out explicitly.
+		areaStack := clip.Rect{Max: btnSize}.Push(gtx.Ops)
+		system.ActionInputOp(system.ActionRaise).Add(gtx.Ops)
+		areaStack.Pop()
+
 		bg := theme.BgDark
 		if b.SettingsBtn.Hovered() {
 			bg = theme.BgHover
@@ -165,6 +177,11 @@ func (b *Bar) layoutBugBtn(gtx layout.Context, th *material.Theme, bugReportURL 
 	}
 
 	return b.BugReportBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		// See the ActionInputOp note in layoutSettingsBtn — same reasoning.
+		areaStack := clip.Rect{Max: btnSize}.Push(gtx.Ops)
+		system.ActionInputOp(system.ActionRaise).Add(gtx.Ops)
+		areaStack.Pop()
+
 		bg := theme.BgDark
 		if b.BugReportBtn.Hovered() {
 			bg = theme.BgHover

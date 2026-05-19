@@ -3,8 +3,8 @@ eliasnaur.com/font v0.0.0-20230308162249-dd43949cb42d/go.mod h1:OYVuxibdk9OSLX8v
 gioui.org/cpu v0.0.0-20210808092351-bfe733dd3334/go.mod h1:A8M0Cn5o+vY5LTMlnRoK3O5kG+rH0kWfJjeKd9QpBmQ=
 github.com/godbus/dbus/v5 v5.2.2 h1:TUR3TgtSVDmjiXOgAAyaZbYmIeP3DPkld3jgKGV8mXQ=
 github.com/godbus/dbus/v5 v5.2.2/go.mod h1:3AAv2+hPq5rdnr5txxxRwiGjPXamgoIHgz9FPBfOp3c=
-github.com/nanorele/gio v1.2.3 h1:OsIEZ5olD3816Ld2sZCt6sFbe/GOX59wP9nSypvjCyg=
-github.com/nanorele/gio v1.2.3/go.mod h1:751XzKvnkCyIovkOyviI6j6haz0CCcUdaqGzMQ157cU=
+github.com/nanorele/gio v1.2.4 h1:9+uO6qvxYxCviDtAj//BKAnxi5jiug5rzU4nCYW+AUU=
+github.com/nanorele/gio v1.2.4/go.mod h1:751XzKvnkCyIovkOyviI6j6haz0CCcUdaqGzMQ157cU=
 github.com/nanorele/gio-shader v1.0.0 h1:NyxLgvitZuKCy8YBi4kOvt4jo2DVk/UaTesenI+h0KA=
 github.com/nanorele/gio-shader v1.0.0/go.mod h1:Y0ItuWbLAtwV+RVE6iJ5dD9jfhUKDC8cVPE0/IrqWEY=
 github.com/nanorele/gio-x v1.2.1 h1:M+X7NcPECVSsq/R6Le7rC3GrgWU9bVd88WAMq+cMLkE=

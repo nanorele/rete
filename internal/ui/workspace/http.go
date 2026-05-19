@@ -1,6 +1,10 @@
 package workspace
 
 import (
+	"bufio"
+	"compress/flate"
+	"compress/gzip"
+	"compress/zlib"
 	"context"
 	"encoding/json"
 	"errors"
@@ -20,6 +24,73 @@ import (
 
 	"github.com/nanorele/gio/app"
 )
+
+type multiCloser struct {
+	io.Reader
+	closers []io.Closer
+}
+
+func (m *multiCloser) Close() error {
+	var firstErr error
+	for i := len(m.closers) - 1; i >= 0; i-- {
+		if err := m.closers[i].Close(); err != nil && firstErr == nil {
+			firstErr = err
+		}
+	}
+	return firstErr
+}
+
+// decompressBody wraps resp.Body with the appropriate decoders based on
+// Content-Encoding. When the user supplies Accept-Encoding manually,
+// net/http.Transport leaves the response compressed (Uncompressed=false);
+// without this, callers would read raw gzip/deflate bytes.
+func decompressBody(resp *http.Response) io.ReadCloser {
+	if resp == nil || resp.Body == nil {
+		return resp.Body
+	}
+	if resp.Uncompressed {
+		return resp.Body
+	}
+	enc := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding")))
+	if enc == "" || enc == "identity" {
+		return resp.Body
+	}
+	parts := strings.Split(enc, ",")
+	var reader io.Reader = resp.Body
+	closers := []io.Closer{resp.Body}
+	for i := len(parts) - 1; i >= 0; i-- {
+		e := strings.TrimSpace(parts[i])
+		switch e {
+		case "", "identity":
+			continue
+		case "gzip", "x-gzip":
+			gz, err := gzip.NewReader(reader)
+			if err != nil {
+				return resp.Body
+			}
+			reader = gz
+			closers = append(closers, gz)
+		case "deflate":
+			br := bufio.NewReader(reader)
+			hdr, _ := br.Peek(2)
+			if len(hdr) >= 2 && hdr[0] == 0x78 {
+				zr, err := zlib.NewReader(br)
+				if err != nil {
+					return resp.Body
+				}
+				reader = zr
+				closers = append(closers, zr)
+			} else {
+				fr := flate.NewReader(br)
+				reader = fr
+				closers = append(closers, fr)
+			}
+		default:
+			return resp.Body
+		}
+	}
+	return &multiCloser{Reader: reader, closers: closers}
+}
 
 func (t *RequestTab) CancelRequest() {
 	if t.cancelFn != nil {
@@ -337,6 +408,7 @@ func (t *RequestTab) beginRequest() {
 	t.isRequesting = true
 	t.respSize = 0
 	t.respIsJSON = false
+	t.respContentType = ""
 	t.downloadedBytes.Store(0)
 	t.cleanupRespFile()
 	t.PreviewEnabled = true
@@ -370,13 +442,79 @@ func (t *RequestTab) sendResponse(_ context.Context, resp tabResponse) bool {
 
 const maxStreamPreview = 512 * 1024
 
-func (t *RequestTab) streamResponse(ctx context.Context, body io.Reader, dest io.Writer, win *app.Window, livePreview bool) (int64, error) {
+const charsetSniffWindow = 4096
+
+func (t *RequestTab) streamResponse(ctx context.Context, body io.Reader, dest io.Writer, win *app.Window, livePreview bool, contentType string) (int64, error) {
 	bufp := streamBufPool.Get().(*[]byte)
 	buf := *bufp
 	defer streamBufPool.Put(bufp)
 	var total int64
 	var previewSent int64
 	var previewTail []byte
+
+	// For non-UTF-8 Content-Types, buffer the entire preview slice and
+	// transcode it in one shot at the end. The 512 KiB preview cap keeps
+	// this bounded, and chunked stateful decoding through x/text would
+	// otherwise need careful tail handling per encoding.
+	decoder := utils.CharsetDecoder(contentType)
+	var decodeBuf []byte
+	if decoder != nil {
+		decodeBuf = make([]byte, 0, maxStreamPreview)
+	}
+
+	// When Content-Type has no charset, hold the first few KiB before
+	// committing to a mode so BOM / <?xml encoding> / <meta charset>
+	// can be sniffed instead of streamed as raw UTF-8 first.
+	sniffPending := decoder == nil && utils.CharsetFromContentType(contentType) == ""
+	var sniffBuf []byte
+
+	flushUTF8 := func(data []byte, isLast bool) {
+		if len(previewTail) > 0 {
+			merged := make([]byte, 0, len(previewTail)+len(data))
+			merged = append(merged, previewTail...)
+			merged = append(merged, data...)
+			data = merged
+			previewTail = previewTail[:0]
+		}
+		end := len(data)
+		if !isLast {
+			for end > 0 && len(data)-end < 4 {
+				r, size := utf8.DecodeLastRune(data[:end])
+				if r != utf8.RuneError || size > 1 {
+					break
+				}
+				if size == 0 {
+					break
+				}
+				end--
+			}
+			if end < len(data) {
+				previewTail = append(previewTail[:0], data[end:]...)
+			}
+		}
+		chunk := utils.SanitizeBytes(data[:end])
+		select {
+		case t.appendChan <- chunk:
+		default:
+		}
+	}
+
+	commitSniff := func(isLast bool) {
+		sniffPending = false
+		if len(sniffBuf) == 0 {
+			return
+		}
+		dec := utils.CharsetDecoderForBody(sniffBuf, contentType)
+		if dec != nil {
+			decoder = dec
+			decodeBuf = make([]byte, 0, maxStreamPreview)
+			decodeBuf = append(decodeBuf, sniffBuf...)
+		} else {
+			flushUTF8(sniffBuf, isLast)
+		}
+		sniffBuf = nil
+	}
+
 	lastUpdate := time.Now()
 	for {
 		select {
@@ -397,37 +535,22 @@ func (t *RequestTab) streamResponse(ctx context.Context, body io.Reader, dest io
 				if previewSent+sendN > maxStreamPreview {
 					sendN = maxStreamPreview - previewSent
 				}
-				data := buf[:sendN]
-				if len(previewTail) > 0 {
-					merged := make([]byte, 0, len(previewTail)+int(sendN))
-					merged = append(merged, previewTail...)
-					merged = append(merged, buf[:sendN]...)
-					data = merged
-					previewTail = previewTail[:0]
-				}
-				isLast := previewSent+sendN >= maxStreamPreview || readErr != nil
-				end := len(data)
-				if !isLast {
-					for end > 0 && len(data)-end < 4 {
-						r, size := utf8.DecodeLastRune(data[:end])
-						if r != utf8.RuneError || size > 1 {
-							break
-						}
-						if size == 0 {
-							break
-						}
-						end--
+				switch {
+				case sniffPending:
+					sniffBuf = append(sniffBuf, buf[:sendN]...)
+					previewSent += sendN
+					done := len(sniffBuf) >= charsetSniffWindow || readErr != nil || previewSent >= maxStreamPreview
+					if done {
+						commitSniff(previewSent >= maxStreamPreview || readErr != nil)
 					}
-					if end < len(data) {
-						previewTail = append(previewTail[:0], data[end:]...)
-					}
-				}
-				chunk := utils.SanitizeBytes(data[:end])
-				select {
-				case t.appendChan <- chunk:
+				case decoder != nil:
+					decodeBuf = append(decodeBuf, buf[:sendN]...)
+					previewSent += sendN
 				default:
+					isLast := previewSent+sendN >= maxStreamPreview || readErr != nil
+					flushUTF8(buf[:sendN], isLast)
+					previewSent += sendN
 				}
-				previewSent += sendN
 			}
 
 			if time.Since(lastUpdate) > 250*time.Millisecond {
@@ -440,6 +563,19 @@ func (t *RequestTab) streamResponse(ctx context.Context, body io.Reader, dest io
 				return total, ctx.Err()
 			}
 			break
+		}
+	}
+
+	if sniffPending {
+		commitSniff(true)
+	}
+
+	if decoder != nil && len(decodeBuf) > 0 {
+		decoded, _ := decoder.Bytes(decodeBuf)
+		chunk := utils.SanitizeBytes(decoded)
+		select {
+		case t.appendChan <- chunk:
+		default:
 		}
 	}
 	return total, nil
@@ -478,7 +614,8 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 			t.sendResponse(ctx, tabResponse{requestID: reqID, status: status})
 			return
 		}
-		defer func() { _ = resp.Body.Close() }()
+		body := decompressBody(resp)
+		defer func() { _ = body.Close() }()
 
 		tmpFile, err := os.CreateTemp("", "tracto-resp-*.tmp")
 		if err != nil {
@@ -487,7 +624,8 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 		}
 		tmpPath = tmpFile.Name()
 
-		total, sErr := t.streamResponse(ctx, resp.Body, tmpFile, win, true)
+		contentType := resp.Header.Get("Content-Type")
+		total, sErr := t.streamResponse(ctx, body, tmpFile, win, true, contentType)
 		_ = tmpFile.Close()
 
 		if sErr != nil {
@@ -500,7 +638,7 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 		}
 
 		duration := time.Since(start)
-		display, loaded, isJSON := loadPreviewFromFile(tmpPath, total, t.jsonFmtState)
+		display, loaded, isJSON := loadPreviewFromFile(tmpPath, total, t.jsonFmtState, contentType)
 		statusText := resp.Status + "  " + duration.Round(time.Millisecond).String() + "  " + formatSize(total)
 
 		if t.sendResponse(ctx, tabResponse{
@@ -511,6 +649,7 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 			respFile:      tmpPath,
 			previewLoaded: loaded,
 			isJSON:        isJSON,
+			contentType:   contentType,
 		}) {
 			cleanup = false
 		}
@@ -553,7 +692,8 @@ func (t *RequestTab) ExecuteRequestToFile(parent context.Context, win *app.Windo
 			t.sendResponse(ctx, tabResponse{requestID: reqID, status: status})
 			return
 		}
-		defer func() { _ = resp.Body.Close() }()
+		body := decompressBody(resp)
+		defer func() { _ = body.Close() }()
 
 		tmpFile, tmpErr := os.CreateTemp("", "tracto-resp-*.tmp")
 		var writer io.Writer = dest
@@ -561,7 +701,7 @@ func (t *RequestTab) ExecuteRequestToFile(parent context.Context, win *app.Windo
 			writer = io.MultiWriter(dest, tmpFile)
 		}
 
-		total, sErr := t.streamResponse(ctx, resp.Body, writer, win, false)
+		total, sErr := t.streamResponse(ctx, body, writer, win, false, resp.Header.Get("Content-Type"))
 
 		if tmpFile != nil {
 			_ = tmpFile.Close()
@@ -608,9 +748,10 @@ func (t *RequestTab) loadPreviewForSavedFile() {
 	totalSize := t.respSize
 	state := t.jsonFmtState
 	win := t.window
+	contentType := t.respContentType
 
 	go func() {
-		display, loaded, isJSON := loadPreviewFromFile(filePath, totalSize, state)
+		display, loaded, isJSON := loadPreviewFromFile(filePath, totalSize, state, contentType)
 		select {
 		case <-t.previewChan:
 		default:

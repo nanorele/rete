@@ -29,6 +29,7 @@ import (
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/io/clipboard"
+	"github.com/nanorele/gio/io/key"
 	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
@@ -79,6 +80,7 @@ type tabResponse struct {
 	respFile      string
 	previewLoaded int64
 	isJSON        bool
+	contentType   string
 }
 
 type previewResult struct {
@@ -150,6 +152,7 @@ type RequestTab struct {
 	respSize        int64
 	respFile        string
 	respIsJSON      bool
+	respContentType string
 	downloadedBytes atomic.Int64
 	previewLoaded   atomic.Int64
 
@@ -831,6 +834,141 @@ func (t *RequestTab) UpdateSystemHeaders() {
 	}
 }
 
+func isURLWordSep(r rune) bool {
+	if r <= ' ' {
+		return true
+	}
+	switch r {
+	case '/', '\\', ':', '?', '#', '&', '=', '.', ',', ';', '@', '(', ')', '[', ']', '{', '}', '"', '\'', '`', '<', '>', '|', '!':
+		return true
+	}
+	return false
+}
+
+type urlVarSpan struct{ start, end int }
+
+func findURLVarSpans(runes []rune) []urlVarSpan {
+	var spans []urlVarSpan
+	n := len(runes)
+	for i := 0; i <= n-2; i++ {
+		if runes[i] != '{' || runes[i+1] != '{' {
+			continue
+		}
+		for j := i + 2; j <= n-2; j++ {
+			if runes[j] == '}' && runes[j+1] == '}' {
+				spans = append(spans, urlVarSpan{i, j + 2})
+				i = j + 1
+				break
+			}
+		}
+	}
+	return spans
+}
+
+func moveURLWord(s string, pos int, dir int) int {
+	runes := []rune(s)
+	n := len(runes)
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > n {
+		pos = n
+	}
+	spans := findURLVarSpans(runes)
+
+	varAt := func(p int) *urlVarSpan {
+		for i := range spans {
+			v := &spans[i]
+			if p >= v.start && p < v.end {
+				return v
+			}
+		}
+		return nil
+	}
+	isSep := func(p int) bool {
+		if p < 0 || p >= n {
+			return false
+		}
+		if varAt(p) != nil {
+			return false
+		}
+		return isURLWordSep(runes[p])
+	}
+
+	if dir > 0 {
+		if v := varAt(pos); v != nil {
+			return v.end
+		}
+		for pos < n && isSep(pos) {
+			pos++
+		}
+		if v := varAt(pos); v != nil {
+			return v.end
+		}
+		for pos < n && !isSep(pos) {
+			if varAt(pos) != nil {
+				break
+			}
+			pos++
+		}
+		return pos
+	}
+
+	if v := varAt(pos); v != nil && pos > v.start {
+		return v.start
+	}
+	if pos > 0 {
+		if v := varAt(pos - 1); v != nil {
+			return v.start
+		}
+	}
+	for pos > 0 && isSep(pos-1) {
+		pos--
+	}
+	if pos > 0 {
+		if v := varAt(pos - 1); v != nil {
+			return v.start
+		}
+	}
+	for pos > 0 && !isSep(pos-1) {
+		pos--
+	}
+	return pos
+}
+
+func (t *RequestTab) handleURLWordJump(gtx layout.Context) {
+	for {
+		ev, ok := gtx.Event(
+			key.Filter{Focus: &t.URLInput, Name: key.NameLeftArrow, Required: key.ModShortcut, Optional: key.ModShift},
+			key.Filter{Focus: &t.URLInput, Name: key.NameRightArrow, Required: key.ModShortcut, Optional: key.ModShift},
+		)
+		if !ok {
+			break
+		}
+		ke, ok := ev.(key.Event)
+		if !ok || ke.State != key.Press {
+			continue
+		}
+		extend := ke.Modifiers.Contain(key.ModShift)
+		start, end := t.URLInput.Selection()
+		text := t.URLInput.Text()
+		var newPos int
+		switch ke.Name {
+		case key.NameLeftArrow:
+			newPos = moveURLWord(text, end, -1)
+		case key.NameRightArrow:
+			newPos = moveURLWord(text, end, 1)
+		default:
+			continue
+		}
+		if extend {
+			t.URLInput.SetCaret(start, newPos)
+		} else {
+			t.URLInput.SetCaret(newPos, newPos)
+		}
+	}
+}
+
 func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Window, exp *explorer.Explorer, activeEnv map[string]string, isAppDragging bool, onSave func(), onCollectionDirty func(*collections.ParsedCollection)) layout.Dimensions {
 	t.window = win
 
@@ -852,6 +990,8 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		t.invalidateSearchCache()
 	default:
 	}
+
+	t.handleURLWordJump(gtx)
 
 	for {
 		ev, ok := t.URLInput.Update(gtx)
@@ -880,6 +1020,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 			t.respFile = res.respFile
 			t.previewLoaded.Store(res.previewLoaded)
 			t.respIsJSON = res.isJSON
+			t.respContentType = res.contentType
 			t.isRequesting = false
 			t.cancelFn = nil
 			t.invalidateSearchCache()

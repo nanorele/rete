@@ -31,14 +31,15 @@ type EnvironmentUI struct {
 	MenuOpen   bool
 	MenuClickY float32
 
-	List        widget.List
-	Rows        []*EnvVarRow
-	AddBtn      widget.Clickable
-	SaveBtn     widget.Clickable
-	BackBtn     widget.Clickable
-	NameEditor  widget.Editor
-	ColorEditor widget.Editor
-	ColorReset  widget.Clickable
+	List           widget.List
+	Rows           []*EnvVarRow
+	AddBtn         widget.Clickable
+	SaveBtn        widget.Clickable
+	BackBtn        widget.Clickable
+	NameEditor     widget.Editor
+	ColorEditor    widget.Editor
+	ColorReset     widget.Clickable
+	ColorSwatchBtn widget.Clickable
 
 	IsRenaming      bool
 	RenamingFocused bool

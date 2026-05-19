@@ -2,6 +2,8 @@ package workspace
 
 import (
 	"bytes"
+	"compress/gzip"
+	"compress/zlib"
 	"context"
 	"io"
 	"net/http"
@@ -276,7 +278,7 @@ func TestStreamResponse_Cancellation(t *testing.T) {
 		_ = pw.Close()
 	}()
 	var dest bytes.Buffer
-	_, err := tab.streamResponse(ctx, pr, &dest, new(app.Window), true)
+	_, err := tab.streamResponse(ctx, pr, &dest, new(app.Window), true, "")
 	if err != context.Canceled {
 		t.Errorf("expected context.Canceled, got %v", err)
 	}
@@ -303,5 +305,152 @@ func TestLoadPreviewForSavedFile(t *testing.T) {
 		}
 	case <-time.After(1 * time.Second):
 		t.Errorf("timeout")
+	}
+}
+
+func TestDecompressBody_Gzip(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Content-Type", "text/html")
+		gz := gzip.NewWriter(w)
+		_, _ = gz.Write([]byte("<html>hello</html>"))
+		_ = gz.Close()
+	}))
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL, nil)
+	req.Header.Set("Accept-Encoding", "gzip")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.Uncompressed {
+		t.Fatalf("expected Uncompressed=false (manual Accept-Encoding)")
+	}
+
+	body := decompressBody(resp)
+	defer func() { _ = body.Close() }()
+	data, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(data) != "<html>hello</html>" {
+		t.Errorf("got %q", string(data))
+	}
+}
+
+func TestDecompressBody_Deflate_Zlib(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "deflate")
+		zw := zlib.NewWriter(w)
+		_, _ = zw.Write([]byte("plain text"))
+		_ = zw.Close()
+	}))
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL, nil)
+	req.Header.Set("Accept-Encoding", "deflate")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body := decompressBody(resp)
+	defer func() { _ = body.Close() }()
+	data, _ := io.ReadAll(body)
+	if string(data) != "plain text" {
+		t.Errorf("got %q", string(data))
+	}
+}
+
+func TestDecompressBody_Identity(t *testing.T) {
+	resp := &http.Response{
+		Body:   io.NopCloser(strings.NewReader("raw")),
+		Header: http.Header{},
+	}
+	resp.Header.Set("Content-Encoding", "identity")
+	body := decompressBody(resp)
+	data, _ := io.ReadAll(body)
+	if string(data) != "raw" {
+		t.Errorf("got %q", string(data))
+	}
+}
+
+func TestStreamResponse_SniffHTMLMeta(t *testing.T) {
+	// CP1251 "Привет" inside an HTML doc with <meta charset="windows-1251">.
+	// Content-Type carries no charset, so streamResponse must sniff.
+	cp1251 := []byte{0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2}
+	body := append([]byte(`<html><head><meta charset="windows-1251"></head><body>`), cp1251...)
+	body = append(body, []byte(`</body></html>`)...)
+
+	tab := NewRequestTab("test")
+	var dest bytes.Buffer
+	_, err := tab.streamResponse(context.Background(), bytes.NewReader(body), &dest, new(app.Window), true, "text/html")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	var got strings.Builder
+	for {
+		select {
+		case chunk := <-tab.appendChan:
+			got.WriteString(chunk)
+		default:
+			if !strings.Contains(got.String(), "Привет") {
+				t.Errorf("sniffed preview missing cyrillic; got %q", got.String())
+			}
+			return
+		}
+	}
+}
+
+func TestStreamResponse_SniffBOM_UTF16LE(t *testing.T) {
+	// UTF-16LE BOM + "hello"
+	body := []byte{0xFF, 0xFE,
+		'h', 0x00, 'e', 0x00, 'l', 0x00, 'l', 0x00, 'o', 0x00,
+	}
+
+	tab := NewRequestTab("test")
+	var dest bytes.Buffer
+	_, err := tab.streamResponse(context.Background(), bytes.NewReader(body), &dest, new(app.Window), true, "text/plain")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	var got strings.Builder
+	for {
+		select {
+		case chunk := <-tab.appendChan:
+			got.WriteString(chunk)
+		default:
+			if got.String() != "hello" {
+				t.Errorf("got %q, want %q", got.String(), "hello")
+			}
+			return
+		}
+	}
+}
+
+func TestStreamResponse_PlainUTF8NoSniff(t *testing.T) {
+	body := []byte("plain utf-8 — ok")
+	tab := NewRequestTab("test")
+	var dest bytes.Buffer
+	_, err := tab.streamResponse(context.Background(), bytes.NewReader(body), &dest, new(app.Window), true, "text/plain")
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+	var got strings.Builder
+	for {
+		select {
+		case chunk := <-tab.appendChan:
+			got.WriteString(chunk)
+		default:
+			if got.String() != string(body) {
+				t.Errorf("got %q, want %q", got.String(), string(body))
+			}
+			return
+		}
 	}
 }

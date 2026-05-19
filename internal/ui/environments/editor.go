@@ -20,10 +20,11 @@ import (
 )
 
 type EditorHost struct {
-	Theme   *material.Theme
-	Window  *app.Window
-	OnClose func()
-	OnDirty func()
+	Theme             *material.Theme
+	Window            *app.Window
+	OnClose           func()
+	OnDirty           func()
+	OnColorSwatchClick func(env *EnvironmentUI)
 }
 
 func (env *EnvironmentUI) Commit(onDirty func()) {
@@ -85,6 +86,14 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 			host.Window.Invalidate()
 		}
 	}
+	for env.ColorSwatchBtn.Clicked(gtx) {
+		if host.OnColorSwatchClick != nil {
+			host.OnColorSwatchClick(env)
+		}
+		if host.Window != nil {
+			host.Window.Invalidate()
+		}
+	}
 	for env.SaveBtn.Clicked(gtx) {
 		env.Commit(host.OnDirty)
 		if host.Window != nil {
@@ -141,11 +150,17 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 						sw := gtx.Dp(unit.Dp(28))
 						gtx.Constraints.Min = image.Pt(sw, sw)
 						gtx.Constraints.Max = gtx.Constraints.Min
-						swatch := HighlightColor(env.Data)
-						rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4)
-						paint.FillShape(gtx.Ops, swatch, rect.Op(gtx.Ops))
-						widgets.PaintBorder1px(gtx, gtx.Constraints.Min, theme.Border)
-						return layout.Dimensions{Size: gtx.Constraints.Min}
+						return material.Clickable(gtx, &env.ColorSwatchBtn, func(gtx layout.Context) layout.Dimensions {
+							swatch := HighlightColor(env.Data)
+							rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4)
+							paint.FillShape(gtx.Ops, swatch, rect.Op(gtx.Ops))
+							borderCol := theme.Border
+							if env.ColorSwatchBtn.Hovered() {
+								borderCol = theme.BorderLight
+							}
+							widgets.PaintBorder1px(gtx, gtx.Constraints.Min, borderCol)
+							return layout.Dimensions{Size: gtx.Constraints.Min}
+						})
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {

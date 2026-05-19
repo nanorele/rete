@@ -131,6 +131,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	colsHeader := func(gtx layout.Context) layout.Dimensions {
 		if host.ColsHeaderClick.Clicked(gtx) {
 			*host.ColsExpanded = !*host.ColsExpanded
+			host.Window.Invalidate()
 		}
 		for host.ImportBtn.Clicked(gtx) {
 			go func() {
@@ -849,6 +850,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 		if updateCols {
 			host.UpdateVisibleCols()
+			host.Window.Invalidate()
 		}
 
 		return dim
@@ -857,6 +859,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	envsHeader := func(gtx layout.Context) layout.Dimensions {
 		if host.EnvsHeaderClick.Clicked(gtx) {
 			*host.EnvsExpanded = !*host.EnvsExpanded
+			host.Window.Invalidate()
 		}
 		for host.ImportEnvBtn.Clicked(gtx) {
 			go func() {
