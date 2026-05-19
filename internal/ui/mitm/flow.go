@@ -121,8 +121,8 @@ func (s *Store) At(i int) *Flow {
 	if i < 0 || i >= len(s.flows) {
 		return nil
 	}
-	c := *s.flows[i]
-	return &c
+	c := cloneFlow(s.flows[i])
+	return c
 }
 
 func (s *Store) Snapshot() []*Flow {
@@ -130,10 +130,29 @@ func (s *Store) Snapshot() []*Flow {
 	defer s.mu.RUnlock()
 	out := make([]*Flow, len(s.flows))
 	for i, f := range s.flows {
-		c := *f
-		out[i] = &c
+		out[i] = cloneFlow(f)
 	}
 	return out
+}
+
+func cloneFlow(f *Flow) *Flow {
+	if f == nil {
+		return nil
+	}
+	c := *f
+	if f.ReqBody != nil {
+		c.ReqBody = append([]byte(nil), f.ReqBody...)
+	}
+	if f.RespBody != nil {
+		c.RespBody = append([]byte(nil), f.RespBody...)
+	}
+	if f.ReqHeaders != nil {
+		c.ReqHeaders = append([][2]string(nil), f.ReqHeaders...)
+	}
+	if f.RespHeaders != nil {
+		c.RespHeaders = append([][2]string(nil), f.RespHeaders...)
+	}
+	return &c
 }
 
 func (s *Store) Clear() {

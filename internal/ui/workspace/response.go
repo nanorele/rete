@@ -237,6 +237,8 @@ func (v *ResponseViewer) SetCaret(start, end int) {
 	}
 	v.highlightStart = start
 	v.highlightEnd = end
+	v.selStart = start
+	v.selEnd = end
 	v.scrollToByteOffset(start)
 }
 

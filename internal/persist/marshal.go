@@ -69,7 +69,11 @@ func marshalRequestBody(req *model.ParsedRequest) map[string]any {
 			if kv.Key == "" {
 				continue
 			}
-			arr = append(arr, map[string]any{"key": kv.Key, "value": kv.Value})
+			row := map[string]any{"key": kv.Key, "value": kv.Value}
+			if kv.Disabled {
+				row["disabled"] = true
+			}
+			arr = append(arr, row)
 		}
 		out["urlencoded"] = arr
 	case model.BodyFormData:
@@ -85,6 +89,9 @@ func marshalRequestBody(req *model.ParsedRequest) map[string]any {
 				if fp.FilePath != "" {
 					row["src"] = fp.FilePath
 				}
+			}
+			if fp.Disabled {
+				row["disabled"] = true
 			}
 			arr = append(arr, row)
 		}

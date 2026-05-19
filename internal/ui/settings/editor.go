@@ -368,6 +368,34 @@ func (e *Editor) Reset() {
 	e.StripJSONComments.Value = def.StripJSONComments
 	e.TrimTrailingWS.Value = def.TrimTrailingWhitespace
 	e.BracketPairColorization.Value = def.BracketPairColorization
+
+	e.UISizeEditor.SetText(strconv.Itoa(def.UITextSize))
+	e.BodySizeEditor.SetText(strconv.Itoa(def.BodyTextSize))
+	e.UIScaleEditor.SetText(strconv.FormatFloat(float64(def.UIScale), 'f', 2, 32))
+	e.BodyPaddingEditor.SetText(strconv.Itoa(def.ResponseBodyPadding))
+	e.SplitRatioEditor.SetText(strconv.FormatFloat(float64(def.DefaultSplitRatio), 'f', 2, 32))
+	e.StackBpEditor.SetText(strconv.Itoa(def.StackBreakpointDp))
+	e.SidebarWidthEditor.SetText(strconv.Itoa(def.DefaultSidebarWidthPx))
+	e.TimeoutEditor.SetText(strconv.Itoa(def.RequestTimeoutSec))
+	e.ConnectTimeoutEditor.SetText(strconv.Itoa(def.ConnectTimeoutSec))
+	e.TLSTimeoutEditor.SetText(strconv.Itoa(def.TLSHandshakeTimeoutSec))
+	e.IdleTimeoutEditor.SetText(strconv.Itoa(def.IdleConnTimeoutSec))
+	e.MaxRedirectsEditor.SetText(strconv.Itoa(def.MaxRedirects))
+	e.MaxConnsEditor.SetText(strconv.Itoa(def.MaxConnsPerHost))
+	e.JSONIndentEditor.SetText(strconv.Itoa(def.JSONIndentSpaces))
+	e.PreviewMaxEditor.SetText(strconv.Itoa(def.PreviewMaxMB))
+
+	e.syntaxEditorsThemeID = ""
+	e.themeEditorsThemeID = ""
+	for i := range e.SyntaxOverrideEditors {
+		e.SyntaxOverrideEditors[i].SetText("")
+	}
+	for i := range e.ThemeColorEditors {
+		e.ThemeColorEditors[i].SetText("")
+	}
+	e.ColorPicker.Close()
+	e.NewThemeDialogOpen = false
+	e.NewThemeNameEditor.SetText("")
 }
 
 func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {

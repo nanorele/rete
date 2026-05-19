@@ -3,6 +3,7 @@ package colorpicker
 import (
 	"image"
 	"image/color"
+	"math"
 	"tracto/internal/ui/theme"
 
 	"github.com/nanorele/gio/gesture"
@@ -17,16 +18,29 @@ import (
 	"github.com/nanorele/gio/widget/material"
 )
 
+func clamp01(x float32) float32 {
+	if x != x || x < 0 {
+		return 0
+	}
+	if x > 1 {
+		return 1
+	}
+	return x
+}
+
 func hsvToRGB(h, s, v float32) color.NRGBA {
+	s = clamp01(s)
+	v = clamp01(v)
 	if s <= 0 {
 		c := uint8(v*255 + 0.5)
 		return color.NRGBA{R: c, G: c, B: c, A: 255}
 	}
 	hh := h
-	for hh >= 360 {
-		hh -= 360
+	if hh != hh {
+		hh = 0
 	}
-	for hh < 0 {
+	hh = float32(math.Mod(float64(hh), 360))
+	if hh < 0 {
 		hh += 360
 	}
 	hh /= 60
@@ -102,12 +116,12 @@ func rgbToHSV(c color.NRGBA) (h, s, v float32) {
 }
 
 func modf32(a, m float32) float32 {
-	r := a
-	for r < 0 {
-		r += m
+	if m <= 0 || a != a {
+		return 0
 	}
-	for r >= m {
-		r -= m
+	r := float32(math.Mod(float64(a), float64(m)))
+	if r < 0 {
+		r += m
 	}
 	return r
 }
@@ -152,6 +166,9 @@ func (p *State) Open(kind Kind, idx int, c color.NRGBA, anchor Anchor) {
 func (p *State) Close() {
 	p.Kind = KindNone
 	p.OpenIdx = -1
+	p.H, p.S, p.V = 0, 0, 0
+	p.LastHSV = [3]float32{}
+	p.Anchor = Anchor{}
 }
 
 func (p *State) Color() color.NRGBA {
@@ -205,8 +222,8 @@ func Render(gtx layout.Context, th *material.Theme, p *State) layout.Dimensions 
 		stack.Pop()
 	}
 
-	cx := svRect.Min.X + int(p.S*float32(svW-1))
-	cy := svRect.Min.Y + int((1-p.V)*float32(svH-1))
+	cx := svRect.Min.X + int(clamp01(p.S)*float32(svW-1))
+	cy := svRect.Min.Y + int((1-clamp01(p.V))*float32(svH-1))
 	r := border * 5
 	ringCol := color.NRGBA{R: 255, G: 255, B: 255, A: 230}
 	if p.V > 0.6 && p.S < 0.5 {

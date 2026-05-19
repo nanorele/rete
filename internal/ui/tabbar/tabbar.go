@@ -70,13 +70,13 @@ func (s *Strip) Forget(tab *workspace.RequestTab) {
 }
 
 func measureTabWidth(gtx layout.Context, th *material.Theme, cleanTitle string) int {
+	if len(strings.Fields(cleanTitle)) == 0 {
+		cleanTitle = "New request"
+	}
 	words := strings.Fields(cleanTitle)
 
 	var maxW int
 	if len(words) <= 1 {
-		if len(words) == 0 {
-			cleanTitle = "New request"
-		}
 		maxW = widgets.MeasureTextWidth(gtx, th, unit.Sp(12), font.Font{}, cleanTitle)
 	} else {
 		mid := (len(words) + 1) / 2

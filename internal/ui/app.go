@@ -831,10 +831,14 @@ func (ui *AppUI) openRequestInTab(node *collections.CollectionNode) {
 				size = fi.Size()
 			}
 		}
-		tab.FormParts = append(tab.FormParts, workspace.NewFormPart(fp.Key, fp.Value, fp.Kind, fp.FilePath, size))
+		part := workspace.NewFormPart(fp.Key, fp.Value, fp.Kind, fp.FilePath, size)
+		part.Disabled = fp.Disabled
+		tab.FormParts = append(tab.FormParts, part)
 	}
 	for _, kv := range req.URLEncoded {
-		tab.URLEncoded = append(tab.URLEncoded, workspace.NewURLEncodedPart(kv.Key, kv.Value))
+		part := workspace.NewURLEncodedPart(kv.Key, kv.Value)
+		part.Disabled = kv.Disabled
+		tab.URLEncoded = append(tab.URLEncoded, part)
 	}
 	tab.BinaryFilePath = req.BinaryPath
 	if req.BinaryPath != "" {

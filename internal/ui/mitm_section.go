@@ -967,8 +967,10 @@ func mitmKV(th *material.Theme, key, val string) layout.FlexChild {
 
 func tunnelStatusText(f *mitm.Flow) string {
 	switch {
-	case f.Error != "":
+	case f.Error != "" && f.Status != "":
 		return f.Status + "  (" + f.Error + ")"
+	case f.Error != "":
+		return f.Error
 	case f.Status != "":
 		return f.Status
 	default:

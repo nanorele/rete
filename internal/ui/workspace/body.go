@@ -161,6 +161,8 @@ func (t *RequestTab) layoutFormDataBody(gtx layout.Context, th *material.Theme, 
 				p.Kind = model.FormPartFile
 			} else {
 				p.Kind = model.FormPartText
+				p.FilePath = ""
+				p.FileSize = 0
 			}
 			t.dirtyCheckNeeded = true
 		}

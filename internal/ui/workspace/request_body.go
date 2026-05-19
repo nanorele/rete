@@ -12,15 +12,17 @@ type FormDataPart struct {
 	Value     widget.Editor
 	FilePath  string
 	FileSize  int64
+	Disabled  bool
 	KindBtn   widget.Clickable
 	ChooseBtn widget.Clickable
 	DelBtn    widget.Clickable
 }
 
 type URLEncodedPart struct {
-	Key    widget.Editor
-	Value  widget.Editor
-	DelBtn widget.Clickable
+	Key      widget.Editor
+	Value    widget.Editor
+	Disabled bool
+	DelBtn   widget.Clickable
 }
 
 func NewFormPart(key, value string, kind model.FormPartKind, filePath string, fileSize int64) *FormDataPart {

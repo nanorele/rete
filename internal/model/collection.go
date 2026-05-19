@@ -56,10 +56,12 @@ type ParsedFormPart struct {
 	Value    string
 	Kind     FormPartKind
 	FilePath string
+	Disabled bool
 }
 
 type ParsedKV struct {
 	Key, Value string
+	Disabled   bool
 }
 
 type ParsedRequest struct {

@@ -107,7 +107,10 @@ func (t *RequestTab) buildBody(ctx context.Context, env map[string]string) (io.R
 	case model.BodyURLEncoded:
 		vals := url.Values{}
 		for _, p := range t.URLEncoded {
-			k := strings.TrimSpace(p.Key.Text())
+			if p.Disabled {
+				continue
+			}
+			k := strings.TrimSpace(processTemplate(p.Key.Text(), env))
 			if k == "" {
 				continue
 			}
@@ -125,9 +128,12 @@ func (t *RequestTab) buildBody(ctx context.Context, env map[string]string) (io.R
 		}
 		snap := make([]formSnap, 0, len(t.FormParts))
 		for _, p := range t.FormParts {
+			if p.Disabled {
+				continue
+			}
 			snap = append(snap, formSnap{
 				kind:     p.Kind,
-				key:      strings.TrimSpace(p.Key.Text()),
+				key:      strings.TrimSpace(processTemplate(p.Key.Text(), env)),
 				value:    processTemplate(p.Value.Text(), env),
 				filePath: p.FilePath,
 			})

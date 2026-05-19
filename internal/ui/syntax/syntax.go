@@ -53,10 +53,10 @@ func detectFromContentType(ct string) Lang {
 	switch {
 	case ct == "application/json", endsWith(ct, "+json"):
 		return LangJSON
-	case ct == "application/xml", ct == "text/xml", endsWith(ct, "+xml"):
-		return LangXML
 	case ct == "text/html", ct == "application/xhtml+xml":
 		return LangHTML
+	case ct == "application/xml", ct == "text/xml", endsWith(ct, "+xml"):
+		return LangXML
 	case ct == "application/yaml", ct == "text/yaml", ct == "application/x-yaml":
 		return LangYAML
 	case ct == "application/x-www-form-urlencoded":

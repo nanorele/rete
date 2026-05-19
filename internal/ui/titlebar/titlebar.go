@@ -206,19 +206,21 @@ func (b *Bar) Layout(gtx layout.Context, th *material.Theme, win *app.Window, ti
 
 	paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: image.Point{X: totalW, Y: height}}.Op())
 
-	if b.BtnClose.Clicked(gtx) && win != nil {
-		win.Perform(system.ActionClose)
-	}
-	if b.BtnMinimize.Clicked(gtx) && win != nil {
-		win.Perform(system.ActionMinimize)
-	}
-	if b.BtnMaximize.Clicked(gtx) && win != nil {
-		if b.Maximized {
-			win.Perform(system.ActionUnmaximize)
-			b.Maximized = false
-		} else {
-			win.Perform(system.ActionMaximize)
-			b.Maximized = true
+	if win != nil {
+		if b.BtnClose.Clicked(gtx) {
+			win.Perform(system.ActionClose)
+		}
+		if b.BtnMinimize.Clicked(gtx) {
+			win.Perform(system.ActionMinimize)
+		}
+		if b.BtnMaximize.Clicked(gtx) {
+			if b.Maximized {
+				win.Perform(system.ActionUnmaximize)
+				b.Maximized = false
+			} else {
+				win.Perform(system.ActionMaximize)
+				b.Maximized = true
+			}
 		}
 	}
 
@@ -241,7 +243,7 @@ func (b *Bar) Layout(gtx layout.Context, th *material.Theme, win *app.Window, ti
 		if e, ok := ev.(pointer.Event); ok && e.Buttons == pointer.ButtonPrimary {
 			if e.Kind == pointer.Press {
 				now := time.Now()
-				if now.Sub(b.lastClick) < 300*time.Millisecond && win != nil {
+				if now.Sub(b.lastClick) <= 300*time.Millisecond && win != nil {
 					if b.Maximized {
 						win.Perform(system.ActionUnmaximize)
 						b.Maximized = false

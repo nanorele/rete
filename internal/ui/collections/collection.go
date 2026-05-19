@@ -390,7 +390,7 @@ func parseItemRaw(raw json.RawMessage, depth int) *CollectionNode {
 		case hasItemKey:
 			node.IsFolder = true
 		default:
-			return nil
+			node.IsFolder = true
 		}
 	}
 	return node
@@ -456,21 +456,22 @@ func parseURL(raw json.RawMessage) (string, json.RawMessage) {
 func parseHeaderArray(raw json.RawMessage) (map[string]string, json.RawMessage) {
 	var arr []map[string]json.RawMessage
 	headers := map[string]string{}
-	if err := json.Unmarshal(raw, &arr); err == nil {
-		for _, h := range arr {
-			var disabled bool
-			if d, ok := h["disabled"]; ok {
-				_ = json.Unmarshal(d, &disabled)
-			}
-			if disabled {
-				continue
-			}
-			var k, v string
-			_ = json.Unmarshal(h["key"], &k)
-			_ = json.Unmarshal(h["value"], &v)
-			if k = strings.TrimSpace(utils.SanitizeText(k)); k != "" {
-				headers[k] = strings.TrimSpace(utils.SanitizeText(v))
-			}
+	if err := json.Unmarshal(raw, &arr); err != nil {
+		return headers, nil
+	}
+	for _, h := range arr {
+		var disabled bool
+		if d, ok := h["disabled"]; ok {
+			_ = json.Unmarshal(d, &disabled)
+		}
+		if disabled {
+			continue
+		}
+		var k, v string
+		_ = json.Unmarshal(h["key"], &k)
+		_ = json.Unmarshal(h["value"], &v)
+		if k = strings.TrimSpace(utils.SanitizeText(k)); k != "" {
+			headers[k] = strings.TrimSpace(utils.SanitizeText(v))
 		}
 	}
 	return headers, raw
@@ -483,10 +484,12 @@ func parseBodyInto(raw json.RawMessage, req *model.ParsedRequest) {
 	}
 	req.BodyExtras = map[string]json.RawMessage{}
 	var modeStr string
+	hasMode := false
 	for k, v := range fields {
 		switch k {
 		case "mode":
 			_ = json.Unmarshal(v, &modeStr)
+			hasMode = true
 		case "raw":
 			var s string
 			_ = json.Unmarshal(v, &s)
@@ -495,12 +498,10 @@ func parseBodyInto(raw json.RawMessage, req *model.ParsedRequest) {
 			var arr []model.ExtKVPart
 			if err := json.Unmarshal(v, &arr); err == nil {
 				for _, kv := range arr {
-					if kv.Disabled {
-						continue
-					}
 					req.URLEncoded = append(req.URLEncoded, model.ParsedKV{
-						Key:   strings.TrimSpace(utils.SanitizeText(kv.Key)),
-						Value: utils.SanitizeText(kv.Value),
+						Key:      strings.TrimSpace(utils.SanitizeText(kv.Key)),
+						Value:    utils.SanitizeText(kv.Value),
+						Disabled: kv.Disabled,
 					})
 				}
 			}
@@ -508,12 +509,10 @@ func parseBodyInto(raw json.RawMessage, req *model.ParsedRequest) {
 			var arr []model.ExtFormPart
 			if err := json.Unmarshal(v, &arr); err == nil {
 				for _, fp := range arr {
-					if fp.Disabled {
-						continue
-					}
 					part := model.ParsedFormPart{
-						Key:   strings.TrimSpace(utils.SanitizeText(fp.Key)),
-						Value: utils.SanitizeText(fp.Value),
+						Key:      strings.TrimSpace(utils.SanitizeText(fp.Key)),
+						Value:    utils.SanitizeText(fp.Value),
+						Disabled: fp.Disabled,
 					}
 					if strings.EqualFold(fp.Type, "file") {
 						part.Kind = model.FormPartFile
@@ -529,6 +528,18 @@ func parseBodyInto(raw json.RawMessage, req *model.ParsedRequest) {
 			}
 		default:
 			req.BodyExtras[k] = v
+		}
+	}
+	if !hasMode {
+		switch {
+		case req.Body != "":
+			modeStr = "raw"
+		case len(req.URLEncoded) > 0:
+			modeStr = "urlencoded"
+		case len(req.FormParts) > 0:
+			modeStr = "formdata"
+		case req.BinaryPath != "":
+			modeStr = "file"
 		}
 	}
 	req.BodyType = model.BodyTypeFromMode(modeStr)

@@ -170,11 +170,83 @@ func TokenizeYAML(src []byte) []Token {
 		if hadColon {
 			emit(colonAt, colonAt+1, TokPunctuation, 0)
 			i = colonAt + 1
+			if depth == 0 {
+				j := i
+				for j < len(src) && (src[j] == ' ' || src[j] == '\t') {
+					j++
+				}
+				if j < len(src) && (src[j] == '|' || src[j] == '>') {
+					parentIndent := 0
+					ls := start - 1
+					for ls >= 0 && src[ls] != '\n' {
+						ls--
+					}
+					parentIndent = start - (ls + 1)
+					newI := parseBlockScalar(src, j, parentIndent, emit)
+					i = newI
+					atLineStart = true
+					continue
+				}
+			}
 		}
 		atLineStart = false
 	}
 
 	return out
+}
+
+// parseBlockScalar emits indicator as TokKeyword and following indented body as TokString.
+func parseBlockScalar(src []byte, i, parentIndent int, emit func(int, int, TokenKind, uint8)) int {
+	indStart := i
+	i++
+	for i < len(src) {
+		b := src[i]
+		if b == '+' || b == '-' || (b >= '0' && b <= '9') {
+			i++
+			continue
+		}
+		break
+	}
+	emit(indStart, i, TokKeyword, 0)
+	for i < len(src) && src[i] != '\n' {
+		i++
+	}
+	if i < len(src) && src[i] == '\n' {
+		i++
+	}
+	bodyStart := i
+	bodyEnd := i
+	for i < len(src) {
+		lineStart := i
+		indent := 0
+		for i < len(src) && src[i] == ' ' {
+			indent++
+			i++
+		}
+		isBlank := i >= len(src) || src[i] == '\n'
+		if isBlank {
+			if i < len(src) && src[i] == '\n' {
+				i++
+			}
+			bodyEnd = i
+			continue
+		}
+		if indent <= parentIndent {
+			i = lineStart
+			break
+		}
+		for i < len(src) && src[i] != '\n' {
+			i++
+		}
+		if i < len(src) && src[i] == '\n' {
+			i++
+		}
+		bodyEnd = i
+	}
+	if bodyEnd > bodyStart {
+		emit(bodyStart, bodyEnd, TokString, 0)
+	}
+	return i
 }
 
 func classifyYAMLScalar(s []byte) TokenKind {

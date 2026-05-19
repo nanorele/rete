@@ -118,19 +118,12 @@ func TokenizeJSON(src []byte) []Token {
 
 		if c == '-' || (c >= '0' && c <= '9') {
 			start := i
-			if c == '-' {
-				i++
+			ni := scanJSONNumber(src, i)
+			if ni > start {
+				emit(start, ni, TokNumber, 0)
+				i = ni
+				continue
 			}
-			for i < len(src) {
-				b := src[i]
-				if (b >= '0' && b <= '9') || b == '.' || b == 'e' || b == 'E' || b == '+' || b == '-' {
-					i++
-					continue
-				}
-				break
-			}
-			emit(start, i, TokNumber, 0)
-			continue
 		}
 
 		if c == 't' && hasASCII(src, i, "true") {
@@ -162,10 +155,55 @@ func TokenizeJSON(src []byte) []Token {
 		if i == start {
 			i++
 		}
-		_ = start
+		emit(start, i, TokPlain, 0)
 	}
 
 	return out
+}
+
+func scanJSONNumber(src []byte, i int) int {
+	n := len(src)
+	if i >= n {
+		return i
+	}
+	if src[i] == '-' {
+		i++
+		if i >= n || src[i] < '0' || src[i] > '9' {
+			return i - 1
+		}
+	}
+	if i >= n || src[i] < '0' || src[i] > '9' {
+		return i
+	}
+	if src[i] == '0' {
+		i++
+	} else {
+		for i < n && src[i] >= '0' && src[i] <= '9' {
+			i++
+		}
+	}
+	if i < n && src[i] == '.' {
+		i++
+		if i >= n || src[i] < '0' || src[i] > '9' {
+			return i - 1
+		}
+		for i < n && src[i] >= '0' && src[i] <= '9' {
+			i++
+		}
+	}
+	if i < n && (src[i] == 'e' || src[i] == 'E') {
+		j := i + 1
+		if j < n && (src[j] == '+' || src[j] == '-') {
+			j++
+		}
+		if j < n && src[j] >= '0' && src[j] <= '9' {
+			i = j
+			for i < n && src[i] >= '0' && src[i] <= '9' {
+				i++
+			}
+		}
+	}
+	return i
 }
 
 func hasASCII(src []byte, start int, want string) bool {

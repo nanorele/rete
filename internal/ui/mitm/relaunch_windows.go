@@ -95,7 +95,7 @@ func quoteArg(s string) string {
 		case '\\':
 			backslashes++
 		case '"':
-			for k := 0; k < backslashes; k++ {
+			for k := 0; k < backslashes*2; k++ {
 				b.WriteByte('\\')
 			}
 			backslashes = 0

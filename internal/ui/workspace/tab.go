@@ -14,6 +14,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+	"unicode/utf8"
+
 	"tracto/internal/model"
 	"tracto/internal/ui/collections"
 	"tracto/internal/ui/settings"
@@ -244,8 +246,8 @@ func NewRequestTab(title string) *RequestTab {
 		HeadersExpanded:  false,
 		HeaderSplitRatio: 0.35,
 		BodyType:         model.BodyRaw,
-		formPartFileChan: make(chan formPartFileResult, 8),
-		binaryFileChan:   make(chan binaryFileResult, 1),
+		formPartFileChan: make(chan formPartFileResult, 64),
+		binaryFileChan:   make(chan binaryFileResult, 8),
 	}
 	t.URLInput.Submit = true
 	t.HeadersList.Axis = layout.Vertical
@@ -536,11 +538,11 @@ func (t *RequestTab) checkDirty() {
 		t.IsDirty = true
 		return
 	}
-	if t.URLInput.Len() != len(req.URL) {
+	if t.URLInput.Len() != utf8.RuneCountInString(req.URL) {
 		t.IsDirty = true
 		return
 	}
-	if t.ReqEditor.Len() != len(req.Body) {
+	if t.ReqEditor.Len() != utf8.RuneCountInString(req.Body) {
 		t.IsDirty = true
 		return
 	}
@@ -606,7 +608,7 @@ func (t *RequestTab) SaveToCollection() *collections.ParsedCollection {
 		if k == "" {
 			continue
 		}
-		fp := model.ParsedFormPart{Key: k, Value: p.Value.Text(), Kind: p.Kind, FilePath: p.FilePath}
+		fp := model.ParsedFormPart{Key: k, Value: p.Value.Text(), Kind: p.Kind, FilePath: p.FilePath, Disabled: p.Disabled}
 		req.FormParts = append(req.FormParts, fp)
 	}
 	req.URLEncoded = req.URLEncoded[:0]
@@ -615,7 +617,7 @@ func (t *RequestTab) SaveToCollection() *collections.ParsedCollection {
 		if k == "" {
 			continue
 		}
-		req.URLEncoded = append(req.URLEncoded, model.ParsedKV{Key: k, Value: p.Value.Text()})
+		req.URLEncoded = append(req.URLEncoded, model.ParsedKV{Key: k, Value: p.Value.Text(), Disabled: p.Disabled})
 	}
 	t.IsDirty = false
 	return t.LinkedNode.Collection
@@ -2120,6 +2122,9 @@ func (t *RequestTab) layoutReqScrollbar(gtx layout.Context, win *app.Window) lay
 }
 
 func formatSize(n int64) string {
+	if n < 0 {
+		n = 0
+	}
 	switch {
 	case n >= 1<<30:
 		return strconv.FormatFloat(float64(n)/float64(1<<30), 'f', 2, 64) + " GB"

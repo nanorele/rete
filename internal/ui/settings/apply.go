@@ -47,8 +47,11 @@ func Apply(th *material.Theme, s model.AppSettings) {
 		DefaultMethod = "GET"
 	}
 	DefaultSplitRatio = s.DefaultSplitRatio
-	if DefaultSplitRatio < 0.2 || DefaultSplitRatio > 0.8 {
+	if DefaultSplitRatio < 0.2 {
 		DefaultSplitRatio = 0.5
+	}
+	if DefaultSplitRatio > 0.8 {
+		DefaultSplitRatio = 0.8
 	}
 	AutoFormatJSON = s.AutoFormatJSON
 	AutoFormatJSONRequest = s.AutoFormatJSONRequest
@@ -131,6 +134,8 @@ func buildHTTPClient(s model.AppSettings) *http.Client {
 			}
 		}
 		c.Jar = persistentJar
+	} else {
+		persistentJar = nil
 	}
 	switch {
 	case !s.FollowRedirects:

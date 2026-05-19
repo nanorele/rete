@@ -50,6 +50,8 @@ func MeasureTextWidth(gtx layout.Context, th *material.Theme, size unit.Sp, fnt 
 type widthCacheKey struct {
 	pxPerEm  int
 	typeface string
+	weight   int16
+	style    uint8
 	text     string
 }
 
@@ -61,7 +63,7 @@ func MeasureTextWidthCached(gtx layout.Context, th *material.Theme, size unit.Sp
 	if str == "" {
 		return 0
 	}
-	key := widthCacheKey{gtx.Sp(size), string(fnt.Typeface), str}
+	key := widthCacheKey{gtx.Sp(size), string(fnt.Typeface), int16(fnt.Weight), uint8(fnt.Style), str}
 	if w, ok := widthCache[key]; ok {
 		return w
 	}

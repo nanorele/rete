@@ -56,24 +56,28 @@ func Load() AppState {
 }
 
 func LoadWithRaw() (AppState, []byte) {
+	freshDefaults := func() *model.AppSettings {
+		d := model.DefaultSettings()
+		return &d
+	}
 	var state AppState
 	data, err := os.ReadFile(StateFilePath())
 	if err != nil {
+		state.Settings = freshDefaults()
 		return state, nil
 	}
 	if len(bytes.TrimSpace(data)) == 0 {
+		state.Settings = freshDefaults()
 		return state, data
 	}
-	defaults := model.DefaultSettings()
-	state.Settings = &defaults
+	state.Settings = freshDefaults()
 	if err := json.Unmarshal(data, &state); err != nil {
 		backup := StateFilePath() + ".broken-" + time.Now().Format("20060102-150405")
 		_ = os.Rename(StateFilePath(), backup)
-		return AppState{}, nil
+		return AppState{Settings: freshDefaults()}, nil
 	}
 	if state.Settings == nil {
-		fresh := model.DefaultSettings()
-		state.Settings = &fresh
+		state.Settings = freshDefaults()
 	}
 	return state, data
 }
