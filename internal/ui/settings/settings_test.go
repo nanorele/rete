@@ -78,8 +78,8 @@ func TestSanitize_UIScale(t *testing.T) {
 
 func TestSanitize_Timeouts(t *testing.T) {
 	out := Sanitize(model.AppSettings{Theme: "dark", RequestTimeoutSec: -5})
-	if out.RequestTimeoutSec != 30 {
-		t.Errorf("negative RequestTimeoutSec should default to 30, got %d", out.RequestTimeoutSec)
+	if out.RequestTimeoutSec != 0 {
+		t.Errorf("negative RequestTimeoutSec should be 0, got %d", out.RequestTimeoutSec)
 	}
 	out = Sanitize(model.AppSettings{Theme: "dark", RequestTimeoutSec: 9999})
 	if out.RequestTimeoutSec != 3600 {

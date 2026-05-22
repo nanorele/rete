@@ -34,7 +34,7 @@ func Sanitize(s model.AppSettings) model.AppSettings {
 	}
 
 	if s.RequestTimeoutSec < 0 {
-		s.RequestTimeoutSec = 30
+		s.RequestTimeoutSec = 0
 	}
 	if s.RequestTimeoutSec > 3600 {
 		s.RequestTimeoutSec = 3600

@@ -6,11 +6,23 @@ import (
 
 	"tracto/internal/ui/workspace"
 
+	"github.com/nanorele/gio/font/gofont"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
+	"github.com/nanorele/gio/text"
 	"github.com/nanorele/gio/unit"
 	"github.com/nanorele/gio/widget/material"
 )
+
+// newTestTheme returns a theme whose Shaper is bound to gofont so tests
+// don't depend on the host's system font availability — needed on minimal
+// CI runners where the default Shaper falls back to nothing and returns
+// zero-width glyphs.
+func newTestTheme() *material.Theme {
+	th := material.NewTheme()
+	th.Shaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
+	return th
+}
 
 func makeGtx(w, h int) layout.Context {
 	return layout.Context{
@@ -98,7 +110,7 @@ func TestMeasureTabWidth_SingleWord(t *testing.T) {
 }
 
 func TestMeasureTabWidth_MultiWordSplitsTwoLines(t *testing.T) {
-	th := material.NewTheme()
+	th := newTestTheme()
 	gtx := makeGtx(1000, 100)
 
 	wSingle := measureTabWidth(gtx, th, "supercalifragilisticexpialidocious")
@@ -110,7 +122,7 @@ func TestMeasureTabWidth_MultiWordSplitsTwoLines(t *testing.T) {
 }
 
 func TestMeasureTabWidth_ClampedTo200dp(t *testing.T) {
-	th := material.NewTheme()
+	th := newTestTheme()
 	gtx := makeGtx(2000, 100)
 
 	veryLong := "averylongunbrokenwordthatcannotbesplitintotwolinesandshouldexceedtwohundreddp"
@@ -122,7 +134,7 @@ func TestMeasureTabWidth_ClampedTo200dp(t *testing.T) {
 }
 
 func TestMeasureTabWidth_ScalesWithPxPerDp(t *testing.T) {
-	th := material.NewTheme()
+	th := newTestTheme()
 	gtx1 := makeGtxScaled(2000, 100, 1)
 	gtx2 := makeGtxScaled(4000, 100, 2)
 

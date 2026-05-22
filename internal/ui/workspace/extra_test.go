@@ -361,14 +361,12 @@ func TestBuildBody_FormData_FileMissing(t *testing.T) {
 
 func TestCleanupOrphanRespTmp_NoPanic(t *testing.T) {
 	dir := t.TempDir()
-	oldTmp := os.Getenv("TMP")
-	oldTemp := os.Getenv("TEMP")
+	// os.TempDir reads TMPDIR on Linux/macOS but TMP/TEMP on Windows.
+	// Pin all three so the test works on any platform; t.Setenv restores
+	// the previous values automatically when the test ends.
+	t.Setenv("TMPDIR", dir)
 	t.Setenv("TMP", dir)
 	t.Setenv("TEMP", dir)
-	defer func() {
-		os.Setenv("TMP", oldTmp)
-		os.Setenv("TEMP", oldTemp)
-	}()
 
 	old := filepath.Join(dir, "tracto-resp-old.tmp")
 	fresh := filepath.Join(dir, "tracto-resp-fresh.tmp")

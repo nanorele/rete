@@ -8,8 +8,10 @@ import (
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/font"
+	"github.com/nanorele/gio/font/gofont"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
+	"github.com/nanorele/gio/text"
 	"github.com/nanorele/gio/unit"
 	"github.com/nanorele/gio/widget"
 	"github.com/nanorele/gio/widget/material"
@@ -23,6 +25,16 @@ func makeGtx(w, h int) layout.Context {
 		Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
 		Constraints: layout.Exact(image.Pt(w, h)),
 	}
+}
+
+// newTestTheme returns a theme whose Shaper is bound to gofont so tests
+// don't depend on the host's system font availability — needed on minimal
+// CI runners where the default Shaper falls back to nothing and returns
+// zero-width glyphs.
+func newTestTheme() *material.Theme {
+	th := material.NewTheme()
+	th.Shaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
+	return th
 }
 
 func TestFixedToFloat(t *testing.T) {
@@ -71,8 +83,10 @@ func TestMeasureTextWidthCached_Empty(t *testing.T) {
 }
 
 func TestMeasureTextWidthCached_Hit(t *testing.T) {
-	th := material.NewTheme()
+	th := newTestTheme()
 	gtx := makeGtx(100, 100)
+	// Bust any zero cached by a previous test that used a no-font shaper.
+	widthCache = make(map[widthCacheKey]int, 512)
 	w1 := MeasureTextWidthCached(gtx, th, 12, MonoFont, "abc123")
 	w2 := MeasureTextWidthCached(gtx, th, 12, MonoFont, "abc123")
 	if w1 != w2 {
@@ -94,7 +108,7 @@ func TestMeasureTextWidthCached_Eviction(t *testing.T) {
 }
 
 func TestCaretIndexAtX(t *testing.T) {
-	th := material.NewTheme()
+	th := newTestTheme()
 	gtx := makeGtx(500, 50)
 
 	if got := CaretIndexAtX(gtx, th, 12, "", 0); got != 0 {
@@ -372,7 +386,7 @@ func TestPaintColoredText_EmptyText(t *testing.T) {
 }
 
 func TestShapeChunkForWrap_Basic(t *testing.T) {
-	th := material.NewTheme()
+	th := newTestTheme()
 	gtx := makeGtx(100, 40)
 	out := ShapeChunkForWrap(th.Shaper, MonoFont, 12, gtx, []byte("hello world wrap me"), 30)
 	if len(out) == 0 {

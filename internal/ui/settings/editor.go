@@ -1599,28 +1599,28 @@ func (e *Editor) sectionsHTTP(host *Host) []layout.Widget {
 	return []layout.Widget{
 		settingsSectionTitle(host.Theme, "Request timeout"),
 		spacerH(4),
-		settingsHint(host.Theme, fmt.Sprintf("Cancel a request if no response arrives in this many seconds. 0 = no timeout. Default: %d s.", def.RequestTimeoutSec)),
+		settingsHint(host.Theme, "Cancel a request if no response arrives in this many seconds. 0 = no timeout. "+defaultTimeout(def.RequestTimeoutSec, "no timeout")),
 		spacerH(8),
 		stepperEditableRow(host.Theme, &e.TimeoutDec, &e.TimeoutInc, &e.TimeoutEditor, "s"),
 		spacerH(20),
 
 		settingsSectionTitle(host.Theme, "Connect timeout"),
 		spacerH(4),
-		settingsHint(host.Theme, fmt.Sprintf("Maximum time to establish a TCP connection. 0 = system default. Default: %d s.", def.ConnectTimeoutSec)),
+		settingsHint(host.Theme, "Maximum time to establish a TCP connection. 0 = system default. "+defaultTimeout(def.ConnectTimeoutSec, "system default")),
 		spacerH(8),
 		stepperEditableRow(host.Theme, &e.ConnectTimeoutDec, &e.ConnectTimeoutInc, &e.ConnectTimeoutEditor, "s"),
 		spacerH(20),
 
 		settingsSectionTitle(host.Theme, "TLS handshake timeout"),
 		spacerH(4),
-		settingsHint(host.Theme, fmt.Sprintf("Maximum time waiting for the TLS handshake. 0 = system default. Default: %d s.", def.TLSHandshakeTimeoutSec)),
+		settingsHint(host.Theme, "Maximum time waiting for the TLS handshake. 0 = system default. "+defaultTimeout(def.TLSHandshakeTimeoutSec, "system default")),
 		spacerH(8),
 		stepperEditableRow(host.Theme, &e.TLSTimeoutDec, &e.TLSTimeoutInc, &e.TLSTimeoutEditor, "s"),
 		spacerH(20),
 
 		settingsSectionTitle(host.Theme, "Idle connection timeout"),
 		spacerH(4),
-		settingsHint(host.Theme, fmt.Sprintf("Close idle keep-alive connections after this many seconds. 0 = never. Default: %d s.", def.IdleConnTimeoutSec)),
+		settingsHint(host.Theme, "Close idle keep-alive connections after this many seconds. 0 = never. "+defaultTimeout(def.IdleConnTimeoutSec, "never")),
 		spacerH(8),
 		stepperEditableRow(host.Theme, &e.IdleTimeoutDec, &e.IdleTimeoutInc, &e.IdleTimeoutEditor, "s"),
 		spacerH(20),
@@ -1811,6 +1811,13 @@ func defaultOnOff(on bool) string {
 		return "Default: on."
 	}
 	return "Default: off."
+}
+
+func defaultTimeout(secs int, zeroMeaning string) string {
+	if secs == 0 {
+		return "Default: " + zeroMeaning + "."
+	}
+	return fmt.Sprintf("Default: %d s.", secs)
 }
 
 func settingsSectionTitle(th *material.Theme, text string) layout.Widget {
