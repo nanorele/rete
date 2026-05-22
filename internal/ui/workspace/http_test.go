@@ -15,6 +15,8 @@ import (
 	"tracto/internal/ui/collections"
 	"tracto/internal/ui/widgets"
 
+	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
@@ -452,5 +454,169 @@ func TestStreamResponse_PlainUTF8NoSniff(t *testing.T) {
 			}
 			return
 		}
+	}
+}
+
+func TestBuildCurlCommand_GET(t *testing.T) {
+	tab := NewRequestTab("t")
+	tab.URLInput.SetText("https://api.example.com/users/42")
+	tab.Method = "GET"
+	tab.Headers = nil
+	got := BuildCurlCommand(tab, nil)
+	if !strings.HasPrefix(got, "curl 'https://api.example.com/users/42'") {
+		t.Errorf("missing URL prefix: %s", got)
+	}
+	if strings.Contains(got, "-X GET") {
+		t.Errorf("should omit -X for GET: %s", got)
+	}
+}
+
+func TestBuildCurlCommand_POSTJSON(t *testing.T) {
+	tab := NewRequestTab("t")
+	tab.URLInput.SetText("https://api.example.com/users")
+	tab.Method = "POST"
+	tab.Headers = nil
+	tab.AddHeader("Content-Type", "application/json")
+	tab.ReqEditor.SetText(`{"name":"a"}`)
+	got := BuildCurlCommand(tab, nil)
+	if !strings.Contains(got, "-X POST") {
+		t.Errorf("missing -X POST: %s", got)
+	}
+	if !strings.Contains(got, "-H 'Content-Type: application/json'") {
+		t.Errorf("missing content-type header: %s", got)
+	}
+	if !strings.Contains(got, `--data-raw '{"name":"a"}'`) {
+		t.Errorf("missing body: %s", got)
+	}
+}
+
+func TestBuildCurlCommand_QuoteEscape(t *testing.T) {
+	tab := NewRequestTab("t")
+	tab.URLInput.SetText("https://example.com/")
+	tab.Method = "POST"
+	tab.Headers = nil
+	tab.ReqEditor.SetText(`it's "quoted"`)
+	got := BuildCurlCommand(tab, nil)
+	if !strings.Contains(got, `--data-raw 'it'\''s "quoted"'`) {
+		t.Errorf("single-quote escape broken: %s", got)
+	}
+}
+
+func TestBuildCurlCommand_TemplateSubstitution(t *testing.T) {
+	tab := NewRequestTab("t")
+	tab.URLInput.SetText("{{base}}/items")
+	tab.Method = "GET"
+	tab.Headers = nil
+	got := BuildCurlCommand(tab, map[string]string{"base": "https://api.example.com"})
+	if !strings.Contains(got, "'https://api.example.com/items'") {
+		t.Errorf("template not substituted: %s", got)
+	}
+}
+
+func TestBuildCurlCommand_EmptyURL(t *testing.T) {
+	tab := NewRequestTab("t")
+	tab.URLInput.SetText("")
+	if got := BuildCurlCommand(tab, nil); got != "" {
+		t.Errorf("expected empty cURL for empty URL, got %q", got)
+	}
+}
+
+func TestFormatTimings(t *testing.T) {
+	if got := formatTimings(Timings{}); got != "" {
+		t.Errorf("zero timings should produce empty string, got %q", got)
+	}
+	tm := Timings{DNS: 10 * time.Millisecond, TTFB: 100 * time.Millisecond}
+	got := formatTimings(tm)
+	if !strings.Contains(got, "DNS 10ms") {
+		t.Errorf("missing DNS: %s", got)
+	}
+	if !strings.Contains(got, "TTFB 100ms") {
+		t.Errorf("missing TTFB: %s", got)
+	}
+	if strings.Contains(got, "Connect") {
+		t.Errorf("should skip zero Connect phase: %s", got)
+	}
+}
+
+func TestExecuteRequest_CapturesTimingsAndFilename(t *testing.T) {
+	setupTestConfigDir(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Disposition", `attachment; filename="hello.txt"`)
+		_, _ = w.Write([]byte("hello"))
+	}))
+	defer srv.Close()
+
+	tab := NewRequestTab("t")
+	tab.URLInput.SetText(srv.URL)
+	tab.Method = "GET"
+	tab.window = new(app.Window)
+	tab.ExecuteRequest(context.Background(), tab.window, nil)
+
+	select {
+	case res := <-tab.responseChan:
+		if res.filename != "hello.txt" {
+			t.Errorf("filename got %q want hello.txt", res.filename)
+		}
+		if res.timings.TTFB <= 0 {
+			t.Errorf("expected positive TTFB, got %v", res.timings.TTFB)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatalf("timeout")
+	}
+}
+
+func TestDecompressBody_Brotli(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "br")
+		bw := brotli.NewWriter(w)
+		_, _ = bw.Write([]byte("brotli payload"))
+		_ = bw.Close()
+	}))
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL, nil)
+	req.Header.Set("Accept-Encoding", "br")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body := decompressBody(resp)
+	defer func() { _ = body.Close() }()
+	data, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(data) != "brotli payload" {
+		t.Errorf("got %q", string(data))
+	}
+}
+
+func TestDecompressBody_Zstd(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Encoding", "zstd")
+		zw, _ := zstd.NewWriter(w)
+		_, _ = zw.Write([]byte("zstd payload"))
+		_ = zw.Close()
+	}))
+	defer srv.Close()
+
+	req, _ := http.NewRequest("GET", srv.URL, nil)
+	req.Header.Set("Accept-Encoding", "zstd")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("do: %v", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+
+	body := decompressBody(resp)
+	defer func() { _ = body.Close() }()
+	data, err := io.ReadAll(body)
+	if err != nil {
+		t.Fatalf("read: %v", err)
+	}
+	if string(data) != "zstd payload" {
+		t.Errorf("got %q", string(data))
 	}
 }

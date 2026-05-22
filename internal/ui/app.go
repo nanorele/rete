@@ -24,6 +24,7 @@ import (
 	"tracto/internal/ui/varpopup"
 	"tracto/internal/ui/widgets"
 	"tracto/internal/ui/workspace"
+	"tracto/internal/utils"
 
 	"github.com/nanorele/gio-x/explorer"
 	"github.com/nanorele/gio/app"
@@ -152,11 +153,11 @@ type AppUI struct {
 // files dropped into assets/fonts/ttf can't silently bloat the binary,
 // and so the set of bundled faces is reviewable here.
 //
-// Twemoji.Mozilla.ttf is the sole emoji face — Inter and JetBrainsMono
-// have no emoji coverage, so the shaper always falls back to Twemoji
-// for emoji codepoints. COLRv0 vector was chosen over bitmap
-// NotoColorEmoji (CBDT/CBLC, also supported by Gio) for ~3× smaller
-// binary and clean scaling at any size.
+// NotoColorEmoji.ttf is the sole emoji face — Inter and JetBrainsMono
+// have no emoji coverage, so the shaper falls back to it for emoji
+// codepoints. CBDT/CBLC bitmap build gives the broadest coverage of
+// the Unicode emoji set, including the latest blocks and full flag /
+// keycap / ZWJ sequence support.
 
 //go:embed assets/fonts/ttf/Inter-Regular.ttf
 var fontInterRegular []byte
@@ -176,8 +177,8 @@ var fontJBMItalic []byte
 //go:embed assets/fonts/ttf/JetBrainsMono-BoldItalic.ttf
 var fontJBMBoldItalic []byte
 
-//go:embed assets/fonts/ttf/Twemoji.Mozilla.ttf
-var fontTwemoji []byte
+//go:embed assets/fonts/ttf/NotoColorEmoji.ttf
+var fontNotoColorEmoji []byte
 
 var embeddedFonts = map[string][]byte{
 	"Inter-Regular.ttf":            fontInterRegular,
@@ -186,7 +187,7 @@ var embeddedFonts = map[string][]byte{
 	"JetBrainsMono-Bold.ttf":       fontJBMBold,
 	"JetBrainsMono-Italic.ttf":     fontJBMItalic,
 	"JetBrainsMono-BoldItalic.ttf": fontJBMBoldItalic,
-	"Twemoji.Mozilla.ttf":          fontTwemoji,
+	"NotoColorEmoji.ttf":           fontNotoColorEmoji,
 }
 
 func loadEmbeddedTTF(name string) ([]byte, error) {
@@ -240,10 +241,10 @@ func NewAppUI() *AppUI {
 			Face: face,
 		})
 	}
-	// Inserted before JBM so the fallback walk reaches Twemoji
+	// Inserted before JBM so the fallback walk reaches the emoji face
 	// immediately after Inter, regardless of whether the primary face
 	// for a text run is Inter (UI) or JBM (request/response bodies).
-	addUIFace("Twemoji.Mozilla.ttf")
+	addUIFace("NotoColorEmoji.ttf")
 
 	addJBM("JetBrainsMono-Regular.ttf", font.Regular, font.Normal)
 	addJBM("JetBrainsMono-Bold.ttf", font.Regular, font.Bold)
@@ -983,14 +984,12 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		layout.Stack{}.Layout(gtx,
 			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-				// Pass-through: the popup-close backdrop covers the whole
-				// window, but its event.Op handler must NOT block Gio's
-				// cursor hit-test walk. Without PassOp, the backdrop's
-				// non-pass hit-node short-circuits the reverse hitTree
-				// traversal (idx = n.next jump) — leaving cursor at unset
-				// → fallback CursorDefault, masking CursorText/CursorPointer
-				// of every widget below.
-				passStack := pointer.PassOp{}.Push(gtx.Ops)
+				// Modal popup-close backdrop: absorbs presses so they don't
+				// leak through to widgets underneath (clicking outside the
+				// menu only closes it, never activates a button below).
+				// CursorDefault anchors the cursor walk here; the menu body
+				// is drawn on top and its widgets' cursors still win inside
+				// the menu rect.
 				for {
 					ev, ok := gtx.Event(
 						pointer.Filter{Target: &ui.PopupCloseTag, Kinds: pointer.Press},
@@ -1009,14 +1008,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 					}
 				}
 				event.Op(gtx.Ops, &ui.PopupCloseTag)
-				passStack.Pop()
-				// Intentionally do NOT call pointer.CursorDefault.Add here:
-				// this is a full-screen press-catcher backdrop drawn AFTER
-				// the rest of the UI, so in Gio's reverse hit-test it would
-				// otherwise win cursor resolution for every pixel in the
-				// window, masking CursorText over editors, CursorPointer
-				// over buttons and {{env}} chips, and CursorRowResize over
-				// the splitter while any of the popup-menu flags are set.
+				pointer.CursorDefault.Add(gtx.Ops)
 				return layout.Dimensions{Size: gtx.Constraints.Max}
 			}),
 		)
@@ -1177,11 +1169,10 @@ func (ui *AppUI) renderColorPickerOverlay(gtx layout.Context, p *colorpicker.Sta
 	macro := op.Record(gtx.Ops)
 
 	backdropStack := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
-	// Pass-through (see popup-close backdrop in layoutApp for rationale):
-	// without PassOp, this full-screen press-catcher's non-pass hit-node
-	// short-circuits Gio's cursor hit-test walk, masking every widget's
-	// cursor underneath.
-	backdropPass := pointer.PassOp{}.Push(gtx.Ops)
+	// Modal color-picker backdrop: absorbs presses so a click outside the
+	// picker only closes it, never activates a widget underneath.
+	// CursorDefault anchors the cursor walk here; the picker draws on top
+	// and its own cursors still win inside the picker rect.
 	for {
 		ev, ok := gtx.Event(pointer.Filter{
 			Target: &p.Backdrop,
@@ -1201,7 +1192,7 @@ func (ui *AppUI) renderColorPickerOverlay(gtx layout.Context, p *colorpicker.Sta
 		p.Close()
 	}
 	event.Op(gtx.Ops, &p.Backdrop)
-	backdropPass.Pop()
+	pointer.CursorDefault.Add(gtx.Ops)
 	backdropStack.Pop()
 
 	pickerOff := op.Offset(image.Pt(px, py)).Push(gtx.Ops)
@@ -1472,8 +1463,15 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 								}
 								for tab.SaveToFileBtn.Clicked(gtx) {
 									tab.SendMenuOpen = false
+									suggested := tab.SuggestedFile
+									if suggested == "" {
+										suggested = utils.FilenameFromURL(tab.URLInput.Text())
+									}
+									if suggested == "" {
+										suggested = "response.json"
+									}
 									go func() {
-										w, err := ui.Explorer.CreateFile("response.json")
+										w, err := ui.Explorer.CreateFile(suggested)
 										if err != nil || w == nil {
 											return
 										}

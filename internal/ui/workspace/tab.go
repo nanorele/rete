@@ -81,6 +81,8 @@ type tabResponse struct {
 	previewLoaded int64
 	isJSON        bool
 	contentType   string
+	filename      string
+	timings       Timings
 }
 
 type previewResult struct {
@@ -98,6 +100,7 @@ type RequestTab struct {
 	MethodListOpen   bool
 	MethodClickables []widget.Clickable
 	URLInput         widget.Editor
+	urlClick         gesture.Click
 	SendBtn          widget.Clickable
 	Headers          []*HeaderItem
 	HeadersExpanded  bool
@@ -156,16 +159,19 @@ type RequestTab struct {
 	downloadedBytes atomic.Int64
 	previewLoaded   atomic.Int64
 
-	CancelBtn      widget.Clickable
-	SendMenuBtn    widget.Clickable
-	SendMenuOpen   bool
-	SaveToFileBtn  widget.Clickable
-	SaveToFilePath string
-	ShowPreviewBtn widget.Clickable
-	PreviewEnabled bool
-	LoadMoreBtn    widget.Clickable
-	OpenFileBtn    widget.Clickable
-	PropertiesBtn  widget.Clickable
+	CancelBtn       widget.Clickable
+	SendMenuBtn     widget.Clickable
+	SendMenuOpen    bool
+	SaveToFileBtn   widget.Clickable
+	SaveToFilePath  string
+	SuggestedFile   string
+	CopyAsCurlBtn   widget.Clickable
+	ShowPreviewBtn  widget.Clickable
+	PreviewEnabled  bool
+	LoadMoreBtn     widget.Clickable
+	OpenFileBtn     widget.Clickable
+	PropertiesBtn   widget.Clickable
+	LastTimings     Timings
 
 	ReqWrapEnabled   bool
 	jsonFmtState     *JSONFormatterState
@@ -936,6 +942,115 @@ func moveURLWord(s string, pos int, dir int) int {
 	return pos
 }
 
+func urlWordBounds(s string, pos int) (int, int) {
+	runes := []rune(s)
+	n := len(runes)
+	if pos < 0 {
+		pos = 0
+	}
+	if pos > n {
+		pos = n
+	}
+	spans := findURLVarSpans(runes)
+	varAt := func(p int) *urlVarSpan {
+		for i := range spans {
+			v := &spans[i]
+			if p >= v.start && p < v.end {
+				return v
+			}
+		}
+		return nil
+	}
+	isSep := func(p int) bool {
+		if p < 0 || p >= n {
+			return false
+		}
+		if varAt(p) != nil {
+			return false
+		}
+		return isURLWordSep(runes[p])
+	}
+
+	ref := pos
+	sepRun := false
+	switch {
+	case pos < n && !isSep(pos):
+		if v := varAt(pos); v != nil {
+			return v.start, v.end
+		}
+		ref = pos
+	case pos > 0 && !isSep(pos-1):
+		if v := varAt(pos - 1); v != nil {
+			return v.start, v.end
+		}
+		ref = pos - 1
+	default:
+		sepRun = true
+	}
+
+	if sepRun {
+		s := pos
+		for s > 0 && isSep(s-1) {
+			s--
+		}
+		e := pos
+		for e < n && isSep(e) {
+			e++
+		}
+		return s, e
+	}
+
+	start := ref
+	for start > 0 {
+		if v := varAt(start - 1); v != nil {
+			start = v.end
+			break
+		}
+		if isSep(start - 1) {
+			break
+		}
+		start--
+	}
+	end := ref
+	for end < n {
+		if v := varAt(end); v != nil {
+			break
+		}
+		if isSep(end) {
+			break
+		}
+		end++
+	}
+	return start, end
+}
+
+func (t *RequestTab) handleURLMultiClick(gtx layout.Context, th *material.Theme, textSize unit.Sp) {
+	for {
+		ev, ok := t.urlClick.Update(gtx.Source)
+		if !ok {
+			break
+		}
+		if ev.Kind != gesture.KindPress || ev.Source != pointer.Mouse || ev.NumClicks < 2 {
+			continue
+		}
+		txt := t.URLInput.Text()
+		n := utf8.RuneCountInString(txt)
+		if ev.NumClicks >= 3 {
+			t.URLInput.SetCaret(0, n)
+			continue
+		}
+		paddingX := gtx.Dp(unit.Dp(4))
+		scrollX := widgets.GetEditorScrollX(&t.URLInput)
+		textX := ev.Position.X - paddingX + scrollX
+		if textX < 0 {
+			textX = 0
+		}
+		pos := widgets.CaretIndexAtX(gtx, th, textSize, txt, textX)
+		start, end := urlWordBounds(txt, pos)
+		t.URLInput.SetCaret(start, end)
+	}
+}
+
 func (t *RequestTab) handleURLWordJump(gtx layout.Context) {
 	for {
 		ev, ok := gtx.Event(
@@ -1006,6 +1121,8 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		}
 	}
 
+	t.handleURLMultiClick(gtx, th, unit.Sp(12))
+
 	if t.ReqEditor.Changed() {
 		t.UpdateSystemHeaders()
 		t.dirtyCheckNeeded = true
@@ -1021,6 +1138,10 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 			t.previewLoaded.Store(res.previewLoaded)
 			t.respIsJSON = res.isJSON
 			t.respContentType = res.contentType
+			if res.filename != "" {
+				t.SuggestedFile = res.filename
+			}
+			t.LastTimings = res.timings
 			t.isRequesting = false
 			t.cancelFn = nil
 			t.invalidateSearchCache()
@@ -1138,7 +1259,13 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		var reader io.ReadCloser
 		if t.respFile != "" {
 			if fi, err := os.Stat(t.respFile); err == nil && fi.Size() > 0 {
-				if f, ferr := os.Open(t.respFile); ferr == nil {
+				if t.respIsJSON {
+					if data, rerr := os.ReadFile(t.respFile); rerr == nil {
+						decoded := utils.DecodeBody(data, t.respContentType)
+						formatted := formatJSON(decoded, &JSONFormatterState{})
+						reader = io.NopCloser(strings.NewReader(formatted))
+					}
+				} else if f, ferr := os.Open(t.respFile); ferr == nil {
 					reader = f
 				}
 			}
@@ -1150,6 +1277,17 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 			Type: "application/text",
 			Data: reader,
 		})
+	}
+
+	if t.CopyAsCurlBtn.Clicked(gtx) {
+		t.SendMenuOpen = false
+		cmd := BuildCurlCommand(t, activeEnv)
+		if cmd != "" {
+			gtx.Execute(clipboard.WriteCmd{
+				Type: "application/text",
+				Data: io.NopCloser(strings.NewReader(cmd)),
+			})
+		}
 	}
 
 	if t.SaveToColBtn.Clicked(gtx) {
@@ -1420,7 +1558,13 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 						} else {
 							t.LastURLWidth = gtx.Constraints.Max.X
 						}
-						return widgets.TextFieldOverlay(gtx, th, &t.URLInput, "https://api.example.com", true, activeEnv, frozenURLWidth, unit.Sp(12))
+						dims := widgets.TextFieldOverlay(gtx, th, &t.URLInput, "https://api.example.com", true, activeEnv, frozenURLWidth, unit.Sp(12))
+						pass := pointer.PassOp{}.Push(gtx.Ops)
+						cl := clip.Rect{Max: dims.Size}.Push(gtx.Ops)
+						t.urlClick.Add(gtx.Ops)
+						cl.Pop()
+						pass.Pop()
+						return dims
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1509,15 +1653,25 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 							menuGtx.Constraints.Max = image.Pt(gtx.Dp(unit.Dp(160)), gtx.Dp(unit.Dp(100)))
 
 							rec := op.Record(gtx.Ops)
-							menuDims := layout.UniformInset(unit.Dp(4)).Layout(menuGtx, func(gtx layout.Context) layout.Dimensions {
-								return material.Clickable(gtx, &t.SaveToFileBtn, func(gtx layout.Context) layout.Dimensions {
+							menuItem := func(gtx layout.Context, btn *widget.Clickable, label string) layout.Dimensions {
+								return material.Clickable(gtx, btn, func(gtx layout.Context) layout.Dimensions {
 									pointer.CursorPointer.Add(gtx.Ops)
 									return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										gtx.Constraints.Min.X = gtx.Dp(unit.Dp(130))
-										lbl := widgets.MonoLabel(th, unit.Sp(12), "Save to file...")
+										lbl := widgets.MonoLabel(th, unit.Sp(12), label)
 										return lbl.Layout(gtx)
 									})
 								})
+							}
+							menuDims := layout.UniformInset(unit.Dp(4)).Layout(menuGtx, func(gtx layout.Context) layout.Dimensions {
+								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+										return menuItem(gtx, &t.SaveToFileBtn, "Save to file...")
+									}),
+									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+										return menuItem(gtx, &t.CopyAsCurlBtn, "Copy as cURL")
+									}),
+								)
 							})
 							menuCall := rec.Stop()
 

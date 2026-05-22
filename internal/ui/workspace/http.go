@@ -6,12 +6,14 @@ import (
 	"compress/gzip"
 	"compress/zlib"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"errors"
 	"io"
 	"mime"
 	"mime/multipart"
 	"net/http"
+	"net/http/httptrace"
 	"net/url"
 	"os"
 	"path/filepath"
@@ -22,8 +24,71 @@ import (
 	"tracto/internal/utils"
 	"unicode/utf8"
 
+	"github.com/andybalholm/brotli"
+	"github.com/klauspost/compress/zstd"
 	"github.com/nanorele/gio/app"
 )
+
+// zstdReadCloser wraps a *zstd.Decoder so it satisfies io.Closer.
+// zstd's Close returns no error, but io.ReadCloser expects one.
+type zstdReadCloser struct{ *zstd.Decoder }
+
+func (z zstdReadCloser) Close() error {
+	z.Decoder.Close()
+	return nil
+}
+
+// Timings holds per-request phase durations captured via httptrace.
+// Zero values mean the phase didn't happen (e.g. TLS for plain HTTP,
+// DNS for IP literals, Connect for reused keep-alive connections).
+type Timings struct {
+	DNS      time.Duration
+	Connect  time.Duration
+	TLS      time.Duration
+	TTFB     time.Duration
+	Transfer time.Duration
+}
+
+func attachTrace(ctx context.Context, timings *Timings, firstByteAt *time.Time) context.Context {
+	var dnsStart, connStart, tlsStart time.Time
+	trace := &httptrace.ClientTrace{
+		DNSStart: func(httptrace.DNSStartInfo) { dnsStart = time.Now() },
+		DNSDone: func(httptrace.DNSDoneInfo) {
+			if !dnsStart.IsZero() {
+				timings.DNS = time.Since(dnsStart)
+			}
+		},
+		ConnectStart: func(string, string) { connStart = time.Now() },
+		ConnectDone: func(string, string, error) {
+			if !connStart.IsZero() {
+				timings.Connect = time.Since(connStart)
+			}
+		},
+		TLSHandshakeStart: func() { tlsStart = time.Now() },
+		TLSHandshakeDone: func(tls.ConnectionState, error) {
+			if !tlsStart.IsZero() {
+				timings.TLS = time.Since(tlsStart)
+			}
+		},
+		GotFirstResponseByte: func() { *firstByteAt = time.Now() },
+	}
+	return httptrace.WithClientTrace(ctx, trace)
+}
+
+func formatTimings(t Timings) string {
+	parts := make([]string, 0, 5)
+	add := func(label string, d time.Duration) {
+		if d > 0 {
+			parts = append(parts, label+" "+d.Round(time.Millisecond).String())
+		}
+	}
+	add("DNS", t.DNS)
+	add("Connect", t.Connect)
+	add("TLS", t.TLS)
+	add("TTFB", t.TTFB)
+	add("Transfer", t.Transfer)
+	return strings.Join(parts, " · ")
+}
 
 type multiCloser struct {
 	io.Reader
@@ -85,6 +150,15 @@ func decompressBody(resp *http.Response) io.ReadCloser {
 				reader = fr
 				closers = append(closers, fr)
 			}
+		case "br":
+			reader = brotli.NewReader(reader)
+		case "zstd":
+			zr, err := zstd.NewReader(reader)
+			if err != nil {
+				return resp.Body
+			}
+			reader = zr
+			closers = append(closers, zstdReadCloser{zr})
 		default:
 			return resp.Body
 		}
@@ -591,6 +665,9 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 		win.Invalidate()
 		return
 	}
+	var timings Timings
+	var firstByteAt time.Time
+	req = req.WithContext(attachTrace(req.Context(), &timings, &firstByteAt))
 	t.cancelFn = cancel
 	reqID := t.requestID.Load()
 
@@ -614,6 +691,9 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 			t.sendResponse(ctx, tabResponse{requestID: reqID, status: status})
 			return
 		}
+		if !firstByteAt.IsZero() {
+			timings.TTFB = firstByteAt.Sub(start)
+		}
 		body := decompressBody(resp)
 		defer func() { _ = body.Close() }()
 
@@ -627,6 +707,9 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 		contentType := resp.Header.Get("Content-Type")
 		total, sErr := t.streamResponse(ctx, body, tmpFile, win, true, contentType)
 		_ = tmpFile.Close()
+		if !firstByteAt.IsZero() {
+			timings.Transfer = time.Since(firstByteAt)
+		}
 
 		if sErr != nil {
 			status := "Error: " + sErr.Error()
@@ -640,6 +723,7 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 		duration := time.Since(start)
 		display, loaded, isJSON := loadPreviewFromFile(tmpPath, total, t.jsonFmtState, contentType)
 		statusText := resp.Status + "  " + duration.Round(time.Millisecond).String() + "  " + formatSize(total)
+		filename := utils.ParseContentDispositionFilename(resp.Header.Get("Content-Disposition"))
 
 		if t.sendResponse(ctx, tabResponse{
 			requestID:     reqID,
@@ -650,6 +734,8 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 			previewLoaded: loaded,
 			isJSON:        isJSON,
 			contentType:   contentType,
+			filename:      filename,
+			timings:       timings,
 		}) {
 			cleanup = false
 		}
@@ -668,6 +754,9 @@ func (t *RequestTab) ExecuteRequestToFile(parent context.Context, win *app.Windo
 		win.Invalidate()
 		return
 	}
+	var timings Timings
+	var firstByteAt time.Time
+	req = req.WithContext(attachTrace(req.Context(), &timings, &firstByteAt))
 	t.cancelFn = cancel
 	reqID := t.requestID.Load()
 
@@ -692,6 +781,9 @@ func (t *RequestTab) ExecuteRequestToFile(parent context.Context, win *app.Windo
 			t.sendResponse(ctx, tabResponse{requestID: reqID, status: status})
 			return
 		}
+		if !firstByteAt.IsZero() {
+			timings.TTFB = firstByteAt.Sub(start)
+		}
 		body := decompressBody(resp)
 		defer func() { _ = body.Close() }()
 
@@ -702,6 +794,9 @@ func (t *RequestTab) ExecuteRequestToFile(parent context.Context, win *app.Windo
 		}
 
 		total, sErr := t.streamResponse(ctx, body, writer, win, false, resp.Header.Get("Content-Type"))
+		if !firstByteAt.IsZero() {
+			timings.Transfer = time.Since(firstByteAt)
+		}
 
 		if tmpFile != nil {
 			_ = tmpFile.Close()
@@ -723,10 +818,13 @@ func (t *RequestTab) ExecuteRequestToFile(parent context.Context, win *app.Windo
 
 		duration := time.Since(start)
 		statusText := resp.Status + "  " + duration.Round(time.Millisecond).String() + "  " + formatSize(total) + "  Saved to file"
+		filename := utils.ParseContentDispositionFilename(resp.Header.Get("Content-Disposition"))
 		if t.sendResponse(ctx, tabResponse{
 			requestID: reqID,
 			status:    statusText,
 			respSize:  total,
+			filename:  filename,
+			timings:   timings,
 			respFile:  tmpPath,
 		}) {
 			cleanup = false

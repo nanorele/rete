@@ -33,8 +33,9 @@ var acceptEncodingOptions = []struct {
 	{"gzip", "gzip"},
 	{"deflate", "deflate"},
 	{"br", "br"},
+	{"zstd", "zstd"},
 	{"gzip, deflate", "gzip+deflate"},
-	{"gzip, deflate, br", "all"},
+	{"gzip, deflate, br, zstd", "all"},
 }
 
 type Editor struct {

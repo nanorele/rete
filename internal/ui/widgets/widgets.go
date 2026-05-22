@@ -280,6 +280,14 @@ func GetHScroll(ed *widget.Editor) *hScrollState {
 	return s
 }
 
+func GetEditorScrollX(ed *widget.Editor) int {
+	s, ok := editorHScrolls[ed]
+	if !ok {
+		return 0
+	}
+	return s.scrollX
+}
+
 func UpdateHScroll(gtx layout.Context, ed *widget.Editor, viewW, contentW int) (scrollX, maxScroll int, addGesture func()) {
 	s := GetHScroll(ed)
 	maxScroll = contentW - viewW
@@ -836,8 +844,13 @@ func (s *ScrollLabel) Layout(gtx layout.Context, th *material.Theme, lbl materia
 }
 
 func InlineRenameField(gtx layout.Context, th *material.Theme, ed *widget.Editor) layout.Dimensions {
+	return InlineRenameFieldPadded(gtx, th, ed, 0)
+}
+
+func InlineRenameFieldPadded(gtx layout.Context, th *material.Theme, ed *widget.Editor, padY unit.Dp) layout.Dimensions {
 	ed.SingleLine = true
 	pad := gtx.Dp(unit.Dp(4))
+	padYPx := gtx.Dp(padY)
 
 	availWidth := gtx.Constraints.Max.X
 	if availWidth < gtx.Constraints.Min.X {
@@ -856,7 +869,7 @@ func InlineRenameField(gtx layout.Context, th *material.Theme, ed *widget.Editor
 	edGtx.Constraints.Max.X = 1 << 24
 
 	macro := op.Record(gtx.Ops)
-	op.Offset(image.Point{X: pad, Y: 0}).Add(gtx.Ops)
+	op.Offset(image.Point{X: pad, Y: padYPx}).Add(gtx.Ops)
 	e := material.Editor(th, ed, "")
 	e.TextSize = unit.Sp(12)
 	dims := e.Layout(edGtx)
@@ -865,7 +878,7 @@ func InlineRenameField(gtx layout.Context, th *material.Theme, ed *widget.Editor
 	contentW := dims.Size.X
 	scrollX, _, addGesture := UpdateHScroll(gtx, ed, viewW, contentW)
 
-	finalSize := image.Pt(availWidth, dims.Size.Y)
+	finalSize := image.Pt(availWidth, dims.Size.Y+2*padYPx)
 	rect := image.Rectangle{Max: finalSize}
 	paint.FillShape(gtx.Ops, theme.BgField, clip.UniformRRect(rect, 2).Op(gtx.Ops))
 	borderC := theme.Border
@@ -886,10 +899,10 @@ func InlineRenameField(gtx layout.Context, th *material.Theme, ed *widget.Editor
 
 	DrawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, pad, 1)
 
-	editorRect := image.Rect(pad, 0, pad+viewW, dims.Size.Y)
+	editorRect := image.Rect(pad, padYPx, pad+viewW, padYPx+dims.Size.Y)
 	HandleFieldFallbackClick(gtx, th, ed, finalSize, editorRect, scrollX, unit.Sp(12))
 
-	return layout.Dimensions{Size: finalSize, Baseline: dims.Baseline}
+	return layout.Dimensions{Size: finalSize, Baseline: dims.Baseline + padYPx}
 }
 
 func SquareBtnSlim(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, th *material.Theme) layout.Dimensions {

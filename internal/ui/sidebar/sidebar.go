@@ -152,7 +152,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			addNewCollection(host)
 		}
 
-		return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Inset{Top: unit.Dp(1), Bottom: unit.Dp(1), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 					return material.Clickable(gtx, host.ColsHeaderClick, func(gtx layout.Context) layout.Dimensions {
@@ -246,27 +246,82 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 		var updateCols bool
 
-		nodeClickFn := func(n *collections.CollectionNode) {
+		nodeClickFn := func(n *collections.CollectionNode, inTextZone bool) {
 			if *host.RenamingNode != nil && *host.RenamingNode != n {
 				commitRename(*host.RenamingNode)
 			}
 			if n.IsRenaming {
 				return
 			}
-			if !n.LastClickAt.IsZero() && gtx.Now.Sub(n.LastClickAt) < 300*time.Millisecond {
+			if inTextZone && !n.LastClickAt.IsZero() && gtx.Now.Sub(n.LastClickAt) < 300*time.Millisecond {
 				n.IsRenaming = true
 				n.NameEditor.SetText(n.Name)
 				*host.RenamingNode = n
 				n.LastClickAt = time.Time{}
 				return
 			}
-			n.LastClickAt = gtx.Now
+			if inTextZone {
+				n.LastClickAt = gtx.Now
+			} else {
+				n.LastClickAt = time.Time{}
+			}
 			if n.IsFolder {
 				n.Expanded = !n.Expanded
 				updateCols = true
 			} else if n.Request != nil {
 				host.OpenRequestInTab(n)
 			}
+		}
+
+		measureLabelWidth := func(gtx layout.Context, th *material.Theme, s string, bold bool, sz unit.Sp) int {
+			if s == "" {
+				return 0
+			}
+			g := gtx
+			g.Constraints.Min.X = 0
+			g.Constraints.Max.X = 1 << 24
+			mm := op.Record(gtx.Ops)
+			lbl := material.Label(th, sz, s)
+			lbl.Alignment = text.Start
+			if bold {
+				lbl.Font.Weight = font.Bold
+			}
+			d := lbl.Layout(g)
+			mm.Stop()
+			return d.Size.X
+		}
+
+		isTextHit := func(n *collections.CollectionNode, x float32) bool {
+			if n.NameWidthPx <= 0 {
+				return false
+			}
+			rightPad := float32(gtx.Dp(unit.Dp(6)))
+			return x >= float32(n.NameLeftPx) && x <= float32(n.NameLeftPx+n.NameWidthPx)+rightPad
+		}
+
+		renameFieldSized := func(gtx layout.Context, th *material.Theme, ed *widget.Editor, bold bool, sz unit.Sp) layout.Dimensions {
+			txt := ed.Text()
+			if txt == "" {
+				txt = " "
+			}
+			measuredW := measureLabelWidth(gtx, th, txt, bold, sz)
+
+			sidePad := gtx.Dp(unit.Dp(4))
+			caretRoom := gtx.Dp(unit.Dp(8))
+			desiredW := measuredW + 2*sidePad + caretRoom
+			minW := gtx.Dp(unit.Dp(80))
+			if desiredW < minW {
+				desiredW = minW
+			}
+			if desiredW > gtx.Constraints.Max.X {
+				desiredW = gtx.Constraints.Max.X
+			}
+
+			inGtx := gtx
+			inGtx.Constraints.Min.X = desiredW
+			inGtx.Constraints.Max.X = desiredW
+
+			return widgets.InlineRenameFieldPadded(inGtx, th, ed, unit.Dp(2))
 		}
 
 		preDragSlop := float32(gtx.Dp(unit.Dp(4)))
@@ -297,10 +352,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						if *host.DragNodeActive {
 							*host.DragNodeCurrentY = e.Position.Y
 							*host.DragNodeCurrentX = e.Position.X
-							commitNodeDrop(host,dragged, gtx.Metric)
+							commitNodeDrop(host, dragged, gtx.Metric)
 							updateCols = true
 						} else {
-							nodeClickFn(dragged)
+							nodeClickFn(dragged, isTextHit(dragged, e.Position.X))
 						}
 						*host.DraggedNode = nil
 						*host.DragNodeActive = false
@@ -338,8 +393,8 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		dim := material.List(host.Theme, host.ColList).Layout(gtx, len(colsSnapshot), func(gtx layout.Context, i int) layout.Dimensions {
 			node := colsSnapshot[i]
 
-			nodeClick := func() {
-				nodeClickFn(node)
+			nodeClick := func(x float32) {
+				nodeClickFn(node, isTextHit(node, x))
 			}
 
 			dragSlop := float32(gtx.Dp(unit.Dp(4)))
@@ -373,10 +428,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				case pointer.Release:
 					if *host.DraggedNode == node {
 						if *host.DragNodeActive {
-							commitNodeDrop(host,node, gtx.Metric)
+							commitNodeDrop(host, node, gtx.Metric)
 							updateCols = true
 						} else {
-							nodeClick()
+							nodeClick(e.Position.X)
 						}
 					}
 					*host.DraggedNode = nil
@@ -610,6 +665,14 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 									Left:  unit.Dp(float32(node.Depth * 12)),
 									Right: unit.Dp(4),
 								}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									if node.IsFolder {
+										node.NameLeftPx = gtx.Dp(unit.Dp(float32(node.Depth*12 + 18 + 4)))
+										node.NameWidthPx = measureLabelWidth(gtx, host.Theme, node.Name, node.Depth == 0, unit.Sp(12))
+									} else if node.Request != nil {
+										methodW := measureLabelWidth(gtx, host.Theme, node.Request.Method, false, unit.Sp(10))
+										node.NameLeftPx = gtx.Dp(unit.Dp(float32(node.Depth*12))) + methodW + gtx.Dp(unit.Dp(8))
+										node.NameWidthPx = measureLabelWidth(gtx, host.Theme, node.Name, false, unit.Sp(12))
+									}
 									children := make([]layout.FlexChild, 0, 3)
 									if node.IsFolder {
 										children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -625,7 +688,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 										children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout))
 										children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 											if node.IsRenaming {
-												return widgets.InlineRenameField(gtx, host.Theme, &node.NameEditor)
+												return renameFieldSized(gtx, host.Theme, &node.NameEditor, node.Depth == 0, unit.Sp(12))
 											}
 											lbl := material.Label(host.Theme, unit.Sp(12), node.Name)
 											lbl.Alignment = text.Start
@@ -643,7 +706,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 										children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout))
 										children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 											if node.IsRenaming {
-												return widgets.InlineRenameField(gtx, host.Theme, &node.NameEditor)
+												return renameFieldSized(gtx, host.Theme, &node.NameEditor, false, unit.Sp(12))
 											}
 											lbl := material.Label(host.Theme, unit.Sp(12), node.Name)
 											lbl.Alignment = text.Start
@@ -880,7 +943,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			addNewEnvironment(host)
 		}
 
-		return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Inset{Top: unit.Dp(1), Bottom: unit.Dp(1), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 					return material.Clickable(gtx, host.EnvsHeaderClick, func(gtx layout.Context) layout.Dimensions {
@@ -988,7 +1051,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 					if *host.DraggedEnv == dragged {
 						if *host.DragEnvActive {
 							*host.DragEnvCurrentY = e.Position.Y
-							commitEnvDrop(host,dragged)
+							commitEnvDrop(host, dragged)
 						} else {
 							envClickFn(dragged)
 						}
@@ -1009,7 +1072,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		var draggingEnv bool
 		draggedSrcIdx := -1
 		if *host.DraggedEnv != nil && *host.DragEnvActive {
-			for i, e := range (*host.Environments) {
+			for i, e := range *host.Environments {
 				if e == *host.DraggedEnv {
 					draggedSrcIdx = i
 					break
@@ -1060,7 +1123,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				case pointer.Release:
 					if *host.DraggedEnv == env {
 						if *host.DragEnvActive {
-							commitEnvDrop(host,env)
+							commitEnvDrop(host, env)
 						} else {
 							envClick()
 						}
@@ -1148,7 +1211,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 				for env.MenuBtn.Clicked(gtx) {
 					if !env.MenuOpen {
-						for _, e := range (*host.Environments) {
+						for _, e := range *host.Environments {
 							e.MenuOpen = false
 						}
 					}
@@ -1166,7 +1229,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						env.MenuOpen = false
 					}
 					for env.DupBtn.Clicked(gtx) {
-						duplicateEnvironment(host,env)
+						duplicateEnvironment(host, env)
 						env.MenuOpen = false
 					}
 				}
@@ -1378,7 +1441,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			}
 		}
 		if envToDelete != nil {
-			deleteEnvironment(host,envToDelete)
+			deleteEnvironment(host, envToDelete)
 		}
 		return dim
 	}

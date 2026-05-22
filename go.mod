@@ -12,7 +12,9 @@ require (
 )
 
 require (
+	github.com/andybalholm/brotli v1.2.1 // indirect
 	github.com/godbus/dbus/v5 v5.2.2 // indirect
+	github.com/klauspost/compress v1.18.6 // indirect
 	github.com/nanorele/gio-shader v1.0.0 // indirect
 	github.com/nanorele/typesetting v1.0.1 // indirect
 	golang.org/x/net v0.54.0 // indirect

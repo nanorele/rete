@@ -58,7 +58,7 @@ func Sanitize(s model.AppSettings) model.AppSettings {
 		s.IdleConnTimeoutSec = 3600
 	}
 	switch s.DefaultAcceptEncoding {
-	case "", "identity", "gzip", "deflate", "br", "gzip, deflate", "gzip, deflate, br":
+	case "", "identity", "gzip", "deflate", "br", "zstd", "gzip, deflate", "gzip, deflate, br", "gzip, deflate, br, zstd":
 	default:
 		s.DefaultAcceptEncoding = "gzip"
 	}

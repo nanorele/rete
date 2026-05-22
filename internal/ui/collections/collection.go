@@ -41,6 +41,9 @@ type CollectionNode struct {
 
 	LastClickAt time.Time
 
+	NameLeftPx  int
+	NameWidthPx int
+
 	Drag  gesture.Drag
 	Hover gesture.Hover
 }

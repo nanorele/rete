@@ -100,11 +100,11 @@ func (s *State) Layout(gtx layout.Context, host *Host) {
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			paint.FillShape(gtx.Ops, color.NRGBA{A: 80}, clip.Rect{Max: gtx.Constraints.Max}.Op())
 			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-			// Pass-through: see app.go popup-close backdrop. Without PassOp,
-			// this full-screen press-catcher's non-pass hit-node short-
-			// circuits Gio's cursor hit-test walk, leaving every widget
-			// below at the unset → CursorDefault fallback.
-			passStack := pointer.PassOp{}.Push(gtx.Ops)
+			// Modal backdrop: absorbs presses so they don't leak to widgets
+			// underneath. CursorDefault anchors the cursor walk here so it
+			// doesn't fall through either — the popup body draws on top, so
+			// its own cursors (CursorText in the editor, CursorPointer on
+			// buttons) still win inside the popup rect.
 			for {
 				ev, ok := gtx.Event(pointer.Filter{
 					Target: &s.tag,
@@ -128,7 +128,7 @@ func (s *State) Layout(gtx layout.Context, host *Host) {
 				s.EnvMenuOpen = false
 			}
 			event.Op(gtx.Ops, &s.tag)
-			passStack.Pop()
+			pointer.CursorDefault.Add(gtx.Ops)
 			return layout.Dimensions{Size: gtx.Constraints.Max}
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
