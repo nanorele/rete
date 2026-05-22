@@ -541,6 +541,8 @@ func TestFormatTimings(t *testing.T) {
 func TestExecuteRequest_CapturesTimingsAndFilename(t *testing.T) {
 	setupTestConfigDir(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		// Small delay so TTFB exceeds Windows time.Now() granularity.
+		time.Sleep(5 * time.Millisecond)
 		w.Header().Set("Content-Disposition", `attachment; filename="hello.txt"`)
 		_, _ = w.Write([]byte("hello"))
 	}))

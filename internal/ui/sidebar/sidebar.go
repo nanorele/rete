@@ -169,8 +169,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 							}),
 							layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-								lbl := material.Label(host.Theme, unit.Sp(12), "Collections")
-								return lbl.Layout(gtx)
+								return layout.Inset{Top: unit.Dp(1), Bottom: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									lbl := material.Label(host.Theme, unit.Sp(12), "Collections")
+									return lbl.Layout(gtx)
+								})
 							}),
 						)
 					})
@@ -960,8 +962,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 							}),
 							layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-								lbl := material.Label(host.Theme, unit.Sp(12), "Environments")
-								return lbl.Layout(gtx)
+								return layout.Inset{Top: unit.Dp(1), Bottom: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									lbl := material.Label(host.Theme, unit.Sp(12), "Environments")
+									return lbl.Layout(gtx)
+								})
 							}),
 						)
 					})
