@@ -12,16 +12,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-// ErrUACDenied is returned by RelaunchAsAdmin when the user clicked
-// "No" on the UAC prompt (Windows error code 1223 / ERROR_CANCELLED).
 var ErrUACDenied = errors.New("UAC elevation denied by user")
 
-// RelaunchAsAdmin re-launches the current executable elevated via the
-// shell's "runas" verb. extraArgs are appended to the current process'
-// command-line so the new instance can pick up where the old one left
-// off (e.g. "--mitm-start"). Returns nil on UAC accept (the new process
-// is launching — caller should exit), ErrUACDenied if the user declined,
-// or another error otherwise.
 func RelaunchAsAdmin(extraArgs ...string) error {
 	exe, err := os.Executable()
 	if err != nil {
@@ -56,9 +48,6 @@ func RelaunchAsAdmin(extraArgs ...string) error {
 	return nil
 }
 
-// CanRequestElevation reports whether elevation can plausibly be
-// requested via UAC. On Windows we always allow the prompt — failure
-// to authenticate just returns ErrUACDenied later.
 func CanRequestElevation() bool { return true }
 
 func hasArg(args []string, want string) bool {
@@ -70,8 +59,6 @@ func hasArg(args []string, want string) bool {
 	return false
 }
 
-// joinCmdLine quotes args following Windows CommandLineToArgvW rules so
-// that os.Args in the elevated process matches the originals.
 func joinCmdLine(args []string) string {
 	var b strings.Builder
 	for i, a := range args {

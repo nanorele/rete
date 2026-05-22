@@ -1,10 +1,10 @@
 package ui
 
 import (
-	"tracto/internal/ui/workspace"
 	"image"
 	"testing"
 	"time"
+	"tracto/internal/ui/workspace"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/layout"

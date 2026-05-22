@@ -305,7 +305,7 @@ func TestParseRequestRawNonStringScalar(t *testing.T) {
 }
 
 func TestParseItemRawRequestPresentWithItemSibling(t *testing.T) {
-	// Postman example: a request item with extra "item" field (some exporters)
+
 	raw := json.RawMessage(`{"name":"r","request":{"method":"GET","url":"u"},"item":[{"name":"ignored"}]}`)
 	node := parseItemRaw(raw, 1)
 	if node == nil {
@@ -665,7 +665,6 @@ func TestCloneNodeDeepIndependence(t *testing.T) {
 		t.Errorf("BinaryPath lost")
 	}
 
-	// Mutate originals
 	node.Request.Headers["A"] = "MUT"
 	node.Request.FormParts[0].Key = "MUT"
 	node.Request.URLEncoded[0].Key = "MUT"

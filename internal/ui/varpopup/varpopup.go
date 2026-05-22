@@ -44,11 +44,11 @@ type Host struct {
 	Environments *[]*environments.EnvironmentUI
 	ActiveEnvID  *string
 
-	ActiveEnvVar      func(name string) (string, bool)
-	OnDismiss         func()
-	OnSelectEnv       func(envID string)
-	RefreshActiveEnv  func()
-	SaveState         func()
+	ActiveEnvVar     func(name string) (string, bool)
+	OnDismiss        func()
+	OnSelectEnv      func(envID string)
+	RefreshActiveEnv func()
+	SaveState        func()
 }
 
 func (s *State) OpenAt(name string, value string, srcEditor any, rng struct{ Start, End int }, pos f32.Point, envID string) {
@@ -100,11 +100,7 @@ func (s *State) Layout(gtx layout.Context, host *Host) {
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			paint.FillShape(gtx.Ops, color.NRGBA{A: 80}, clip.Rect{Max: gtx.Constraints.Max}.Op())
 			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-			// Modal backdrop: absorbs presses so they don't leak to widgets
-			// underneath. CursorDefault anchors the cursor walk here so it
-			// doesn't fall through either — the popup body draws on top, so
-			// its own cursors (CursorText in the editor, CursorPointer on
-			// buttons) still win inside the popup rect.
+
 			for {
 				ev, ok := gtx.Event(pointer.Filter{
 					Target: &s.tag,

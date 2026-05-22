@@ -20,10 +20,10 @@ import (
 )
 
 type EditorHost struct {
-	Theme             *material.Theme
-	Window            *app.Window
-	OnClose           func()
-	OnDirty           func()
+	Theme              *material.Theme
+	Window             *app.Window
+	OnClose            func()
+	OnDirty            func()
 	OnColorSwatchClick func(env *EnvironmentUI)
 }
 
@@ -114,8 +114,6 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 
 	th := host.Theme
 
-	// Anchor — env editor is full of widgets.TextField/widget.Editor instances
-	// whose hit-area can extend past the visible bounds.
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	pointer.CursorDefault.Add(gtx.Ops)
 

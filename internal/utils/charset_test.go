@@ -39,7 +39,7 @@ func TestDecodeBody_UTF8Passthrough(t *testing.T) {
 }
 
 func TestDecodeBody_Windows1251Cyrillic(t *testing.T) {
-	// "Привет" in CP1251: П=0xCF, р=0xF0, и=0xE8, в=0xE2, е=0xE5, т=0xF2
+
 	in := []byte{0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2}
 	out := DecodeBody(in, "text/plain; charset=windows-1251")
 	if string(out) != "Привет" {
@@ -48,7 +48,7 @@ func TestDecodeBody_Windows1251Cyrillic(t *testing.T) {
 }
 
 func TestDecodeBody_KOI8R(t *testing.T) {
-	// "тест" in KOI8-R: т=0xD4, е=0xC5, с=0xD3, т=0xD4
+
 	in := []byte{0xD4, 0xC5, 0xD3, 0xD4}
 	out := DecodeBody(in, "text/plain; charset=koi8-r")
 	if string(out) != "тест" {
@@ -57,7 +57,7 @@ func TestDecodeBody_KOI8R(t *testing.T) {
 }
 
 func TestDecodeBody_Latin1(t *testing.T) {
-	// "café" in ISO-8859-1: c=0x63 a=0x61 f=0x66 é=0xE9
+
 	in := []byte{0x63, 0x61, 0x66, 0xE9}
 	out := DecodeBody(in, "text/plain; charset=iso-8859-1")
 	if string(out) != "café" {
@@ -66,7 +66,7 @@ func TestDecodeBody_Latin1(t *testing.T) {
 }
 
 func TestDecodeBody_ShiftJIS(t *testing.T) {
-	// "あ" in Shift_JIS: 0x82, 0xA0
+
 	in := []byte{0x82, 0xA0}
 	out := DecodeBody(in, "text/html; charset=Shift_JIS")
 	if string(out) != "あ" {
@@ -107,9 +107,7 @@ func TestSniffCharsetHTML_None(t *testing.T) {
 }
 
 func TestDecodeBody_HTMLMetaFallback(t *testing.T) {
-	// CP1251 "Привет" inside an HTML document with <meta charset> but no
-	// charset on Content-Type. Browsers fall back to <meta charset>; we
-	// should too.
+
 	cp1251 := []byte{0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2}
 	html := append([]byte(`<html><head><meta charset="windows-1251"></head><body>`), cp1251...)
 	html = append(html, []byte(`</body></html>`)...)
@@ -120,7 +118,7 @@ func TestDecodeBody_HTMLMetaFallback(t *testing.T) {
 }
 
 func TestDecodeBody_UTF16LE_BOM(t *testing.T) {
-	// UTF-16LE BOM (FF FE) + "Hi"
+
 	in := []byte{0xFF, 0xFE, 'H', 0x00, 'i', 0x00}
 	out := DecodeBody(in, "text/plain; charset=utf-16")
 	if string(out) != "Hi" {
@@ -172,7 +170,7 @@ func TestSniffCharsetXML(t *testing.T) {
 }
 
 func TestDecodeBody_BOMSniff_UTF16LE(t *testing.T) {
-	// UTF-16LE BOM + "ok", Content-Type has no charset
+
 	in := []byte{0xFF, 0xFE, 'o', 0x00, 'k', 0x00}
 	out := DecodeBody(in, "text/plain")
 	if string(out) != "ok" {
@@ -181,7 +179,7 @@ func TestDecodeBody_BOMSniff_UTF16LE(t *testing.T) {
 }
 
 func TestDecodeBody_BOMSniff_UTF8(t *testing.T) {
-	// UTF-8 BOM should be stripped even when Content-Type is bare.
+
 	in := []byte("\xEF\xBB\xBFhello")
 	out := DecodeBody(in, "text/plain")
 	if string(out) != "hello" {
@@ -190,7 +188,7 @@ func TestDecodeBody_BOMSniff_UTF8(t *testing.T) {
 }
 
 func TestDecodeBody_XMLDeclSniff(t *testing.T) {
-	// CP1251 "Привет" inside an XML document, no charset on Content-Type.
+
 	cp1251 := []byte{0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2}
 	doc := append([]byte(`<?xml version="1.0" encoding="windows-1251"?><root>`), cp1251...)
 	doc = append(doc, []byte(`</root>`)...)

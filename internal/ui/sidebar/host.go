@@ -73,14 +73,14 @@ type Host struct {
 
 	ChooseJSONFile func() ([]byte, error)
 
-	SaveState           func()
-	PushColLoaded       func(*collections.CollectionUI)
-	MarkCollectionDirty func(*collections.ParsedCollection)
-	OpenRequestInTab    func(*collections.CollectionNode)
-	UpdateVisibleCols   func()
-	PushEnvLoaded       func(*environments.EnvironmentUI)
-	CommitEditingEnv    func()
-	CloseTab            func(int)
+	SaveState             func()
+	PushColLoaded         func(*collections.CollectionUI)
+	MarkCollectionDirty   func(*collections.ParsedCollection)
+	OpenRequestInTab      func(*collections.CollectionNode)
+	UpdateVisibleCols     func()
+	PushEnvLoaded         func(*environments.EnvironmentUI)
+	CommitEditingEnv      func()
+	CloseTab              func(int)
 	DeleteCollection      func(colID string)
 	LayoutToggleBtn       func(gtx layout.Context) layout.Dimensions
 	LayoutSectionRequests func(gtx layout.Context) layout.Dimensions

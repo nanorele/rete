@@ -69,9 +69,7 @@ func TestTokenizeJSON_Comments(t *testing.T) {
 }
 
 func TestTokenizeJSON_NumberEdgeCases(t *testing.T) {
-	// JSON disallows .5 and 5., trailing exponents, leading +. The tokenizer is permissive
-	// and treats `-`, digits, `.`, `e`, `E`, `+`, `-` greedily.
-	// TODO bug: json.go:119-133 accepts malformed numbers like "1e+", "--1", "1.2.3", "1ee5".
+
 	cases := [][]byte{
 		[]byte(`-0`),
 		[]byte(`-`),
@@ -121,7 +119,7 @@ func TestTokenizeJSON_UnknownByteEmitsTokPlain(t *testing.T) {
 }
 
 func TestTokenizeJSON_DeepNesting(t *testing.T) {
-	// depth is uint8; ensure no panic on very deep nesting.
+
 	var src []byte
 	for range 300 {
 		src = append(src, '[')
@@ -437,7 +435,7 @@ func TestTokenizeYAML_InlineComment(t *testing.T) {
 }
 
 func TestTokenizeYAML_DashWithoutSpace(t *testing.T) {
-	// "-foo" at line start is not a list marker (requires space) — should not emit punctuation.
+
 	src := []byte("-foo\n")
 	toks := TokenizeYAML(src)
 	for _, tok := range toks {
@@ -448,7 +446,7 @@ func TestTokenizeYAML_DashWithoutSpace(t *testing.T) {
 }
 
 func TestTokenizeYAML_URLValue(t *testing.T) {
-	// "url: http://example.com" — the value contains `:`. Make sure parser doesn't choke.
+
 	src := []byte("url: http://example.com\n")
 	toks := TokenizeYAML(src)
 	validateTokens(t, src, toks)

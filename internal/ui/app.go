@@ -114,9 +114,6 @@ type AppUI struct {
 
 	MITM mitm.UIState
 
-	// Startup flags inherited from os.Args after an elevation relaunch.
-	// Consumed once on first MITM-section frame to auto-execute the
-	// action that originally triggered the UAC prompt.
 	MITMAutoStart     bool
 	MITMAutoInstallCA bool
 	MITMAutoRemoveCA  bool
@@ -148,16 +145,6 @@ type AppUI struct {
 
 	Title string
 }
-
-// Per-file embeds (rather than embedding the whole directory) so stray
-// files dropped into assets/fonts/ttf can't silently bloat the binary,
-// and so the set of bundled faces is reviewable here.
-//
-// NotoColorEmoji.ttf is the sole emoji face — Inter and JetBrainsMono
-// have no emoji coverage, so the shaper falls back to it for emoji
-// codepoints. CBDT/CBLC bitmap build gives the broadest coverage of
-// the Unicode emoji set, including the latest blocks and full flag /
-// keycap / ZWJ sequence support.
 
 //go:embed assets/fonts/ttf/Inter-Regular.ttf
 var fontInterRegular []byte
@@ -241,9 +228,7 @@ func NewAppUI() *AppUI {
 			Face: face,
 		})
 	}
-	// Inserted before JBM so the fallback walk reaches the emoji face
-	// immediately after Inter, regardless of whether the primary face
-	// for a text run is Inter (UI) or JBM (request/response bodies).
+
 	addUIFace("NotoColorEmoji.ttf")
 
 	addJBM("JetBrainsMono-Regular.ttf", font.Regular, font.Normal)
@@ -830,12 +815,7 @@ func (ui *AppUI) flushCollectionSavesSync() {
 }
 
 func (ui *AppUI) openRequestInTab(node *collections.CollectionNode) {
-	// Switching tabs invalidates any pending var hover/click — those
-	// reference editors from the previously active tab, and their Leave
-	// events will never fire if the originating editor is no longer in
-	// the tree. Without this reset, a stale GlobalVarClick from the old
-	// tab can re-open VarPopup on the very next frame and paint its
-	// full-screen press-catcher backdrop over the new tab (or Settings).
+
 	widgets.GlobalVarHover = nil
 	widgets.GlobalVarClick = nil
 	ui.VarPopup.Close()
@@ -984,12 +964,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		layout.Stack{}.Layout(gtx,
 			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-				// Modal popup-close backdrop: absorbs presses so they don't
-				// leak through to widgets underneath (clicking outside the
-				// menu only closes it, never activates a button below).
-				// CursorDefault anchors the cursor walk here; the menu body
-				// is drawn on top and its widgets' cursors still win inside
-				// the menu rect.
+
 				for {
 					ev, ok := gtx.Event(
 						pointer.Filter{Target: &ui.PopupCloseTag, Kinds: pointer.Press},
@@ -1035,9 +1010,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 					Path:  clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Path(gtx.Ops),
 					Width: float32(bw),
 				}.Op())
-				// Anchor a default cursor for the hover popup; it floats
-				// over chips that set CursorPointer, and without this the
-				// pointer cursor leaks through under the popup rect.
+
 				defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
 				pointer.CursorDefault.Add(gtx.Ops)
 				return layout.Dimensions{Size: gtx.Constraints.Min}
@@ -1169,10 +1142,7 @@ func (ui *AppUI) renderColorPickerOverlay(gtx layout.Context, p *colorpicker.Sta
 	macro := op.Record(gtx.Ops)
 
 	backdropStack := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
-	// Modal color-picker backdrop: absorbs presses so a click outside the
-	// picker only closes it, never activates a widget underneath.
-	// CursorDefault anchors the cursor walk here; the picker draws on top
-	// and its own cursors still win inside the picker rect.
+
 	for {
 		ev, ok := gtx.Event(pointer.Filter{
 			Target: &p.Backdrop,

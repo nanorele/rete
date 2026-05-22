@@ -21,18 +21,16 @@ import (
 	"time"
 )
 
-// ---------- pure helpers ----------
-
 func TestCanonicalHost(t *testing.T) {
 	cases := map[string]string{
-		"localhost":   "127.0.0.1",
-		"LOCALHOST":   "127.0.0.1",
+		"localhost":    "127.0.0.1",
+		"LOCALHOST":    "127.0.0.1",
 		"  Localhost ": "127.0.0.1",
-		"::1":         "127.0.0.1",
-		"[::1]":       "127.0.0.1",
-		"0.0.0.0":     "127.0.0.1",
-		"example.com": "example.com",
-		"EXAMPLE.COM": "example.com",
+		"::1":          "127.0.0.1",
+		"[::1]":        "127.0.0.1",
+		"0.0.0.0":      "127.0.0.1",
+		"example.com":  "example.com",
+		"EXAMPLE.COM":  "example.com",
 	}
 	for in, want := range cases {
 		if got := canonicalHost(in); got != want {
@@ -51,7 +49,7 @@ func TestSameHost(t *testing.T) {
 		{"example.com", "EXAMPLE.com", true},
 		{"example.com:80", "example.com:81", false},
 		{"example.com", "other.com", false},
-		// One side missing port — compare host only.
+
 		{"example.com:80", "example.com", true},
 	}
 	for _, c := range cases {
@@ -66,12 +64,12 @@ func TestSplitHostPort(t *testing.T) {
 	if err != nil || h != "example.com" || p != "8080" {
 		t.Fatalf("got %q %q %v", h, p, err)
 	}
-	// No port → default.
+
 	h, p, err = splitHostPort("example.com", "443")
 	if err != nil || h != "example.com" || p != "443" {
 		t.Fatalf("default port: got %q %q %v", h, p, err)
 	}
-	// Bracketed IPv6 with port — handled by net.SplitHostPort.
+
 	h, p, err = splitHostPort("[::1]:9999", "443")
 	if err != nil || h != "::1" || p != "9999" {
 		t.Fatalf("ipv6: got %q %q %v", h, p, err)
@@ -109,7 +107,7 @@ func TestStripHopByHop(t *testing.T) {
 func TestStripHopByHopEmptyConnection(t *testing.T) {
 	h := http.Header{}
 	h.Set("X-Real", "ok")
-	stripHopByHop(h) // no Connection header, just exercises the fallthrough.
+	stripHopByHop(h)
 	if h.Get("X-Real") != "ok" {
 		t.Fatal("non-hop-by-hop header lost")
 	}
@@ -121,7 +119,7 @@ func TestCollectHeaders(t *testing.T) {
 	h.Add("X-Multi", "b")
 	h.Set("X-Single", "z")
 	out := collectHeaders(h)
-	// 3 total entries.
+
 	if len(out) != 3 {
 		t.Fatalf("expected 3, got %d (%v)", len(out), out)
 	}
@@ -137,12 +135,12 @@ func TestCollectHeaders(t *testing.T) {
 }
 
 func TestReadLimited(t *testing.T) {
-	// Nil reader returns nil, nil.
+
 	b, err := readLimited(nil, 16)
 	if err != nil || b != nil {
 		t.Fatalf("nil reader: got %v %v", b, err)
 	}
-	// Cap enforced.
+
 	src := bytes.NewReader([]byte("0123456789ABCDEF"))
 	b, err = readLimited(src, 4)
 	if err != nil {
@@ -151,7 +149,7 @@ func TestReadLimited(t *testing.T) {
 	if string(b) != "0123" {
 		t.Errorf("got %q", b)
 	}
-	// Body smaller than cap.
+
 	src2 := bytes.NewReader([]byte("hi"))
 	b, err = readLimited(src2, 1024)
 	if err != nil {
@@ -182,14 +180,14 @@ func TestWriteStatus(t *testing.T) {
 	if string(body) != "boom" {
 		t.Errorf("body = %q", body)
 	}
-	// net/http hoists "Connection: close" out of Header into resp.Close.
+
 	if !resp.Close {
 		t.Errorf("expected Close=true; headers=%v", resp.Header)
 	}
 }
 
 func TestBridgeCountsBytes(t *testing.T) {
-	// Use real TCP so CloseWrite() works (net.Pipe has no half-close).
+
 	pair := func() (net.Conn, net.Conn) {
 		l, err := net.Listen("tcp", "127.0.0.1:0")
 		if err != nil {
@@ -222,12 +220,11 @@ func TestBridgeCountsBytes(t *testing.T) {
 	defer clientB.Close()
 	defer serverB.Close()
 
-	// Writer on the a-side sends 5 bytes then half-closes.
 	go func() {
 		_, _ = serverA.Write([]byte("hello"))
 		_ = serverA.(*net.TCPConn).CloseWrite()
 	}()
-	// Writer on the b-side reads first then sends 6 bytes and half-closes.
+
 	go func() {
 		buf := make([]byte, 16)
 		_, _ = serverB.Read(buf)
@@ -243,8 +240,6 @@ func TestBridgeCountsBytes(t *testing.T) {
 	}
 }
 
-// ---------- Store ----------
-
 func TestStoreClearAndNotify(t *testing.T) {
 	s := NewStore()
 	var calls int64
@@ -258,11 +253,11 @@ func TestStoreClearAndNotify(t *testing.T) {
 	if s.Len() != 0 {
 		t.Fatalf("len after Clear = %d", s.Len())
 	}
-	// Add + Add + Clear = 3 notifications.
+
 	if got := atomic.LoadInt64(&calls); got != 3 {
 		t.Errorf("notify count = %d, want 3", got)
 	}
-	// SetNotify(nil) clears the callback.
+
 	s.SetNotify(nil)
 	s.Add(&Flow{})
 	if got := atomic.LoadInt64(&calls); got != 3 {
@@ -316,7 +311,7 @@ func TestStoreSnapshotIsValueCopy(t *testing.T) {
 	if len(snap) != 1 {
 		t.Fatalf("snap len = %d", len(snap))
 	}
-	// Mutating returned pointer must NOT affect the live flow's scalar fields.
+
 	snap[0].URL = "https://hacked.example"
 	if s.At(0).URL != "https://example.com" {
 		t.Fatalf("scalar field leaked to snapshot: %q", s.At(0).URL)
@@ -350,8 +345,6 @@ func TestStoreSnapshotSlicesAreDeepCopied(t *testing.T) {
 	}
 }
 
-// ---------- CA ----------
-
 func TestLoadCAMissingFile(t *testing.T) {
 	dir := t.TempDir()
 	_, err := LoadCA(dir)
@@ -359,7 +352,6 @@ func TestLoadCAMissingFile(t *testing.T) {
 		t.Fatalf("expected ErrNotExist, got %v", err)
 	}
 
-	// Cert exists, key missing.
 	ca, err := GenerateCA()
 	if err != nil {
 		t.Fatal(err)
@@ -420,13 +412,13 @@ func TestCAGenerateProperties(t *testing.T) {
 	if len(ca.Cert.SubjectKeyId) == 0 {
 		t.Error("CA must populate SubjectKeyId for AKI chaining")
 	}
-	// 10y validity ± grace.
+
 	dur := ca.Cert.NotAfter.Sub(ca.Cert.NotBefore)
-	want := caValidity + 1*time.Minute // -1m skew
+	want := caValidity + 1*time.Minute
 	if dur < want-time.Minute || dur > want+time.Minute {
 		t.Errorf("validity = %v, want ~%v", dur, want)
 	}
-	// Subject identity.
+
 	if ca.Cert.Subject.CommonName != caCommonName {
 		t.Errorf("CN = %q", ca.Cert.Subject.CommonName)
 	}
@@ -441,11 +433,11 @@ func TestCAFingerprintNonEmpty(t *testing.T) {
 	if fp == "" {
 		t.Fatal("fingerprint empty")
 	}
-	// SHA-1 hex = 20 bytes = 19 colons + 40 hex chars = 59 chars.
+
 	if len(fp) != 59 {
 		t.Errorf("len(fp) = %d, want 59 (%q)", len(fp), fp)
 	}
-	// Empty CA cert -> empty fingerprint.
+
 	if (&CA{}).Fingerprint() != "" {
 		t.Error("empty CA must return empty fingerprint")
 	}
@@ -456,16 +448,15 @@ func TestCALeafForVariants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Empty host rejected.
+
 	if _, err := ca.LeafFor(""); err == nil {
 		t.Error("empty host should error")
 	}
-	// Whitespace-only.
+
 	if _, err := ca.LeafFor("   "); err == nil {
 		t.Error("whitespace-only host should error")
 	}
 
-	// Hostname → DNS SAN.
 	leaf, err := ca.LeafFor("example.com")
 	if err != nil {
 		t.Fatal(err)
@@ -480,7 +471,7 @@ func TestCALeafForVariants(t *testing.T) {
 	if len(parsed.IPAddresses) != 0 {
 		t.Errorf("unexpected IP SANs = %v", parsed.IPAddresses)
 	}
-	// Includes server + client EKUs.
+
 	hasServer := false
 	hasClient := false
 	for _, u := range parsed.ExtKeyUsage {
@@ -494,11 +485,11 @@ func TestCALeafForVariants(t *testing.T) {
 	if !hasServer || !hasClient {
 		t.Errorf("EKUs = %v, want both ServerAuth+ClientAuth", parsed.ExtKeyUsage)
 	}
-	// AKI must chain to CA SKI.
+
 	if !bytes.Equal(parsed.AuthorityKeyId, ca.Cert.SubjectKeyId) {
 		t.Errorf("AKI %x != CA SKI %x", parsed.AuthorityKeyId, ca.Cert.SubjectKeyId)
 	}
-	// 1y validity.
+
 	dur := parsed.NotAfter.Sub(parsed.NotBefore)
 	want := leafValidity + 1*time.Minute
 	if dur < want-time.Minute || dur > want+time.Minute {
@@ -508,7 +499,6 @@ func TestCALeafForVariants(t *testing.T) {
 		t.Error("leaf must not be CA")
 	}
 
-	// IP literal → IP SAN.
 	leaf2, err := ca.LeafFor("127.0.0.1")
 	if err != nil {
 		t.Fatal(err)
@@ -521,7 +511,6 @@ func TestCALeafForVariants(t *testing.T) {
 		t.Errorf("unexpected DNS SANs for IP leaf: %v", p2.DNSNames)
 	}
 
-	// host:port stripped before minting.
 	leaf3, err := ca.LeafFor("Example.com:8443")
 	if err != nil {
 		t.Fatal(err)
@@ -531,7 +520,6 @@ func TestCALeafForVariants(t *testing.T) {
 		t.Errorf("DNS SAN with port stripped = %v", p3.DNSNames)
 	}
 
-	// Chain validates: leaf -> root.
 	roots := x509.NewCertPool()
 	roots.AddCert(ca.Cert)
 	if _, err := parsed.Verify(x509.VerifyOptions{
@@ -556,7 +544,7 @@ func TestCALeafForCaching(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Cache keyed on lowercased host — same cert pointer.
+
 	if a != b {
 		t.Error("LeafFor must cache and return same *tls.Certificate for case-insensitive host")
 	}
@@ -567,7 +555,7 @@ func TestCALeafCacheEviction(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Fill cache to the limit using cheap hosts.
+
 	for i := 0; i < leafCacheLimit; i++ {
 		if _, err := ca.LeafFor(fmt.Sprintf("h%d.example", i)); err != nil {
 			t.Fatal(err)
@@ -579,7 +567,7 @@ func TestCALeafCacheEviction(t *testing.T) {
 	if got != leafCacheLimit {
 		t.Fatalf("cache size pre-eviction = %d, want %d", got, leafCacheLimit)
 	}
-	// One more triggers wholesale clear, then re-insert of the new one.
+
 	if _, err := ca.LeafFor("trigger.example"); err != nil {
 		t.Fatal(err)
 	}
@@ -600,9 +588,9 @@ func TestCASaveAndReload(t *testing.T) {
 	if err := gen.Save(dir); err != nil {
 		t.Fatal(err)
 	}
-	// Cert file is world-readable; key file is owner-only.
+
 	if st, err := os.Stat(CACertPath(dir)); err == nil {
-		_ = st // permissions check is platform-specific; existence is enough on Windows.
+		_ = st
 	} else {
 		t.Fatalf("cert file missing: %v", err)
 	}
@@ -610,7 +598,6 @@ func TestCASaveAndReload(t *testing.T) {
 		t.Fatalf("key file missing: %v", err)
 	}
 
-	// Reload and compare fingerprint AND private key modulus.
 	loaded, err := LoadCA(dir)
 	if err != nil {
 		t.Fatal(err)
@@ -622,7 +609,6 @@ func TestCASaveAndReload(t *testing.T) {
 		t.Errorf("private key not preserved across save/load")
 	}
 
-	// Leaf signed by reloaded CA chains to original CA cert.
 	leaf, err := loaded.LeafFor("re.example")
 	if err != nil {
 		t.Fatal(err)
@@ -639,14 +625,12 @@ func TestCASaveAndReload(t *testing.T) {
 	}
 }
 
-// ---------- Proxy / SetIntercept ----------
-
 func TestProxyInterceptingRequiresCA(t *testing.T) {
 	p := NewProxy(NewStore())
 	if p.Intercepting() {
 		t.Fatal("default should be off")
 	}
-	// No CA installed — SetIntercept(true) is a no-op.
+
 	p.SetIntercept(true)
 	if p.Intercepting() {
 		t.Fatal("intercept must remain off when CA is nil")
@@ -660,7 +644,7 @@ func TestProxyInterceptingRequiresCA(t *testing.T) {
 	if !p.Intercepting() {
 		t.Fatal("intercept must turn on once CA is set")
 	}
-	// Removing CA forces intercept off.
+
 	p.SetCA(nil)
 	if p.Intercepting() {
 		t.Fatal("SetCA(nil) must force intercept off")
@@ -672,7 +656,7 @@ func TestProxyInterceptingRequiresCA(t *testing.T) {
 
 func TestProxyStartInvalidAddr(t *testing.T) {
 	p := NewProxy(NewStore())
-	// Port 0 with bogus host should fail.
+
 	if err := p.Start("invalid host:::not a port"); err == nil {
 		t.Fatal("expected error from invalid Start addr")
 	}
@@ -682,10 +666,7 @@ func TestProxyStartInvalidAddr(t *testing.T) {
 }
 
 func TestProxyStartDefaultAddrUsedWhenEmpty(t *testing.T) {
-	// Bind to :0-equivalent isn't possible with the default const, so we
-	// only exercise the empty-addr branch by starting and immediately
-	// stopping. If DefaultAddr is already taken, skip — this is a sanity
-	// check, not a guarantee.
+
 	p := NewProxy(NewStore())
 	if err := p.Start(""); err != nil {
 		t.Skipf("DefaultAddr %s unavailable: %v", DefaultAddr, err)
@@ -696,13 +677,12 @@ func TestProxyStartDefaultAddrUsedWhenEmpty(t *testing.T) {
 	}
 }
 
-// Listener that immediately closes — exercises serve() loop exit path.
 func TestProxyServeExitsOnAcceptError(t *testing.T) {
 	p := NewProxy(NewStore())
 	if err := p.Start("127.0.0.1:0"); err != nil {
 		t.Fatal(err)
 	}
-	// Stop closes the listener; serve() must return promptly.
+
 	done := make(chan struct{})
 	go func() { p.Stop(); close(done) }()
 	select {
@@ -712,7 +692,6 @@ func TestProxyServeExitsOnAcceptError(t *testing.T) {
 	}
 }
 
-// CONNECT to an address that won't be dialable → expect 502 in flow + over wire.
 func TestProxyConnectDialFailure(t *testing.T) {
 	store := NewStore()
 	p := NewProxy(store)
@@ -721,7 +700,6 @@ func TestProxyConnectDialFailure(t *testing.T) {
 	}
 	defer p.Stop()
 
-	// Pick a port we know is closed: bind to :0, capture port, close.
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	closedAddr := l.Addr().String()
 	_ = l.Close()
@@ -742,7 +720,6 @@ func TestProxyConnectDialFailure(t *testing.T) {
 		t.Fatalf("dial-fail status = %d, want 502", resp.StatusCode)
 	}
 
-	// Flow recorded.
 	deadline := time.Now().Add(time.Second)
 	var f *Flow
 	for time.Now().Before(deadline) {
@@ -775,14 +752,12 @@ func TestProxyMalformedConnectHost(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer c.Close()
-	// Empty Host header on CONNECT — splitHostPort with default keeps host
-	// empty, which is fine but the dial will fail with "missing host". We
-	// expect either a 400 or a 502.
+
 	fmt.Fprint(c, "CONNECT  HTTP/1.1\r\nHost: \r\n\r\n")
 	br := bufio.NewReader(c)
 	resp, err := http.ReadResponse(br, nil)
 	if err != nil {
-		return // connection torn down is acceptable
+		return
 	}
 	resp.Body.Close()
 	if resp.StatusCode < 400 {
@@ -791,7 +766,7 @@ func TestProxyMalformedConnectHost(t *testing.T) {
 }
 
 func TestProxyHTTPUpstreamError(t *testing.T) {
-	// Forward to a closed port → upstream error path.
+
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	deadAddr := l.Addr().String()
 	_ = l.Close()
@@ -811,7 +786,7 @@ func TestProxyHTTPUpstreamError(t *testing.T) {
 	req, _ := http.NewRequest("GET", "http://"+deadAddr+"/", nil)
 	resp, err := cl.Do(req)
 	if err != nil {
-		// Some Go versions surface the proxy 502 as an error; that's fine.
+
 		return
 	}
 	resp.Body.Close()
@@ -835,9 +810,7 @@ func TestProxyHTTPUpstreamError(t *testing.T) {
 }
 
 func TestProxyClearsCapturedBodyAtLimit(t *testing.T) {
-	// Upstream returns a body larger than maxCaptureBody but smaller than
-	// maxBodyForward. The wire body is full; the captured RespBody is
-	// truncated to maxCaptureBody.
+
 	const respLen = maxCaptureBody + 1024
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		buf := bytes.Repeat([]byte("x"), respLen)
@@ -889,8 +862,6 @@ func TestProxyClearsCapturedBodyAtLimit(t *testing.T) {
 	}
 }
 
-// ---------- Intercept-only edge: 502 on bad upstream ----------
-
 func TestProxyInterceptUpstreamUnreachable(t *testing.T) {
 	ca, err := GenerateCA()
 	if err != nil {
@@ -905,7 +876,6 @@ func TestProxyInterceptUpstreamUnreachable(t *testing.T) {
 	}
 	defer p.Stop()
 
-	// Pick a free port and let it close so the inner request dial fails.
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	deadAddr := l.Addr().String()
 	_ = l.Close()
@@ -923,7 +893,7 @@ func TestProxyInterceptUpstreamUnreachable(t *testing.T) {
 	}
 	resp, err := cl.Get("https://" + deadAddr + "/x")
 	if err != nil {
-		// Network failure is also acceptable — we just want no panic.
+
 		return
 	}
 	body, _ := io.ReadAll(resp.Body)
@@ -932,8 +902,6 @@ func TestProxyInterceptUpstreamUnreachable(t *testing.T) {
 		t.Fatalf("status = %d body=%q, want 502", resp.StatusCode, body)
 	}
 
-	// At least the parent CONNECT flow should exist; the inner HTTP flow
-	// may exist too and have Error set.
 	if store.Len() == 0 {
 		t.Fatal("no flow recorded")
 	}
@@ -949,8 +917,6 @@ func TestProxyInterceptUpstreamUnreachable(t *testing.T) {
 		t.Errorf("expected at least one flow with Error: %+v", flows)
 	}
 }
-
-// ---------- store concurrency ----------
 
 func TestStoreConcurrentAddUpdate(t *testing.T) {
 	s := NewStore()
@@ -968,7 +934,7 @@ func TestStoreConcurrentAddUpdate(t *testing.T) {
 			}
 		}()
 	}
-	// Concurrent reads.
+
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
@@ -984,20 +950,17 @@ func TestStoreConcurrentAddUpdate(t *testing.T) {
 	}
 }
 
-// ---------- Save error path ----------
-
 func TestCASaveBadDir(t *testing.T) {
 	ca, err := GenerateCA()
 	if err != nil {
 		t.Fatal(err)
 	}
-	// On Windows, NUL is reserved; on POSIX, a NUL byte in path is invalid.
-	// Use a path under a file (so MkdirAll has to create dir under a file).
+
 	parent := filepath.Join(t.TempDir(), "afile")
 	if err := os.WriteFile(parent, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// Now ask Save to put files under that regular file → MkdirAll fails.
+
 	bad := filepath.Join(parent, "sub")
 	if err := ca.Save(bad); err == nil {
 		t.Fatal("expected error saving under non-directory parent")

@@ -43,10 +43,6 @@ type Flow struct {
 	BytesIn  int64
 	BytesOut int64
 
-	// TunnelClosed is set when a CONNECT bridge actually finishes (TCP
-	// closed by either side). For tunnels, Ended is stamped at handshake
-	// completion, so Duration reflects the time to establish the tunnel
-	// — not the lifetime of the underlying TCP keep-alive.
 	TunnelClosed bool
 }
 

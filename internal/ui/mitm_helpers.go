@@ -36,10 +36,6 @@ func mitmBoxed(gtx layout.Context, w layout.Widget) layout.Dimensions {
 	return dims
 }
 
-// mitmBgBar lays out content first, then paints a background filling
-// the actual content height (full width). Use for toolbars/status bars
-// whose height depends on the content (banners, wrapped text), so the
-// background never lags behind the layout.
 func mitmBgBar(gtx layout.Context, bg color.NRGBA, content layout.Widget) layout.Dimensions {
 	macro := op.Record(gtx.Ops)
 	dims := content(gtx)
@@ -74,9 +70,6 @@ func loadUACShield() {
 	uacShieldOK = true
 }
 
-// paintUACShield renders the native Windows UAC shield at the given dp
-// size. Falls back to material shield-with-checkmark when the system
-// icon is unavailable (non-Windows, or shell32 call failed).
 func paintUACShield(gtx layout.Context, sz int) layout.Dimensions {
 	uacShieldOnce.Do(loadUACShield)
 	gtx.Constraints.Min = image.Pt(sz, sz)

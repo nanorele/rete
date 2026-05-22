@@ -15,7 +15,6 @@ import (
 	"github.com/nanorele/gio/widget/material"
 )
 
-// setupEnvConfig isolates persist writes inside SaveEnvironment.
 func setupEnvConfig(t *testing.T) {
 	t.Helper()
 	dir := filepath.Join(t.TempDir(), "tracto-test")
@@ -33,7 +32,7 @@ func makeGtx() layout.Context {
 }
 
 func TestCommit_NilSafe(t *testing.T) {
-	// Should not panic on nil receiver or nil Data.
+
 	var nilUI *EnvironmentUI
 	nilUI.Commit(nil)
 
@@ -52,7 +51,7 @@ func TestCommit_WritesNameAndVars(t *testing.T) {
 		&EnvVarRow{},
 		&EnvVarRow{},
 	)
-	ui.Rows[0].KeyEditor.SetText(" key1 ") // trimmed
+	ui.Rows[0].KeyEditor.SetText(" key1 ")
 	ui.Rows[0].ValEditor.SetText("v1")
 	ui.Rows[0].Enabled.Value = true
 	ui.Rows[1].KeyEditor.SetText("key2")
@@ -85,11 +84,11 @@ func TestCommit_SkipsEmptyKeys(t *testing.T) {
 	ui.InitEditor()
 
 	ui.Rows = append(ui.Rows, &EnvVarRow{}, &EnvVarRow{}, &EnvVarRow{})
-	ui.Rows[0].KeyEditor.SetText("   ") // empty after trim → skipped
+	ui.Rows[0].KeyEditor.SetText("   ")
 	ui.Rows[0].ValEditor.SetText("v1")
 	ui.Rows[1].KeyEditor.SetText("real")
 	ui.Rows[1].ValEditor.SetText("v2")
-	ui.Rows[2].KeyEditor.SetText("") // skipped
+	ui.Rows[2].KeyEditor.SetText("")
 	ui.Rows[2].ValEditor.SetText("v3")
 
 	ui.Commit(nil)
@@ -108,21 +107,18 @@ func TestCommit_HighlightColorParsing(t *testing.T) {
 	ui := &EnvironmentUI{Data: env}
 	ui.InitEditor()
 
-	// Valid hex → applied.
 	ui.ColorEditor.SetText("#ff0000")
 	ui.Commit(nil)
 	if env.HighlightColor != "#ff0000" {
 		t.Errorf("expected #ff0000, got %q", env.HighlightColor)
 	}
 
-	// Invalid hex → preserved (not cleared, not overwritten).
 	ui.ColorEditor.SetText("notahex")
 	ui.Commit(nil)
 	if env.HighlightColor != "#ff0000" {
 		t.Errorf("expected #ff0000 preserved on invalid input, got %q", env.HighlightColor)
 	}
 
-	// Empty → cleared.
 	ui.ColorEditor.SetText("")
 	ui.Commit(nil)
 	if env.HighlightColor != "" {
@@ -142,7 +138,6 @@ func TestCommit_VarsResetEachCall(t *testing.T) {
 	ui := &EnvironmentUI{Data: env}
 	ui.InitEditor()
 
-	// Clear the row that InitEditor populated.
 	ui.Rows[0].KeyEditor.SetText("")
 	ui.Commit(nil)
 	if len(env.Vars) != 0 {
@@ -217,7 +212,6 @@ func TestLayoutEditor_DeleteRow(t *testing.T) {
 		t.Fatalf("expected 3 rows, got %d", len(ui.Rows))
 	}
 
-	// Delete the middle row.
 	ui.Rows[1].DelBtn.Click()
 	ui.LayoutEditor(makeGtx(), host)
 	if len(ui.Rows) != 2 {
@@ -230,7 +224,7 @@ func TestLayoutEditor_DeleteRow(t *testing.T) {
 }
 
 func TestLayoutEditor_DeleteLastRow(t *testing.T) {
-	// Guards against off-by-one when deleting the final row.
+
 	setupEnvConfig(t)
 	env := &model.ParsedEnvironment{
 		ID:   "envH",
@@ -386,14 +380,14 @@ func TestLoadAll_RoundTrip(t *testing.T) {
 }
 
 func TestInitEditor_TruncatesExtraRows(t *testing.T) {
-	// Covers the len(ui.Rows) > len(ui.Data.Vars) branch.
+
 	env := &model.ParsedEnvironment{
 		Name: "trunc",
 		Vars: []model.EnvVar{{Key: "k1", Value: "v1", Enabled: true}},
 	}
 	ui := &EnvironmentUI{
 		Data: env,
-		Rows: []*EnvVarRow{{}, {}, {}}, // pre-populated with extras
+		Rows: []*EnvVarRow{{}, {}, {}},
 	}
 	ui.InitEditor()
 	if len(ui.Rows) != 1 {

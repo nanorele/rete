@@ -35,9 +35,9 @@ func TestHSVtoRGBRoundTrip(t *testing.T) {
 
 func TestHSVtoRGBKnownValues(t *testing.T) {
 	cases := []struct {
-		name string
+		name    string
 		h, s, v float32
-		want color.NRGBA
+		want    color.NRGBA
 	}{
 		{"pure red", 0, 1, 1, color.NRGBA{R: 255, G: 0, B: 0, A: 255}},
 		{"pure green", 120, 1, 1, color.NRGBA{R: 0, G: 255, B: 0, A: 255}},
@@ -60,14 +60,14 @@ func TestHSVtoRGBKnownValues(t *testing.T) {
 
 func TestRGBtoHSVKnownValues(t *testing.T) {
 	cases := []struct {
-		name    string
-		in      color.NRGBA
-		wantH   float32
-		wantS   float32
-		wantV   float32
-		hueTol  float32
-		satTol  float32
-		valTol  float32
+		name   string
+		in     color.NRGBA
+		wantH  float32
+		wantS  float32
+		wantV  float32
+		hueTol float32
+		satTol float32
+		valTol float32
 	}{
 		{"pure red", color.NRGBA{R: 255, A: 255}, 0, 1, 1, 0.5, 0.01, 0.01},
 		{"pure green", color.NRGBA{G: 255, A: 255}, 120, 1, 1, 0.5, 0.01, 0.01},

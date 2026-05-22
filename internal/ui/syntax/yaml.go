@@ -195,7 +195,6 @@ func TokenizeYAML(src []byte) []Token {
 	return out
 }
 
-// parseBlockScalar emits indicator as TokKeyword and following indented body as TokString.
 func parseBlockScalar(src []byte, i, parentIndent int, emit func(int, int, TokenKind, uint8)) int {
 	indStart := i
 	i++

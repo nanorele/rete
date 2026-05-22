@@ -418,11 +418,6 @@ func genLabel(ca *mitm.CA) string {
 	return "Regenerate"
 }
 
-// elevateAndRelaunch attempts to relaunch the current process under
-// administrator privileges, passing extraArg so the elevated instance
-// can resume the action that triggered the prompt. The current process
-// flushes pending state and exits on success; on failure or denial the
-// banner is updated and execution continues.
 func (ui *AppUI) elevateAndRelaunch(banner *string, extraArg string) {
 	if !mitm.CanRequestElevation() {
 		*banner = "Administrator privileges required (no UAC available on this platform)"
@@ -469,8 +464,7 @@ func (ui *AppUI) consumeStartupFlags() {
 		ui.MITMAutoInstallCA = false
 		ca := st.Proxy.CA()
 		if ca == nil {
-			// Try a one-shot generate if the user clicked Install without
-			// having generated yet — convenient when relaunching cold.
+
 			if gen, err := mitm.GenerateCA(); err == nil {
 				if err := gen.Save(mitm.MITMDir()); err == nil {
 					st.Proxy.SetCA(gen)
@@ -587,9 +581,7 @@ func (ui *AppUI) mitmStartBtn(gtx layout.Context) layout.Dimensions {
 		fg = theme.Fg
 		label = "Running…"
 	case !admin:
-		// Click will trigger UAC. Keep the button visually enabled
-		// (accent background) but prepend the system UAC shield so the
-		// user knows what to expect.
+
 		label = "Start Proxy"
 		useUAC = true
 	}
@@ -1211,10 +1203,6 @@ func humanDuration(f *mitm.Flow) string {
 	}
 }
 
-// mitmAdminBtn renders a button that triggers an admin-only action.
-// When `useUAC` is true the button gets the system UAC shield (so the
-// user knows clicking will prompt for elevation); otherwise it renders
-// without an icon.
 func mitmAdminBtn(gtx layout.Context, th *material.Theme, clk *widget.Clickable, label string, enabled bool, useUAC bool) layout.Dimensions {
 	return clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

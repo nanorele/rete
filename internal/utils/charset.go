@@ -11,9 +11,6 @@ import (
 	"golang.org/x/text/transform"
 )
 
-// CharsetFromContentType extracts the charset parameter from a
-// Content-Type header value, normalised to lower case. Returns "" if the
-// header is empty, unparseable, or has no charset parameter.
 func CharsetFromContentType(ct string) string {
 	if ct == "" {
 		return ""
@@ -25,9 +22,6 @@ func CharsetFromContentType(ct string) string {
 	return strings.ToLower(strings.TrimSpace(params["charset"]))
 }
 
-// SniffCharsetBOM returns the encoding label implied by a byte-order
-// mark at the start of data, or "" if no BOM is present. The detected
-// labels are the same ones charsetEncoding understands.
 func SniffCharsetBOM(data []byte) string {
 	switch {
 	case len(data) >= 4 && data[0] == 0x00 && data[1] == 0x00 && data[2] == 0xFE && data[3] == 0xFF:
@@ -44,11 +38,6 @@ func SniffCharsetBOM(data []byte) string {
 	return ""
 }
 
-// SniffCharsetXML looks for an `encoding="..."` attribute inside the
-// leading XML declaration `<?xml ... ?>`. Returns "" if there is no
-// declaration in the first 256 bytes or no encoding attribute on it.
-// Bytes are assumed to be ASCII-compatible (no UTF-16 prologue) — if a
-// UTF-16 BOM was present, SniffCharsetBOM should have caught it first.
 func SniffCharsetXML(data []byte) string {
 	const window = 256
 	if len(data) > window {
@@ -93,10 +82,6 @@ func SniffCharsetXML(data []byte) string {
 	return string(rest[:stop])
 }
 
-// SniffCharsetHTML scans the leading bytes of an HTML document for a
-// charset declaration (<meta charset="..."> or <meta http-equiv="..."
-// content="...; charset=...">). It only inspects the first 4 KiB, which
-// is what browsers do. Returns "" if no declaration is found.
 func SniffCharsetHTML(data []byte) string {
 	const window = 4096
 	if len(data) > window {
@@ -153,8 +138,6 @@ func extractCharsetAttr(tag []byte) string {
 	return ""
 }
 
-// charsetEncoding resolves a charset name to a Go encoding. It returns
-// nil for UTF-8 (since no decoding is needed) and for unknown labels.
 func charsetEncoding(name string) encoding.Encoding {
 	name = strings.ToLower(strings.TrimSpace(name))
 	if name == "" {
@@ -180,8 +163,6 @@ func charsetEncoding(name string) encoding.Encoding {
 	return enc
 }
 
-// SniffCharset combines BOM, XML declaration, and HTML meta sniffing in
-// the order browsers do. Used when Content-Type carries no charset.
 func SniffCharset(data []byte, contentType string) string {
 	if cs := SniffCharsetBOM(data); cs != "" {
 		return cs
@@ -197,11 +178,6 @@ func SniffCharset(data []byte, contentType string) string {
 	return ""
 }
 
-// DecodeBody converts a response body from the encoding declared in its
-// Content-Type header to UTF-8. If the charset is empty, utf-8, or
-// unknown, the body is sniffed (BOM → <?xml encoding> → <meta charset>
-// for HTML); the input is returned unchanged when no charset can be
-// established.
 func DecodeBody(data []byte, contentType string) []byte {
 	cs := CharsetFromContentType(contentType)
 	if cs == "" {
@@ -218,10 +194,6 @@ func DecodeBody(data []byte, contentType string) []byte {
 	return stripUTF8BOM(out)
 }
 
-// CharsetDecoder returns a streaming transformer for the encoding
-// declared in contentType, or nil if no decoding is needed. The
-// returned transformer is stateful — callers must keep using the same
-// instance across chunks of the same response body.
 func CharsetDecoder(contentType string) *encoding.Decoder {
 	enc := charsetEncoding(CharsetFromContentType(contentType))
 	if enc == nil {
@@ -230,10 +202,6 @@ func CharsetDecoder(contentType string) *encoding.Decoder {
 	return enc.NewDecoder()
 }
 
-// CharsetDecoderForBody is like CharsetDecoder but, when contentType
-// has no explicit charset, falls back to sniffing the leading bytes
-// (BOM / XML decl / HTML meta). Pass the first few KiB of body so the
-// sniff has something to look at.
 func CharsetDecoderForBody(probe []byte, contentType string) *encoding.Decoder {
 	cs := CharsetFromContentType(contentType)
 	if cs == "" {

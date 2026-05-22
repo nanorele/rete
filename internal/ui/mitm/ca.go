@@ -20,13 +20,13 @@ import (
 )
 
 const (
-	caCertFile      = "tracto-ca.crt"
-	caKeyFile       = "tracto-ca.key"
-	caCommonName    = "Tracto MITM Root CA"
-	caOrganization  = "Tracto"
-	caValidity      = 10 * 365 * 24 * time.Hour
-	leafValidity    = 365 * 24 * time.Hour
-	leafCacheLimit  = 256
+	caCertFile     = "tracto-ca.crt"
+	caKeyFile      = "tracto-ca.key"
+	caCommonName   = "Tracto MITM Root CA"
+	caOrganization = "Tracto"
+	caValidity     = 10 * 365 * 24 * time.Hour
+	leafValidity   = 365 * 24 * time.Hour
+	leafCacheLimit = 256
 )
 
 type CA struct {
@@ -42,8 +42,6 @@ type CA struct {
 func CACertPath(dir string) string { return filepath.Join(dir, caCertFile) }
 func CAKeyPath(dir string) string  { return filepath.Join(dir, caKeyFile) }
 
-// LoadCA reads an existing CA from dir. Returns os.ErrNotExist if either
-// the certificate or key file is missing.
 func LoadCA(dir string) (*CA, error) {
 	certPEM, err := os.ReadFile(CACertPath(dir))
 	if err != nil {
@@ -96,8 +94,6 @@ func LoadCA(dir string) (*CA, error) {
 	}, nil
 }
 
-// GenerateCA creates a fresh self-signed root certificate. It does not
-// touch the filesystem; pair with Save to persist it.
 func GenerateCA() (*CA, error) {
 	key, err := rsa.GenerateKey(rand.Reader, 3072)
 	if err != nil {
@@ -150,9 +146,6 @@ func GenerateCA() (*CA, error) {
 	}, nil
 }
 
-// Save writes the CA's PEM-encoded certificate and key to dir using
-// AtomicWriteFile-style temp+rename via os.WriteFile (good enough here —
-// these files are written rarely and only by an explicit user action).
 func (ca *CA) Save(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -166,8 +159,6 @@ func (ca *CA) Save(dir string) error {
 	return nil
 }
 
-// Fingerprint returns a SHA-1 hex fingerprint of the CA cert (the same
-// digest Windows shows in certmgr).
 func (ca *CA) Fingerprint() string {
 	if ca.Cert == nil {
 		return ""
@@ -180,9 +171,6 @@ func (ca *CA) Fingerprint() string {
 	return strings.Join(parts, ":")
 }
 
-// LeafFor returns a leaf certificate signed by this CA for the given
-// hostname (SNI / CONNECT host), generating and caching it on first use.
-// IP literals are supported via SAN IP entries.
 func (ca *CA) LeafFor(host string) (*tls.Certificate, error) {
 	host = strings.ToLower(strings.TrimSpace(host))
 	if host == "" {
@@ -206,8 +194,7 @@ func (ca *CA) LeafFor(host string) (*tls.Certificate, error) {
 
 	ca.mu.Lock()
 	if len(ca.leaves) >= leafCacheLimit {
-		// Trivial eviction: drop the cache when full. Simpler than LRU and
-		// fine for a developer tool that rarely exceeds a few dozen hosts.
+
 		ca.leaves = make(map[string]*tls.Certificate, leafCacheLimit)
 	}
 	ca.leaves[host] = leaf
@@ -242,10 +229,7 @@ func (ca *CA) mintLeaf(host string) (*tls.Certificate, error) {
 		ExtKeyUsage:           []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth, x509.ExtKeyUsageClientAuth},
 		BasicConstraintsValid: true,
 		IsCA:                  false,
-		// Browsers (especially Firefox/NSS) expect AKI on leaf certs to
-		// chain explicitly to the issuer's SKI. CreateCertificate sets
-		// AKI from parent.SubjectKeyId automatically, but stating it
-		// here makes the intent explicit and survives any quirks.
+
 		SubjectKeyId:   skid[:],
 		AuthorityKeyId: ca.Cert.SubjectKeyId,
 	}

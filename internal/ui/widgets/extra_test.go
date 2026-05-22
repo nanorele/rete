@@ -27,10 +27,6 @@ func makeGtx(w, h int) layout.Context {
 	}
 }
 
-// newTestTheme returns a theme whose Shaper is bound to gofont so tests
-// don't depend on the host's system font availability — needed on minimal
-// CI runners where the default Shaper falls back to nothing and returns
-// zero-width glyphs.
 func newTestTheme() *material.Theme {
 	th := material.NewTheme()
 	th.Shaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
@@ -85,7 +81,7 @@ func TestMeasureTextWidthCached_Empty(t *testing.T) {
 func TestMeasureTextWidthCached_Hit(t *testing.T) {
 	th := newTestTheme()
 	gtx := makeGtx(100, 100)
-	// Bust any zero cached by a previous test that used a no-font shaper.
+
 	widthCache = make(map[widthCacheKey]int, 512)
 	w1 := MeasureTextWidthCached(gtx, th, 12, MonoFont, "abc123")
 	w2 := MeasureTextWidthCached(gtx, th, 12, MonoFont, "abc123")
@@ -100,7 +96,7 @@ func TestMeasureTextWidthCached_Hit(t *testing.T) {
 func TestMeasureTextWidthCached_Eviction(t *testing.T) {
 	th := material.NewTheme()
 	gtx := makeGtx(100, 100)
-	// Force the eviction branch by overfilling.
+
 	for i := range widthCacheLimit + 10 {
 		s := "k" + string(rune('a'+(i%26))) + string(rune('0'+(i%10)))
 		MeasureTextWidthCached(gtx, th, unit.Sp(8+(i%5)), MonoFont, s)
@@ -143,7 +139,7 @@ func TestResetEditorHScroll(t *testing.T) {
 	if _, ok := editorHScrolls[ed]; ok {
 		t.Error("expected entry to be deleted")
 	}
-	// Idempotent.
+
 	ResetEditorHScroll(ed)
 }
 
@@ -237,7 +233,6 @@ func TestInlineRenameField(t *testing.T) {
 		t.Errorf("dims.Size.X = %d", dims.Size.X)
 	}
 
-	// zero width: early return.
 	gtx2 := layout.Context{
 		Ops:         new(op.Ops),
 		Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
@@ -253,7 +248,6 @@ func TestScrollLabel_NoScrollAndScroll(t *testing.T) {
 	th := material.NewTheme()
 	var sl ScrollLabel
 
-	// Wide constraint, short text: natW <= viewW path.
 	gtx := makeGtx(500, 40)
 	lbl := MonoLabel(th, 12, "hi")
 	sl.Layout(gtx, th, lbl)
@@ -261,7 +255,6 @@ func TestScrollLabel_NoScrollAndScroll(t *testing.T) {
 		t.Errorf("expected scrollX=0 after non-scrolling layout, got %d", sl.scrollX)
 	}
 
-	// Narrow constraint, long text: scrolling path.
 	gtxN := makeGtx(20, 40)
 	lblL := MonoLabel(th, 12, "this is a fairly long line of text that must scroll")
 	dim := sl.Layout(gtxN, th, lblL)
@@ -269,7 +262,6 @@ func TestScrollLabel_NoScrollAndScroll(t *testing.T) {
 		t.Errorf("expected viewW=20, got %d", dim.Size.X)
 	}
 
-	// Force clamp branches.
 	sl.scrollX = -100
 	sl.Layout(gtxN, th, lblL)
 	if sl.scrollX < 0 {
@@ -313,13 +305,13 @@ func TestUpdateHScroll_ScrollNeeded(t *testing.T) {
 func TestDrawHScrollbar_NoOp(t *testing.T) {
 	gtx := makeGtx(200, 30)
 	ed := &widget.Editor{}
-	// span <= 0
+
 	DrawHScrollbar(gtx, ed, 50, 0, image.Pt(100, 30), 100, 4, 1)
-	// viewW <= 0
+
 	DrawHScrollbar(gtx, ed, 200, 0, image.Pt(100, 30), 0, 4, 1)
-	// boxSize.Y too small (h+marginBottom)
+
 	DrawHScrollbar(gtx, ed, 200, 0, image.Pt(100, 2), 80, 4, 1)
-	// trackW <= 0: padX so large it eliminates track
+
 	DrawHScrollbar(gtx, ed, 200, 0, image.Pt(10, 30), 80, 50, 1)
 }
 
@@ -327,9 +319,9 @@ func TestDrawHScrollbar_Renders(t *testing.T) {
 	gtx := makeGtx(200, 30)
 	ed := &widget.Editor{}
 	DrawHScrollbar(gtx, ed, 500, 100, image.Pt(200, 30), 100, 4, 1)
-	// scrollX negative clamp
+
 	DrawHScrollbar(gtx, ed, 500, -50, image.Pt(200, 30), 100, 4, 1)
-	// scrollX too large
+
 	DrawHScrollbar(gtx, ed, 500, 10000, image.Pt(200, 30), 100, 4, 1)
 }
 
@@ -357,7 +349,7 @@ func TestPaintColoredText_Wrap(t *testing.T) {
 func TestPaintColoredText_NoWrap_DefaultColor(t *testing.T) {
 	th := material.NewTheme()
 	gtx := makeGtx(500, 40)
-	// No spans -> defaultColor for every glyph.
+
 	dims := PaintColoredText(gtx, th.Shaper, MonoFont, 12, "abc", nil, color.NRGBA{R: 10, A: 255}, false, 0)
 	if dims.Size.X <= 0 {
 		t.Errorf("dims=%v", dims.Size)
@@ -368,7 +360,7 @@ func TestPaintColoredText_UTF8(t *testing.T) {
 	th := material.NewTheme()
 	gtx := makeGtx(200, 40)
 	s := "abгд😀"
-	// Span covering Cyrillic bytes only.
+
 	spans := []ColoredSpan{
 		{Start: 2, End: 6, Color: color.NRGBA{R: 255, A: 255}},
 	}
@@ -380,7 +372,7 @@ func TestPaintColoredText_EmptyText(t *testing.T) {
 	gtx := makeGtx(100, 40)
 	dims := PaintColoredText(gtx, th.Shaper, MonoFont, 12, "", nil, color.NRGBA{A: 255}, false, 0)
 	if dims.Size.X != 0 && dims.Size.Y != 0 {
-		// constrained to cs.Constrain so the size may be the min; just ensure no panic.
+
 		_ = dims
 	}
 }
@@ -392,12 +384,12 @@ func TestShapeChunkForWrap_Basic(t *testing.T) {
 	if len(out) == 0 {
 		t.Fatal("expected glyphs")
 	}
-	// Should have line breaks because maxW is small.
+
 	maxLine := WrapMaxLine(out)
 	if maxLine < 1 {
 		t.Errorf("expected at least one wrap; maxLine=%d", maxLine)
 	}
-	// monotonic byteStart
+
 	for i := 1; i < len(out); i++ {
 		if out[i].byteStart < out[i-1].byteStart {
 			t.Errorf("byteStart not monotonic at %d", i)
@@ -414,7 +406,7 @@ func TestShapeChunkForWrap_NilOrEmpty(t *testing.T) {
 	if out := ShapeChunkForWrap(nil, MonoFont, 12, gtx, []byte("x"), 50); out != nil {
 		t.Errorf("expected nil for nil shaper, got %v", out)
 	}
-	// maxW < 1 path
+
 	out := ShapeChunkForWrap(th.Shaper, MonoFont, 12, gtx, []byte("a"), 0)
 	if len(out) == 0 {
 		t.Errorf("expected at least one glyph despite maxW=0")
@@ -435,14 +427,13 @@ func TestCaretXYInWrap_Bounds(t *testing.T) {
 	if len(glyphs) == 0 {
 		t.Skip("no glyphs shaped")
 	}
-	// byteOff <= 0
+
 	x, l := CaretXYInWrap(glyphs, 0)
 	if l != glyphs[0].line {
 		t.Errorf("line mismatch at byteOff=0: got %d want %d", l, glyphs[0].line)
 	}
 	_ = x
 
-	// byteOff past end
 	x2, l2 := CaretXYInWrap(glyphs, 1000)
 	last := glyphs[len(glyphs)-1]
 	if x2 != (last.x + last.advance).Round() {
@@ -452,7 +443,6 @@ func TestCaretXYInWrap_Bounds(t *testing.T) {
 		t.Errorf("past-end line=%d want %d", l2, last.line)
 	}
 
-	// mid byteOff
 	mid := glyphs[len(glyphs)/2].byteStart
 	_, _ = CaretXYInWrap(glyphs, mid)
 }
@@ -461,13 +451,13 @@ func TestCaretXYInWrap_AfterBreak(t *testing.T) {
 	th := material.NewTheme()
 	gtx := makeGtx(100, 40)
 	glyphs := ShapeChunkForWrap(th.Shaper, MonoFont, 12, gtx, []byte("hello world wrap me"), 30)
-	// Find a break and request the byte right after it.
+
 	for i := range len(glyphs) - 1 {
 		if glyphs[i].isBreak {
 			target := glyphs[i+1].byteStart
 			_, l := CaretXYInWrap(glyphs, target)
 			if l != glyphs[i].line {
-				// Per the special branch, returns previous line.
+
 				t.Logf("post-break byteOff=%d returned line %d (prev line was %d)", target, l, glyphs[i].line)
 			}
 			return
@@ -489,19 +479,19 @@ func TestByteOffInWrap_Lookup(t *testing.T) {
 	if len(glyphs) == 0 {
 		t.Skip("no glyphs")
 	}
-	// Far left of line 0
+
 	b := ByteOffInWrap(glyphs, 0, 0)
 	if b < 0 {
 		t.Errorf("negative byte offset %d", b)
 	}
-	// Far right beyond
+
 	br := ByteOffInWrap(glyphs, 1<<20, 0)
 	if br < b {
 		t.Errorf("far-right %d < far-left %d", br, b)
 	}
-	// negative targetLine clamps to 0
+
 	ByteOffInWrap(glyphs, 5, -3)
-	// non-existent line: returns last byteEnd
+
 	high := WrapMaxLine(glyphs) + 50
 	got := ByteOffInWrap(glyphs, 0, high)
 	if got != glyphs[len(glyphs)-1].byteEnd {
@@ -517,7 +507,7 @@ func TestWrapMaxLine_Empty(t *testing.T) {
 
 func TestTextFieldOverlay_MinHeight(t *testing.T) {
 	th := material.NewTheme()
-	// Constraints with Min.Y > naturalH triggers extraY branch.
+
 	gtx := layout.Context{
 		Ops:    new(op.Ops),
 		Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1},
@@ -567,7 +557,7 @@ func TestMustIcon_OK(t *testing.T) {
 }
 
 func TestIconsInitialized(t *testing.T) {
-	// mustIcon invariant: package init must produce non-nil singletons.
+
 	all := []*widget.Icon{
 		IconClose, IconSettings, IconSave, IconBack, IconAddReq, IconAddFld,
 		IconRename, IconDup, IconDel, IconSearch, IconBug, IconDropDown,
@@ -591,15 +581,14 @@ func TestMonoFontConstants(t *testing.T) {
 }
 
 func TestMeasureTextWidthCached_FontWeightCollision(t *testing.T) {
-	// TODO bug: widgets.go:64 cache key includes only Typeface, not Weight/Style.
-	// Different font weights with same typeface return identical (possibly stale) widths.
+
 	th := material.NewTheme()
 	gtx := makeGtx(200, 30)
 	f1 := font.Font{Typeface: MonoTypeface}
 	f2 := font.Font{Typeface: MonoTypeface, Weight: font.Bold}
 	w1 := MeasureTextWidthCached(gtx, th, 12, f1, "weighty")
 	w2 := MeasureTextWidthCached(gtx, th, 12, f2, "weighty")
-	// We assert only that calls succeed; the bug is the cache collision itself.
+
 	_ = w1
 	_ = w2
 }

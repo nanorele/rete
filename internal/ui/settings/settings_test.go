@@ -359,7 +359,7 @@ func TestBuildHTTPClient_NoTimeouts(t *testing.T) {
 	c := buildHTTPClient(model.AppSettings{})
 	tr := c.Transport.(*http.Transport)
 	if tr.TLSHandshakeTimeout != 10*time.Second {
-		// http.DefaultTransport defaults
+
 		t.Logf("TLSHandshakeTimeout=%v (clone default)", tr.TLSHandshakeTimeout)
 	}
 	if c.Timeout != 0 {
@@ -478,7 +478,7 @@ func TestBuildHTTPClient_FollowRedirectsNoLimit(t *testing.T) {
 
 func TestApply_NilThemeNoPanic(t *testing.T) {
 	resetHTTPClient(t)
-	// must not panic with nil *material.Theme
+
 	Apply(nil, model.DefaultSettings())
 	if UserAgent == "" {
 		t.Error("UserAgent should be populated after Apply")
@@ -519,7 +519,7 @@ func TestApply_ClampsDefaults(t *testing.T) {
 
 func TestApply_OldClientTransportClosed(t *testing.T) {
 	resetHTTPClient(t)
-	// Just make sure Apply does not panic when replacing client.
+
 	Apply(nil, model.DefaultSettings())
 	old := HTTPClient
 	Apply(nil, model.DefaultSettings())

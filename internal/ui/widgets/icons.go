@@ -25,7 +25,7 @@ var (
 	IconRequests *widget.Icon
 	IconMITM     *widget.Icon
 	IconShield   *widget.Icon
-	IconUAC      *widget.Icon // optional, set externally from a PNG (Windows shell shield)
+	IconUAC      *widget.Icon
 	IconPlay     *widget.Icon
 	IconStop     *widget.Icon
 )

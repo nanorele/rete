@@ -520,13 +520,12 @@ func TestCommitNodeDropChildIntoFolder(t *testing.T) {
 	}
 	*host.ColAfterLastY = 80
 
-	// drag b from row 2 down toward c (row 3, center y=70)
 	*host.DraggedNode = b
 	*host.DragNodeActive = true
 	*host.DragNodeOriginY = 0
-	*host.DragNodeCurrentY = 30 // cursor at b's row + 30 = 40 + 30 = 70 (~ middle of c)
+	*host.DragNodeCurrentY = 30
 	*host.DragNodeOriginX = 0
-	*host.DragNodeCurrentX = 24 // align with deeper x to bias intoNode
+	*host.DragNodeCurrentX = 24
 
 	prevParent := b.Parent
 	commitNodeDrop(host, b, unitMetric())
@@ -534,15 +533,15 @@ func TestCommitNodeDropChildIntoFolder(t *testing.T) {
 	if b.Parent == prevParent {
 		t.Log("b stayed under same parent; geometry may not have selected intoNode slot")
 	}
-	// Whatever slot was chosen, invariants must hold:
+
 	if b.Parent != nil && b.Depth != b.Parent.Depth+1 {
 		t.Errorf("depth invariant broken: b.Depth=%d parent.Depth=%d", b.Depth, b.Parent.Depth)
 	}
-	// b should still be reachable from root
+
 	if b.Collection != root.Collection {
 		t.Error("collection pointer must remain")
 	}
-	// c's subtree must be intact
+
 	_ = c
 }
 
@@ -553,8 +552,7 @@ func TestCommitNodeDropNilSrc(t *testing.T) {
 }
 
 func TestDragChildDropExcludesAncestors(t *testing.T) {
-	// Ensure the slot builder in dragChildDrop refuses to nest src
-	// inside its own descendant (cycle prevention at pickup time).
+
 	host, cleanup := newTestHost()
 	defer cleanup()
 

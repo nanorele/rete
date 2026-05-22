@@ -148,7 +148,7 @@ type RequestTab struct {
 	requestID       atomic.Uint64
 	respMu          sync.Mutex
 	jsonStateMu     sync.Mutex
-	Closed   atomic.Bool
+	Closed          atomic.Bool
 	FileSaveMu      sync.Mutex
 	isRequesting    bool
 	cancelFn        context.CancelFunc
@@ -159,19 +159,19 @@ type RequestTab struct {
 	downloadedBytes atomic.Int64
 	previewLoaded   atomic.Int64
 
-	CancelBtn       widget.Clickable
-	SendMenuBtn     widget.Clickable
-	SendMenuOpen    bool
-	SaveToFileBtn   widget.Clickable
-	SaveToFilePath  string
-	SuggestedFile   string
-	CopyAsCurlBtn   widget.Clickable
-	ShowPreviewBtn  widget.Clickable
-	PreviewEnabled  bool
-	LoadMoreBtn     widget.Clickable
-	OpenFileBtn     widget.Clickable
-	PropertiesBtn   widget.Clickable
-	LastTimings     Timings
+	CancelBtn      widget.Clickable
+	SendMenuBtn    widget.Clickable
+	SendMenuOpen   bool
+	SaveToFileBtn  widget.Clickable
+	SaveToFilePath string
+	SuggestedFile  string
+	CopyAsCurlBtn  widget.Clickable
+	ShowPreviewBtn widget.Clickable
+	PreviewEnabled bool
+	LoadMoreBtn    widget.Clickable
+	OpenFileBtn    widget.Clickable
+	PropertiesBtn  widget.Clickable
+	LastTimings    Timings
 
 	ReqWrapEnabled   bool
 	jsonFmtState     *JSONFormatterState
@@ -777,7 +777,7 @@ func (t *RequestTab) UpdateSystemHeaders() {
 	case model.BodyURLEncoded:
 		sysHeaders["Content-Type"] = "application/x-www-form-urlencoded"
 	case model.BodyFormData:
-		// Content-Type with boundary set by buildBody at send time; don't show stale auto-header here.
+
 	case model.BodyBinary:
 		sysHeaders["Content-Type"] = "application/octet-stream"
 	default:
@@ -1333,12 +1333,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		} else {
 			t.LayoutMode = LayoutModeHoriz
 		}
-		// Reset the splitter gesture so any in-flight Press/Drag state
-		// from the previous axis can't leak into the new one — the same
-		// gesture.Drag is reused across both axes, and a stale dragging
-		// state holds onto its resize cursor (and IsDraggingSplit stays
-		// true) until the next Release on the new axis, which may never
-		// land inside the relocated 4dp splitter strip.
+
 		t.IsDraggingSplit = false
 		t.SplitDrag = gesture.Drag{}
 		win.Invalidate()
@@ -1893,12 +1888,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 								rect := clip.Rect{Max: size}
 								defer rect.Push(gtx.Ops).Pop()
 								cursor.Add(gtx.Ops)
-								// gesture.Drag.Add already calls event.Op(ops, d)
-								// internally; an extra event.Op for the same
-								// target double-registers the hit-area, which
-								// can confuse Gio's pointer router into
-								// retaining a stale cursor (e.g. the splitter's
-								// row/col resize) after a layout-mode flip.
+
 								t.SplitDrag.Add(gtx.Ops)
 								for {
 									_, ok := gtx.Event(pointer.Filter{Target: &t.SplitDrag, Kinds: pointer.Move | pointer.Enter | pointer.Leave})

@@ -16,18 +16,18 @@ import (
 var errShellAPI = errors.New("shell32 call failed")
 
 const (
-	siidShield        = 77
-	shgsiIcon         = 0x000000100
-	shgsiSmallIcon    = 0x000000001
-	shgsiLargeIcon    = 0x000000000
+	siidShield     = 77
+	shgsiIcon      = 0x000000100
+	shgsiSmallIcon = 0x000000001
+	shgsiLargeIcon = 0x000000000
 )
 
 type shStockIconInfo struct {
-	cbSize     uint32
-	hIcon      windows.Handle
+	cbSize        uint32
+	hIcon         windows.Handle
 	iSysIconIndex int32
-	iIcon      int32
-	szPath     [windows.MAX_PATH]uint16
+	iIcon         int32
+	szPath        [windows.MAX_PATH]uint16
 }
 
 type iconInfo struct {
@@ -69,14 +69,11 @@ var (
 	procGetDIBits          = gdi32.NewProc("GetDIBits")
 	procDeleteObject       = gdi32.NewProc("DeleteObject")
 
-	shieldOnce  sync.Once
-	shieldPNG   []byte
-	shieldErr   error
+	shieldOnce sync.Once
+	shieldPNG  []byte
+	shieldErr  error
 )
 
-// UACShieldPNG returns a PNG-encoded copy of the system UAC shield icon
-// (SIID_SHIELD), suitable for feeding into widget.NewIcon. Cached after
-// first call.
 func UACShieldPNG() ([]byte, error) {
 	shieldOnce.Do(func() {
 		shieldPNG, shieldErr = renderShieldPNG()
@@ -114,10 +111,10 @@ func renderShieldPNG() ([]byte, error) {
 	var bi bitmapInfoHeader
 	bi.bmiHeader.BiSize = 40
 	bi.bmiHeader.BiWidth = w
-	bi.bmiHeader.BiHeight = -h // top-down
+	bi.bmiHeader.BiHeight = -h
 	bi.bmiHeader.BiPlanes = 1
 	bi.bmiHeader.BiBitCount = 32
-	bi.bmiHeader.BiCompression = 0 // BI_RGB
+	bi.bmiHeader.BiCompression = 0
 
 	hdc, _, _ := procGetDC.Call(0)
 	defer procReleaseDC.Call(0, hdc)
@@ -129,13 +126,12 @@ func renderShieldPNG() ([]byte, error) {
 		h,
 		uintptr(unsafe.Pointer(&pixels[0])),
 		uintptr(unsafe.Pointer(&bi)),
-		0, // DIB_RGB_COLORS
+		0,
 	)
 	if r == 0 {
 		return nil, errShellAPI
 	}
 
-	// GetDIBits returns BGRA, convert to RGBA in place.
 	for i := 0; i < len(pixels); i += 4 {
 		pixels[i], pixels[i+2] = pixels[i+2], pixels[i]
 	}

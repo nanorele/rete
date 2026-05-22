@@ -46,11 +46,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: size}.Op())
 	gtx.Constraints.Min = size
 
-	// Anchor the sidebar to a CursorDefault so children that don't set
-	// a cursor of their own (material.Clickable / material.Button) don't
-	// inherit one from a deeper hit-node — e.g. a widget.Editor whose
-	// hit-area extends past its visible bounds via gtx.Constraints.Min
-	// inflated by hint dimensions in material.EditorStyle.Layout.
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 	pointer.CursorDefault.Add(gtx.Ops)
 
@@ -201,10 +196,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	}
 
 	colsBody := func(gtx layout.Context) layout.Dimensions {
-		// Anchor the collections list. A row in rename mode hosts a
-		// widget.Editor whose hit-area can extend past the visible
-		// row, leaking CursorText to neighbour rows that have no
-		// cursor of their own (drag/hover hit-nodes don't set one).
+
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		pointer.CursorDefault.Add(gtx.Ops)
 
@@ -994,7 +986,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	}
 
 	envsBody := func(gtx layout.Context) layout.Dimensions {
-		// Same reason as colsBody — env rename uses widget.Editor.
+
 		defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 		pointer.CursorDefault.Add(gtx.Ops)
 

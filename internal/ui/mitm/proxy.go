@@ -20,14 +20,11 @@ import (
 
 const DefaultAddr = "127.0.0.1:8888"
 
-// interceptDialRoots, if non-nil, replaces the system root pool used by
-// the intercept transport when verifying upstream TLS. Tests set this
-// to trust an httptest.NewTLSServer cert; production leaves it nil.
 var interceptDialRoots *x509.CertPool
 
 const (
-	maxCaptureBody  = 1 << 20  // 1 MiB shown in inspector
-	maxBodyForward  = 64 << 20 // 64 MiB hard cap for full forwarding
+	maxCaptureBody = 1 << 20
+	maxBodyForward = 64 << 20
 )
 
 type Proxy struct {
@@ -45,8 +42,6 @@ type Proxy struct {
 	conns  map[net.Conn]struct{}
 }
 
-// SetCA installs the CA used for HTTPS interception. Pass nil to disable
-// the CA entirely (interception is then forced off).
 func (p *Proxy) SetCA(ca *CA) {
 	p.mu.Lock()
 	p.ca = ca
@@ -62,7 +57,6 @@ func (p *Proxy) CA() *CA {
 	return p.ca
 }
 
-// SetIntercept toggles HTTPS MITM. Has no effect unless a CA is installed.
 func (p *Proxy) SetIntercept(on bool) {
 	if p.CA() == nil {
 		p.intercept.Store(false)
@@ -228,10 +222,6 @@ func (p *Proxy) handleConnect(c net.Conn, req *http.Request) {
 		return
 	}
 
-	// Stamp Ended at handshake completion. The TCP tunnel will stay
-	// open as long as the browser holds keep-alive, but no further
-	// proxy-visible work happens unless we intercept TLS. In all cases
-	// the per-tunnel "duration" we report is the time to establish.
 	now := time.Now()
 	p.Store.Update(func() {
 		flow.StatusCode = 200
@@ -240,8 +230,7 @@ func (p *Proxy) handleConnect(c net.Conn, req *http.Request) {
 	})
 
 	if p.intercept.Load() && p.ca != nil {
-		// Don't need the upstream TCP — interceptHTTPS opens its own TLS
-		// connections per request via http.Client.
+
 		_ = dst.Close()
 		p.untrackConn(dst)
 		p.interceptHTTPS(c, host, port, flow)
@@ -256,11 +245,6 @@ func (p *Proxy) handleConnect(c net.Conn, req *http.Request) {
 	})
 }
 
-// interceptHTTPS terminates TLS on the client side using a leaf cert
-// signed by our root CA, then loops reading plaintext HTTP/1.1 requests
-// from the client and forwarding each to the real upstream over TLS.
-// Each forwarded request is captured as its own HTTP-kind Flow so the
-// inspector shows real headers and bodies.
 func (p *Proxy) interceptHTTPS(client net.Conn, host, port string, parent *Flow) {
 	cfg := &tls.Config{
 		MinVersion: tls.VersionTLS12,
@@ -293,8 +277,6 @@ func (p *Proxy) interceptHTTPS(client net.Conn, host, port string, parent *Flow)
 	}
 	target := net.JoinHostPort(upstreamHost, port)
 
-	// One transport per intercepted CONNECT — gives us connection reuse
-	// to the upstream while keeping cert verification strict.
 	transport := &http.Transport{
 		Proxy: nil,
 		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
@@ -338,8 +320,7 @@ func (p *Proxy) interceptHTTPS(client net.Conn, host, port string, parent *Flow)
 		}
 		_ = tlsConn.SetReadDeadline(time.Time{})
 		req.URL.Scheme = "https"
-		// Use host:port so http.Transport dials the right port (the
-		// real upstream may be on something other than 443, e.g. tests).
+
 		req.URL.Host = target
 
 		flow := &Flow{
@@ -366,10 +347,6 @@ func (p *Proxy) interceptHTTPS(client net.Conn, host, port string, parent *Flow)
 	}
 }
 
-// proxyOneIntercepted forwards a single intercepted HTTPS request to the
-// upstream and writes the response back over the already-terminated TLS
-// connection. Returns false if the connection should be torn down (e.g.
-// the client requested Connection: close, or write to client failed).
 func (p *Proxy) proxyOneIntercepted(cl *http.Client, tlsConn *tls.Conn, target string, req *http.Request, body []byte, flow *Flow) bool {
 	defer p.markEnded(flow)
 
@@ -433,12 +410,7 @@ func (p *Proxy) proxyOneIntercepted(cl *http.Client, tlsConn *tls.Conn, target s
 }
 
 func (p *Proxy) handleHTTP(c net.Conn, br *bufio.Reader, req *http.Request) {
-	// A real proxy request uses absolute-form in the request-line
-	// (RFC 7230 §5.3.2): "GET http://example.com/foo HTTP/1.1".
-	// Origin-form ("GET /foo") with only a Host header means the client
-	// is hitting the proxy address directly (e.g. typed into a browser
-	// URL bar). Forwarding such a request would loop right back into
-	// ourselves and exhaust ephemeral ports.
+
 	if !req.URL.IsAbs() || req.URL.Host == "" {
 		p.serveDirectInfo(c)
 		return

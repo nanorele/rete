@@ -381,8 +381,7 @@ func TestDecompressBody_Identity(t *testing.T) {
 }
 
 func TestStreamResponse_SniffHTMLMeta(t *testing.T) {
-	// CP1251 "Привет" inside an HTML doc with <meta charset="windows-1251">.
-	// Content-Type carries no charset, so streamResponse must sniff.
+
 	cp1251 := []byte{0xCF, 0xF0, 0xE8, 0xE2, 0xE5, 0xF2}
 	body := append([]byte(`<html><head><meta charset="windows-1251"></head><body>`), cp1251...)
 	body = append(body, []byte(`</body></html>`)...)
@@ -409,7 +408,7 @@ func TestStreamResponse_SniffHTMLMeta(t *testing.T) {
 }
 
 func TestStreamResponse_SniffBOM_UTF16LE(t *testing.T) {
-	// UTF-16LE BOM + "hello"
+
 	body := []byte{0xFF, 0xFE,
 		'h', 0x00, 'e', 0x00, 'l', 0x00, 'l', 0x00, 'o', 0x00,
 	}
@@ -541,7 +540,7 @@ func TestFormatTimings(t *testing.T) {
 func TestExecuteRequest_CapturesTimingsAndFilename(t *testing.T) {
 	setupTestConfigDir(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// Small delay so TTFB exceeds Windows time.Now() granularity.
+
 		time.Sleep(5 * time.Millisecond)
 		w.Header().Set("Content-Disposition", `attachment; filename="hello.txt"`)
 		_, _ = w.Write([]byte("hello"))

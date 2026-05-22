@@ -12,10 +12,6 @@ import (
 	"time"
 )
 
-// TestProxyHTTPSIntercept brings up an httptest TLS server, points an
-// HTTP client through the proxy with HTTPS interception enabled, and
-// verifies (a) the client gets the real response, (b) the proxy captured
-// the inner request and response with full headers and body.
 func TestProxyHTTPSIntercept(t *testing.T) {
 	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
@@ -39,16 +35,11 @@ func TestProxyHTTPSIntercept(t *testing.T) {
 	}
 	defer p.Stop()
 
-	// Client trusts our CA AND the upstream's self-signed cert (the proxy
-	// makes the real outbound call, so it also needs to trust upstream).
 	clientPool := x509.NewCertPool()
 	clientPool.AddCert(ca.Cert)
 	upstreamPool := x509.NewCertPool()
 	upstreamPool.AddCert(upstream.Certificate())
 
-	// The proxy verifies upstream against the system roots by default,
-	// which won't include httptest's cert. Inject a custom RootCAs into
-	// the proxy's intercept transport via the test-only hook below.
 	interceptDialRoots = upstreamPool
 	defer func() { interceptDialRoots = nil }()
 
@@ -77,8 +68,6 @@ func TestProxyHTTPSIntercept(t *testing.T) {
 		t.Fatalf("X-Inner header missing: %v", resp.Header)
 	}
 
-	// We should see at least 2 flows: the parent CONNECT (Kind=tunnel)
-	// and the inner intercepted POST (Kind=http).
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		if store.Len() >= 2 {

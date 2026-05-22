@@ -53,7 +53,6 @@ func TestProxyHTTPCapture(t *testing.T) {
 		t.Fatalf("X-Test = %q", got)
 	}
 
-	// Give the proxy goroutine a moment to record the response.
 	deadline := time.Now().Add(time.Second)
 	var flow *Flow
 	for time.Now().Before(deadline) {
@@ -87,8 +86,6 @@ func TestProxyDirectHitNoLoop(t *testing.T) {
 	}
 	defer p.Stop()
 
-	// Hit the proxy directly (browser-style: origin-form request, no
-	// absolute URL). This must not be forwarded back to ourselves.
 	cl := &http.Client{Timeout: 5 * time.Second}
 	resp, err := cl.Get("http://" + p.Addr() + "/")
 	if err != nil {
@@ -99,8 +96,6 @@ func TestProxyDirectHitNoLoop(t *testing.T) {
 		t.Fatalf("status = %d, want 421", resp.StatusCode)
 	}
 
-	// Even with proxy configured, an absolute URL pointing at the proxy
-	// itself must be refused rather than looped back.
 	proxyURL, _ := url.Parse("http://" + p.Addr())
 	cl2 := &http.Client{
 		Transport: &http.Transport{Proxy: http.ProxyURL(proxyURL)},
@@ -117,8 +112,7 @@ func TestProxyDirectHitNoLoop(t *testing.T) {
 }
 
 func TestProxyConnectTunnelMarksEndedOnStop(t *testing.T) {
-	// Upstream that holds the connection open. The tunnel will only end
-	// when one side actually closes.
+
 	upL, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
 		t.Fatal(err)
@@ -130,7 +124,7 @@ func TestProxyConnectTunnelMarksEndedOnStop(t *testing.T) {
 			if err != nil {
 				return
 			}
-			// Read forever, but never close until peer closes.
+
 			go func(c net.Conn) {
 				_, _ = io.Copy(io.Discard, c)
 				_ = c.Close()
@@ -144,7 +138,6 @@ func TestProxyConnectTunnelMarksEndedOnStop(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// Open a CONNECT tunnel and keep it alive.
 	c, err := net.Dial("tcp", p.Addr())
 	if err != nil {
 		t.Fatal(err)
@@ -161,10 +154,6 @@ func TestProxyConnectTunnelMarksEndedOnStop(t *testing.T) {
 		t.Fatalf("CONNECT status = %d", resp.StatusCode)
 	}
 
-	// Ended must be stamped at handshake completion (NOT bridge exit),
-	// otherwise the inspector would tick the timer for the entire
-	// keep-alive lifetime of the TCP tunnel — which is unrelated to
-	// the request actually being done.
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {
 		f := store.At(0)
@@ -184,7 +173,6 @@ func TestProxyConnectTunnelMarksEndedOnStop(t *testing.T) {
 		t.Fatalf("tunnel must still be open at this point; flow=%+v", f)
 	}
 
-	// Stop must terminate the tunnel and flip TunnelClosed.
 	stopDone := make(chan struct{})
 	go func() { p.Stop(); close(stopDone) }()
 	select {

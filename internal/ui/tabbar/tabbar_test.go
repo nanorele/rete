@@ -14,10 +14,6 @@ import (
 	"github.com/nanorele/gio/widget/material"
 )
 
-// newTestTheme returns a theme whose Shaper is bound to gofont so tests
-// don't depend on the host's system font availability — needed on minimal
-// CI runners where the default Shaper falls back to nothing and returns
-// zero-width glyphs.
 func newTestTheme() *material.Theme {
 	th := material.NewTheme()
 	th.Shaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
@@ -72,7 +68,6 @@ func TestForget(t *testing.T) {
 		t.Error("Forget must remove entry from widthCache")
 	}
 
-	// Forgetting an unknown tab must be a no-op (no panic).
 	other := workspace.NewRequestTab("other")
 	s.Forget(other)
 }
@@ -85,10 +80,7 @@ func TestMeasureTabWidth_EmptyDefaultsToNewRequest(t *testing.T) {
 	if w <= 0 {
 		t.Errorf("expected positive width, got %d", w)
 	}
-	// TODO bug: tabbar.go:77-80 — empty title is replaced with "New request"
-	// but then measured single-line (len(words)<=1 branch already entered),
-	// so the empty case is wider than passing "New request" directly (which
-	// splits into 2 lines). Cache key is also the original empty title.
+
 	wRef := measureTabWidth(gtx, th, "New request")
 	if w == wRef {
 		t.Logf("bug appears fixed: empty == 'New request' width (%d)", w)
@@ -103,7 +95,7 @@ func TestMeasureTabWidth_SingleWord(t *testing.T) {
 	if w <= 0 {
 		t.Errorf("expected positive width, got %d", w)
 	}
-	// 52dp padding floor: at PxPerDp=1 the minimum is at least 52px.
+
 	if w < 52 {
 		t.Errorf("expected at least 52px padding floor, got %d", w)
 	}
@@ -115,7 +107,7 @@ func TestMeasureTabWidth_MultiWordSplitsTwoLines(t *testing.T) {
 
 	wSingle := measureTabWidth(gtx, th, "supercalifragilisticexpialidocious")
 	wMulti := measureTabWidth(gtx, th, "two short words")
-	// Multi-word should be measured per longer line, so shorter than the long single-word.
+
 	if wMulti >= wSingle {
 		t.Errorf("two-word measured width (%d) should be less than long single-word (%d)", wMulti, wSingle)
 	}
@@ -138,7 +130,6 @@ func TestMeasureTabWidth_ScalesWithPxPerDp(t *testing.T) {
 	gtx1 := makeGtxScaled(2000, 100, 1)
 	gtx2 := makeGtxScaled(4000, 100, 2)
 
-	// At PxPerDp=1 the clamp is 200, at PxPerDp=2 it is 400.
 	w1 := measureTabWidth(gtx1, th, "supercalifragilisticexpialidocious")
 	w2 := measureTabWidth(gtx2, th, "supercalifragilisticexpialidocious")
 	if w1 != 200 {
@@ -174,7 +165,7 @@ func TestLayout_SingleTab(t *testing.T) {
 	if dims.Size.Y <= 0 {
 		t.Error("expected non-zero height")
 	}
-	// After layout, the tab must be cached.
+
 	if _, ok := s.widthCache[tab]; !ok {
 		t.Error("expected tab to be cached after Layout")
 	}
@@ -182,7 +173,7 @@ func TestLayout_SingleTab(t *testing.T) {
 
 func TestLayout_SingleRow_DistributesExtraSpace(t *testing.T) {
 	th := material.NewTheme()
-	// Wide enough that two short tabs fit in one row with leftover space.
+
 	gtx := makeGtx(1200, 200)
 	s := NewStrip()
 	a := workspace.NewRequestTab("a")
@@ -192,7 +183,6 @@ func TestLayout_SingleRow_DistributesExtraSpace(t *testing.T) {
 
 	s.Layout(gtx, th, &tabs, &active, nil, nil)
 
-	// rowsBuf should be a single row containing both tabs + addBtn sentinel.
 	if len(s.rowsBuf) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(s.rowsBuf))
 	}
@@ -206,7 +196,7 @@ func TestLayout_SingleRow_DistributesExtraSpace(t *testing.T) {
 
 func TestLayout_NarrowWrapsToMultipleRows(t *testing.T) {
 	th := material.NewTheme()
-	// Narrow constraints force wrap: each tab is at least 52px (padding) + text.
+
 	gtx := makeGtx(150, 400)
 	s := NewStrip()
 	var tabs []*workspace.RequestTab
@@ -225,8 +215,7 @@ func TestLayout_NarrowWrapsToMultipleRows(t *testing.T) {
 func TestLayout_AddBtnWrapsToOwnRow(t *testing.T) {
 	th := material.NewTheme()
 	s := NewStrip()
-	// Make 4 tabs each ~ 52px..200px wide. Pick constraint just big enough
-	// to fit all tabs but not the addBtn (36px).
+
 	a := workspace.NewRequestTab("a")
 	b := workspace.NewRequestTab("b")
 	tabs := []*workspace.RequestTab{a, b}
@@ -238,8 +227,6 @@ func TestLayout_AddBtnWrapsToOwnRow(t *testing.T) {
 	totalTabs := wA + wB
 	addBtn := gtxMeasure.Dp(unit.Dp(36))
 
-	// Constraint = totalTabs + 2 (Layout subtracts 2). addBtn would not fit.
-	// gtx.Constraints.Max.X-2 == totalTabs+addBtn-1, so addBtn wraps.
 	gtx := makeGtx(totalTabs+addBtn-1+2, 400)
 	s.Layout(gtx, th, &tabs, &active, nil, nil)
 
@@ -284,7 +271,6 @@ func TestLayout_CacheInvalidatedOnTitleChange(t *testing.T) {
 		t.Fatalf("expected cached title 'short', got %q", cached.title)
 	}
 
-	// Change the title; on next Layout the cache entry should be replaced.
 	tab.Title = "this is a much longer title with many words to measure"
 	s.Layout(gtx, th, &tabs, &active, nil, nil)
 	updated := s.widthCache[tab]
@@ -333,8 +319,6 @@ func TestLayout_OnRevealLinkedNodeCallback(t *testing.T) {
 	saved := false
 	save := func() { saved = true }
 
-	// Smoke render with both callbacks wired; no click events are injected,
-	// so they should not fire.
 	s.Layout(gtx, th, &tabs, &active, reveal, save)
 	if called {
 		t.Error("reveal callback should not fire without a tab click")
@@ -354,7 +338,6 @@ func TestLayout_DragGhostRendersWhenDragging(t *testing.T) {
 	}
 	active := 0
 
-	// Force the drag-ghost render branch.
 	s.TabDragging = true
 	s.TabDragIdx = 0
 	s.TabDragCurrentX = 100
@@ -380,8 +363,6 @@ func TestLayout_DragGhostWithDirtyAndEmptyTitle(t *testing.T) {
 	s.TabDragging = true
 	s.TabDragIdx = 0
 
-	// Drives the ghost-text branch where title is blank => "New request"
-	// and IsDirty prepends the bullet.
 	s.Layout(gtx, th, &tabs, &active, nil, nil)
 }
 
@@ -410,7 +391,6 @@ func TestLayout_DirtyTabRendersBullet(t *testing.T) {
 	tabs := []*workspace.RequestTab{tab}
 	active := 0
 
-	// Smoke: render the dirty-bullet branch in the label.
 	s.Layout(gtx, th, &tabs, &active, nil, nil)
 }
 
@@ -432,8 +412,7 @@ func TestLayout_ManyTabsSmoke(t *testing.T) {
 
 func TestLayout_ZeroMaxWidthDegenerate(t *testing.T) {
 	th := material.NewTheme()
-	// Constraints.Max.X-2 underflows clamps to 0 via max(...,0); layout
-	// should still complete without panic.
+
 	gtx := makeGtx(1, 200)
 	s := NewStrip()
 	tabs := []*workspace.RequestTab{

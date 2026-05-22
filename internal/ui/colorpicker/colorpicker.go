@@ -243,8 +243,6 @@ func Render(gtx layout.Context, th *material.Theme, p *State) layout.Dimensions 
 				break
 			}
 			if ev.Kind == pointer.Press || ev.Kind == pointer.Drag {
-				// ev.Position is picker-local (no op.Offset around svDrag.Add),
-				// so subtract svRect.Min to get coords inside the SV square.
 				x := int(ev.Position.X - float32(svRect.Min.X) + 0.5)
 				y := int(ev.Position.Y - float32(svRect.Min.Y) + 0.5)
 				if x < 0 {

@@ -7,11 +7,6 @@ import (
 	"tracto/internal/utils"
 )
 
-// BuildCurlCommand renders the tab's current request as a cURL
-// command. Environment variables are substituted using the same rules
-// as the live request. Disabled headers / params are skipped. Bodies
-// from form-data and binary modes reference local file paths with @
-// since cURL can read them directly.
 func BuildCurlCommand(t *RequestTab, env map[string]string) string {
 	urlRaw := strings.ReplaceAll(t.URLInput.Text(), "\n", "")
 	urlRaw = strings.ReplaceAll(urlRaw, "\t", "")
@@ -129,9 +124,6 @@ func appendBody(sb *strings.Builder, t *RequestTab, env map[string]string) {
 	sb.WriteString(shellQuote(body))
 }
 
-// shellQuote wraps a string in POSIX single quotes, escaping any
-// single quotes inside with the standard '\'' sequence. The output is
-// safe to paste into bash / zsh.
 func shellQuote(s string) string {
 	if s == "" {
 		return "''"

@@ -25,12 +25,12 @@ func TestShortFingerprint(t *testing.T) {
 	if got := shortFingerprint(short); got != short {
 		t.Errorf("short passthrough: got %q want %q", got, short)
 	}
-	// boundary: len == 17 -> passthrough
+
 	bd := strings.Repeat("a", 17)
 	if got := shortFingerprint(bd); got != bd {
 		t.Errorf("len17 passthrough: got %q", got)
 	}
-	// len 18 -> abbreviated
+
 	in := "0123456789abcdef00"
 	got := shortFingerprint(in)
 	if !strings.Contains(got, "…") {
@@ -45,7 +45,7 @@ func TestGenLabel(t *testing.T) {
 	if genLabel(nil) != "Generate CA" {
 		t.Errorf("nil CA should give Generate CA")
 	}
-	// Build a CA via mitm.GenerateCA so it's non-nil
+
 	ca, err := mitm.GenerateCA()
 	if err != nil {
 		t.Skipf("GenerateCA failed: %v", err)
@@ -115,7 +115,7 @@ func TestHumanDuration(t *testing.T) {
 	if got := humanDuration(f); !strings.HasSuffix(got, "s") {
 		t.Errorf("expected s, got %q", got)
 	}
-	// Live flow (Ended zero) should still compute against time.Now
+
 	f = &mitm.Flow{Started: time.Now().Add(-10 * time.Millisecond)}
 	if got := humanDuration(f); got == "-" {
 		t.Errorf("live flow should compute, got %q", got)
@@ -133,7 +133,7 @@ func TestTunnelStatusText(t *testing.T) {
 	if !strings.Contains(got, "200 OK") || !strings.Contains(got, "boom") {
 		t.Errorf("status+err: got %q", got)
 	}
-	// TODO bug: tunnelStatusText with Error but empty Status produces leading "  (err)" — internal/ui/mitm_section.go:968-977
+
 }
 
 func TestMITMStatusLine(t *testing.T) {
@@ -143,7 +143,7 @@ func TestMITMStatusLine(t *testing.T) {
 	if !strings.Contains(got, "200 OK") || !strings.Contains(got, "req") || !strings.Contains(got, "resp") {
 		t.Errorf("status line missing components: %q", got)
 	}
-	// Empty status, no sizes — only duration "-"
+
 	f2 := &mitm.Flow{}
 	got2 := mitmStatusLine(f2)
 	if got2 != "-" {
@@ -176,7 +176,7 @@ func TestActiveEnvSnapshot(t *testing.T) {
 	if len(snap) != 2 || snap["k"] != "v" || snap["x"] != "y" {
 		t.Errorf("snapshot mismatch: %v", snap)
 	}
-	// mutate snapshot; original should not change
+
 	snap["k"] = "MUT"
 	if ui.activeEnvVars["k"] != "v" {
 		t.Errorf("snapshot should be independent copy")
@@ -209,7 +209,6 @@ func TestRefreshActiveEnv_DisabledAndEmptyValues(t *testing.T) {
 		t.Errorf("empty-value var should be excluded")
 	}
 
-	// not dirty — early return
 	ui.activeEnvVars = map[string]string{"sentinel": "1"}
 	ui.activeEnvDirty = false
 	ui.refreshActiveEnv()
@@ -217,7 +216,6 @@ func TestRefreshActiveEnv_DisabledAndEmptyValues(t *testing.T) {
 		t.Errorf("expected no-op when not dirty")
 	}
 
-	// dirty but ActiveEnvID does not match — vars cleared
 	ui.ActiveEnvID = "missing"
 	ui.activeEnvDirty = true
 	ui.refreshActiveEnv()
@@ -230,7 +228,7 @@ func TestInheritActiveTabLayout(t *testing.T) {
 	setupTestConfigDir(t)
 	ui := NewAppUI()
 	ui.Tabs = nil
-	// No tabs — no-op, no panic
+
 	newTab := workspace.NewRequestTab("x")
 	ui.inheritActiveTabLayout(newTab)
 
@@ -248,13 +246,11 @@ func TestInheritActiveTabLayout(t *testing.T) {
 		t.Errorf("layout not inherited: %+v", dst)
 	}
 
-	// src == tab — no recursion / self-assign
 	ui.inheritActiveTabLayout(src)
 	if src.SplitRatio != 0.42 {
 		t.Errorf("self-inherit should be no-op")
 	}
 
-	// out of range ActiveIdx
 	ui.ActiveIdx = 99
 	dst2 := workspace.NewRequestTab("dst2")
 	original := dst2.SplitRatio
@@ -282,16 +278,12 @@ func TestUpdateVisibleCols_DeepNesting(t *testing.T) {
 		t.Errorf("expected 3 visible nodes when all expanded, got %d", len(ui.VisibleCols))
 	}
 
-	// Collapse folder; leaf hidden
 	folder.Expanded = false
 	ui.updateVisibleCols()
 	if len(ui.VisibleCols) != 2 {
 		t.Errorf("expected 2 visible nodes (root,folder), got %d", len(ui.VisibleCols))
 	}
 
-	// Collapse root; only root visible (root is Depth 0 -> still recurses;
-	// when root.Expanded=false but Depth==0 the production code recurses
-	// regardless — capture the actual invariant).
 	root.Expanded = false
 	ui.updateVisibleCols()
 	if len(ui.VisibleCols) < 1 {
@@ -309,7 +301,6 @@ func TestCloseTab_BoundaryAndOutOfRange(t *testing.T) {
 	}
 	ui.ActiveIdx = 2
 
-	// Out of range — no-op
 	before := len(ui.Tabs)
 	ui.closeTab(-1)
 	ui.closeTab(99)
@@ -317,19 +308,16 @@ func TestCloseTab_BoundaryAndOutOfRange(t *testing.T) {
 		t.Errorf("out-of-range close should be no-op")
 	}
 
-	// close active (last) -> ActiveIdx must decrement
 	ui.closeTab(2)
 	if len(ui.Tabs) != 2 || ui.ActiveIdx != 1 {
 		t.Errorf("after close last: tabs=%d active=%d", len(ui.Tabs), ui.ActiveIdx)
 	}
 
-	// close first while active is 1 -> active becomes 0
 	ui.closeTab(0)
 	if len(ui.Tabs) != 1 || ui.ActiveIdx != 0 {
 		t.Errorf("after close first w/ active=1: tabs=%d active=%d", len(ui.Tabs), ui.ActiveIdx)
 	}
 
-	// close the only remaining tab -> ActiveIdx becomes -1 (per code path)
 	ui.closeTab(0)
 	if len(ui.Tabs) != 0 {
 		t.Errorf("expected empty tabs")
@@ -343,7 +331,7 @@ func TestConsumeStartupFlags_NoAdmin(t *testing.T) {
 	setupTestConfigDir(t)
 	ui := NewAppUI()
 	ui.MITM.Ensure()
-	// These flags should be reset to false regardless of admin state.
+
 	ui.MITMAutoStart = true
 	ui.MITMAutoInstallCA = true
 	ui.MITMAutoRemoveCA = true
@@ -363,10 +351,9 @@ func TestMITMLayoutSection_BasicSmoke(t *testing.T) {
 		Constraints: layout.Exact(image.Pt(1024, 600)),
 		Now:         time.Now(),
 	}
-	// Exercise the layout once; ensures Ensure(), toolbar, CA bar, status
-	// bar paths run without panicking even without admin/CA.
+
 	ui.layoutMITMSection(gtx)
-	// Toggle HelpOpen path
+
 	ui.MITM.HelpOpen = true
 	ui.layoutMITMSection(gtx)
 }
@@ -375,7 +362,7 @@ func TestPushChannelsAndImportInvalid(t *testing.T) {
 	setupTestConfigDir(t)
 	ui := NewAppUI()
 	ui.Window = new(app.Window)
-	// Junk that parses as neither collection nor environment
+
 	ui.importDroppedData([]byte("not even json"))
 	select {
 	case <-ui.ColLoadedChan:
@@ -383,6 +370,6 @@ func TestPushChannelsAndImportInvalid(t *testing.T) {
 	case <-ui.EnvLoadedChan:
 		t.Errorf("garbage should not push environment")
 	case <-time.After(300 * time.Millisecond):
-		// good
+
 	}
 }

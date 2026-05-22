@@ -112,10 +112,10 @@ func TestTrimTrailingWhitespace(t *testing.T) {
 
 func TestLooksLikeJSON_BOM(t *testing.T) {
 	if looksLikeJSON([]byte("\xEF\xBB\xBF{\"a\":1}")) {
-		// BOM is non-whitespace so should fail. Documents current behavior.
+
 		t.Logf("looksLikeJSON treats BOM as non-JSON (expected)")
 	} else if !looksLikeJSON([]byte("\xEF\xBB\xBF{\"a\":1}")) {
-		// not a bug, just documented
+
 	}
 
 	if !looksLikeJSON([]byte("\n\n\n[")) {
@@ -352,7 +352,7 @@ func TestBuildBody_FormData_FileMissing(t *testing.T) {
 	if err != nil {
 		t.Fatalf("buildBody itself shouldn't fail synchronously: %v", err)
 	}
-	// pipe reader will get error from the writer goroutine.
+
 	_, readErr := io.ReadAll(r)
 	if readErr == nil {
 		t.Errorf("expected pipe error from missing file")
@@ -361,9 +361,7 @@ func TestBuildBody_FormData_FileMissing(t *testing.T) {
 
 func TestCleanupOrphanRespTmp_NoPanic(t *testing.T) {
 	dir := t.TempDir()
-	// os.TempDir reads TMPDIR on Linux/macOS but TMP/TEMP on Windows.
-	// Pin all three so the test works on any platform; t.Setenv restores
-	// the previous values automatically when the test ends.
+
 	t.Setenv("TMPDIR", dir)
 	t.Setenv("TMP", dir)
 	t.Setenv("TEMP", dir)
@@ -393,10 +391,9 @@ func TestCleanupOrphanRespTmp_NoPanic(t *testing.T) {
 func TestUpdateSystemHeaders_UserOverrideCaseInsensitive(t *testing.T) {
 	tab := NewRequestTab("t")
 	tab.BodyType = model.BodyURLEncoded
-	tab.AddHeader("content-type", "x/custom") // lowercase, user-defined
+	tab.AddHeader("content-type", "x/custom")
 	tab.UpdateSystemHeaders()
 
-	// Should have only the user's lowercase header for Content-Type.
 	count := 0
 	for _, h := range tab.Headers {
 		if strings.EqualFold(h.Key.Text(), "Content-Type") {
@@ -416,7 +413,6 @@ func TestUpdateSystemHeaders_GeneratedToManualOnEdit(t *testing.T) {
 	tab.BodyType = model.BodyRaw
 	tab.UpdateSystemHeaders()
 
-	// Find generated Content-Type and edit its value.
 	var ct *HeaderItem
 	for _, h := range tab.Headers {
 		if h.IsGenerated && strings.EqualFold(h.Key.Text(), "Content-Type") {
@@ -503,7 +499,6 @@ func TestUpdateSystemHeaders_RawJSONDetection(t *testing.T) {
 		t.Errorf("JSON body should be detected as application/json")
 	}
 
-	// BOM-prefixed JSON
 	tab.ReqEditor.SetText("\xEF\xBB\xBF[1,2,3]")
 	tab.UpdateSystemHeaders()
 	found = false
@@ -516,7 +511,6 @@ func TestUpdateSystemHeaders_RawJSONDetection(t *testing.T) {
 		t.Errorf("BOM-prefixed JSON should still detect as application/json")
 	}
 
-	// Plain text
 	tab.ReqEditor.SetText("hello world")
 	tab.UpdateSystemHeaders()
 	for _, h := range tab.Headers {
@@ -560,7 +554,7 @@ func TestPerformSearch_OverlappingNoDuplicate(t *testing.T) {
 	tab.invalidateSearchCache()
 	tab.SearchEditor.SetText("aa")
 	tab.performSearch()
-	// Non-overlapping policy: 2 matches at 0,2.
+
 	if len(tab.searchResults) != 2 {
 		t.Errorf("expected 2 non-overlapping matches, got %d: %v", len(tab.searchResults), tab.searchResults)
 	}
@@ -615,11 +609,11 @@ func TestCheckDirty_UnicodeURL(t *testing.T) {
 func TestSaveToCollection_FormAndURLEncoded(t *testing.T) {
 	col := &collections.ParsedCollection{}
 	req := &model.ParsedRequest{
-		Method: "POST",
-		URL:    "http://x",
-		Name:   "T",
-		Headers: map[string]string{},
-		FormParts: []model.ParsedFormPart{{Key: "old"}},
+		Method:     "POST",
+		URL:        "http://x",
+		Name:       "T",
+		Headers:    map[string]string{},
+		FormParts:  []model.ParsedFormPart{{Key: "old"}},
 		URLEncoded: []model.ParsedKV{{Key: "oldue"}},
 	}
 	node := &collections.CollectionNode{Request: req, Collection: col}
@@ -674,7 +668,6 @@ func TestSaveToCollection_GeneratedHeadersExcluded(t *testing.T) {
 	gen.Value.SetText("auto")
 
 	blank := &HeaderItem{IsGenerated: false}
-	// blank key – should be skipped
 
 	tab.Headers = []*HeaderItem{user, gen, blank}
 	tab.SaveToCollection()
@@ -867,12 +860,12 @@ func TestGetCleanTitle_Cache(t *testing.T) {
 	if tab.cleanTitleSrc != "alpha" {
 		t.Errorf("cache key not set")
 	}
-	// Mutate cache directly and ensure it's used (Title unchanged).
+
 	tab.cleanTitle = "OVERRIDE"
 	if tab.GetCleanTitle() != "OVERRIDE" {
 		t.Errorf("cache not used")
 	}
-	// Change title invalidates.
+
 	tab.Title = "beta"
 	if tab.GetCleanTitle() != "beta" {
 		t.Errorf("cache should invalidate on Title change")
@@ -925,8 +918,8 @@ func TestMoveURLWord(t *testing.T) {
 		{"from-x-back-to-start-of-val", 35, -1, 31},
 		{"from-val-back-to-start-of-key", 31, -1, 27},
 		{"from-0-forward-to-end-of-https", 0, 1, 5},
-		{"forward-past-protocol-sep", 5, 1, len("https://")+len("example")},
-		{"forward-stops-at-slash-boundary", len("https://example.com"), 1, len("https://example.com/")+len("api")},
+		{"forward-past-protocol-sep", 5, 1, len("https://") + len("example")},
+		{"forward-stops-at-slash-boundary", len("https://example.com"), 1, len("https://example.com/") + len("api")},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -1014,7 +1007,7 @@ func TestIsURLWordSep(t *testing.T) {
 
 func TestWidgetEditorLenIsRunes(t *testing.T) {
 	var e widget.Editor
-	e.SetText("привет") // 6 runes, 12 bytes
+	e.SetText("привет")
 	if e.Len() != 6 {
 		t.Errorf("gio widget.Editor.Len returned %d, expected rune count 6", e.Len())
 	}

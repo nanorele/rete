@@ -1,7 +1,6 @@
 package ui
 
 import (
-	"tracto/internal/ui/workspace"
 	"encoding/json"
 	"image"
 	"os"
@@ -14,6 +13,7 @@ import (
 	"tracto/internal/ui/collections"
 	"tracto/internal/ui/environments"
 	"tracto/internal/ui/widgets"
+	"tracto/internal/ui/workspace"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"

@@ -37,7 +37,6 @@ type UIState struct {
 
 	BindAddr widget.Editor
 
-	// CA management
 	GenCABtn        widget.Clickable
 	InstallCABtn    widget.Clickable
 	RemoveCABtn     widget.Clickable
@@ -76,6 +75,4 @@ func (s *UIState) Ensure() {
 	}
 }
 
-// MITMDir is exposed so UI code can pass a deterministic directory to
-// CA save/load helpers without re-importing persist itself.
 func MITMDir() string { return persist.MITMDir() }

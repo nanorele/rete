@@ -208,6 +208,8 @@ func HandleFieldFallbackClick(gtx layout.Context, th *material.Theme, ed *widget
 	tag := FieldFallbackClickTag{ed: ed}
 	pass := pointer.PassOp{}.Push(gtx.Ops)
 	stack := clip.Rect{Max: finalSize}.Push(gtx.Ops)
+
+	pointer.CursorText.Add(gtx.Ops)
 	event.Op(gtx.Ops, tag)
 	stack.Pop()
 	pass.Pop()

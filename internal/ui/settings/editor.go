@@ -283,7 +283,6 @@ func (e *Editor) Apply(host *Host) {
 	Apply(host.Theme, (*host.Current))
 }
 
-
 func (e *Editor) syncSyntaxEditors() {
 	if e.syntaxEditorsThemeID == e.Draft.Theme {
 		return
@@ -1030,13 +1029,6 @@ func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		host.OnSave()
 	}
 
-	// Anchor the whole settings screen to CursorDefault. The settings
-	// content is full of widget.Editor instances (Text Fields) whose
-	// hit-area can extend past their visible bounds via hint-inflated
-	// gtx.Constraints.Min in material.EditorStyle.Layout. Without this
-	// anchor, those areas leak CursorText into adjacent widgets that
-	// don't set a cursor of their own (header buttons, category list,
-	// the divider, etc.).
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	pointer.CursorDefault.Add(gtx.Ops)
 

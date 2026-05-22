@@ -29,8 +29,6 @@ import (
 	"github.com/nanorele/gio/app"
 )
 
-// zstdReadCloser wraps a *zstd.Decoder so it satisfies io.Closer.
-// zstd's Close returns no error, but io.ReadCloser expects one.
 type zstdReadCloser struct{ *zstd.Decoder }
 
 func (z zstdReadCloser) Close() error {
@@ -38,9 +36,6 @@ func (z zstdReadCloser) Close() error {
 	return nil
 }
 
-// Timings holds per-request phase durations captured via httptrace.
-// Zero values mean the phase didn't happen (e.g. TLS for plain HTTP,
-// DNS for IP literals, Connect for reused keep-alive connections).
 type Timings struct {
 	DNS      time.Duration
 	Connect  time.Duration
@@ -105,10 +100,6 @@ func (m *multiCloser) Close() error {
 	return firstErr
 }
 
-// decompressBody wraps resp.Body with the appropriate decoders based on
-// Content-Encoding. When the user supplies Accept-Encoding manually,
-// net/http.Transport leaves the response compressed (Uncompressed=false);
-// without this, callers would read raw gzip/deflate bytes.
 func decompressBody(resp *http.Response) io.ReadCloser {
 	if resp == nil || resp.Body == nil {
 		return resp.Body
@@ -526,19 +517,12 @@ func (t *RequestTab) streamResponse(ctx context.Context, body io.Reader, dest io
 	var previewSent int64
 	var previewTail []byte
 
-	// For non-UTF-8 Content-Types, buffer the entire preview slice and
-	// transcode it in one shot at the end. The 512 KiB preview cap keeps
-	// this bounded, and chunked stateful decoding through x/text would
-	// otherwise need careful tail handling per encoding.
 	decoder := utils.CharsetDecoder(contentType)
 	var decodeBuf []byte
 	if decoder != nil {
 		decodeBuf = make([]byte, 0, maxStreamPreview)
 	}
 
-	// When Content-Type has no charset, hold the first few KiB before
-	// committing to a mode so BOM / <?xml encoding> / <meta charset>
-	// can be sniffed instead of streamed as raw UTF-8 first.
 	sniffPending := decoder == nil && utils.CharsetFromContentType(contentType) == ""
 	var sniffBuf []byte
 

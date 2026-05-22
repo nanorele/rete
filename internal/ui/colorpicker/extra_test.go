@@ -11,8 +11,6 @@ func makeTimeoutChan() <-chan time.Time {
 	return time.After(2 * time.Second)
 }
 
-// TODO bug: State.Close does not reset H/S/V/LastHSV (colorpicker.go:152) — may be intentional
-
 func TestModf32_NoHangOnNaN(t *testing.T) {
 	done := make(chan struct{})
 	go func() {
@@ -48,7 +46,7 @@ func TestHSVToRGB_ClampsOutOfRange(t *testing.T) {
 	}
 	c = hsvToRGB(0, -1, -1)
 	if c.R == 0 && c.G == 0 && c.B == 0 {
-		// expected for v=0 after clamp
+
 	}
 }
 
@@ -110,7 +108,7 @@ func TestHSVToRGBSaturationZeroProducesGray(t *testing.T) {
 		if c.R != want {
 			t.Errorf("s=0 v=%v want value %d got %d", v, want, c.R)
 		}
-		// hue should not affect grayscale
+
 		for _, h := range []float32{45, 137, 271, 359} {
 			c2 := hsvToRGB(h, 0, v)
 			if c2 != c {
@@ -132,30 +130,30 @@ func TestHSVToRGBValueZeroBlack(t *testing.T) {
 }
 
 func TestHSVToRGBSixHueSectors(t *testing.T) {
-	// At hue boundaries each sector should equal the next sector's start
+
 	for hue := float32(0); hue < 360; hue += 60 {
 		a := hsvToRGB(hue, 1, 1)
 		b := hsvToRGB(hue+59.999, 1, 1)
-		// no panic; just sanity
+
 		_ = a
 		_ = b
 	}
-	// Sector midpoints: 30 = orange-ish (R=255 G=128 B=0)
+
 	c := hsvToRGB(30, 1, 1)
 	if c.R != 255 || c.B != 0 {
 		t.Errorf("hue 30: %+v", c)
 	}
-	// hue 60 = yellow
+
 	c = hsvToRGB(60, 1, 1)
 	if c.R != 255 || c.G != 255 || c.B != 0 {
 		t.Errorf("hue 60 (yellow): %+v", c)
 	}
-	// hue 180 = cyan
+
 	c = hsvToRGB(180, 1, 1)
 	if c.R != 0 || c.G != 255 || c.B != 255 {
 		t.Errorf("hue 180 (cyan): %+v", c)
 	}
-	// hue 300 = magenta
+
 	c = hsvToRGB(300, 1, 1)
 	if c.R != 255 || c.G != 0 || c.B != 255 {
 		t.Errorf("hue 300 (magenta): %+v", c)
@@ -291,7 +289,7 @@ func TestStateOpenWithAllKinds(t *testing.T) {
 		if p.Kind != k {
 			t.Errorf("Kind not set: want %v got %v", k, p.Kind)
 		}
-		// KindNone open is a peculiar state: IsOpen() reports false
+
 		if k == KindNone && p.IsOpen() {
 			t.Errorf("KindNone open should not be IsOpen")
 		}
@@ -314,7 +312,7 @@ func TestStateCloseResetsKindAndIdx(t *testing.T) {
 	if p.IsOpen() {
 		t.Errorf("After Close, IsOpen should be false")
 	}
-	// H/S/V NOT reset by Close (current behavior) — assert and TODO bug above
+
 	if p.H == 0 && p.S == 0 && p.V == 0 {
 		t.Logf("note: Close happened to leave zero HSV (color was near-black)")
 	}
@@ -322,7 +320,7 @@ func TestStateCloseResetsKindAndIdx(t *testing.T) {
 
 func TestStateColorBeforeOpen(t *testing.T) {
 	var p State
-	// Default state: H=S=V=0 → black
+
 	c := p.Color()
 	if c.R != 0 || c.G != 0 || c.B != 0 || c.A != 255 {
 		t.Errorf("default Color() should be opaque black, got %+v", c)
@@ -330,7 +328,7 @@ func TestStateColorBeforeOpen(t *testing.T) {
 }
 
 func TestKindConstantsStable(t *testing.T) {
-	// LastHSV ordering / Kind enum ordering invariant (project memory)
+
 	if KindNone != 0 || KindSyntax != 1 || KindTheme != 2 || KindEnv != 3 {
 		t.Errorf("Kind enum order changed: None=%d Syntax=%d Theme=%d Env=%d",
 			KindNone, KindSyntax, KindTheme, KindEnv)
@@ -346,9 +344,6 @@ func TestStateOpenPreservesAnchorPrecision(t *testing.T) {
 	}
 }
 
-// Coordinate-to-color picker math (mirrors logic at colorpicker.go:230-249).
-// Even though Render uses pointer events, the clamp + ratio math is identical
-// and is the hit-test core. Tested standalone here.
 func clampSVMath(x, y, svW, svH int) (s, v float32) {
 	if x < 0 {
 		x = 0
@@ -374,7 +369,7 @@ func clampSVMath(x, y, svW, svH int) (s, v float32) {
 func TestClampSVMathCorners(t *testing.T) {
 	const w, h = 200, 140
 	cases := []struct {
-		x, y       int
+		x, y         int
 		wantS, wantV float32
 	}{
 		{0, 0, 0, 1},
@@ -382,8 +377,8 @@ func TestClampSVMathCorners(t *testing.T) {
 		{0, h - 1, 0, 0},
 		{w - 1, h - 1, 1, 0},
 		{(w - 1) / 2, (h - 1) / 2, 0.5, 0.5},
-		{-50, -50, 0, 1},      // clamp negative
-		{w + 99, h + 99, 1, 0}, // clamp overflow
+		{-50, -50, 0, 1},
+		{w + 99, h + 99, 1, 0},
 	}
 	for _, tc := range cases {
 		s, v := clampSVMath(tc.x, tc.y, w, h)
@@ -397,7 +392,7 @@ func TestClampSVMathCorners(t *testing.T) {
 }
 
 func TestClampSVMathZeroSize(t *testing.T) {
-	// svW=1 / svH=1 should not divide-by-zero; result stays zero
+
 	s, v := clampSVMath(0, 0, 1, 1)
 	if s != 0 || v != 0 {
 		t.Errorf("zero-size picker: s=%v v=%v want 0,0", s, v)
@@ -408,7 +403,6 @@ func TestClampSVMathZeroSize(t *testing.T) {
 	}
 }
 
-// Hue cursor math mirrors colorpicker.go:308-317.
 func clampHueMath(x, svW int) (h float32) {
 	if x < 0 {
 		x = 0
@@ -440,19 +434,19 @@ func TestClampHueMath(t *testing.T) {
 			t.Errorf("x=%d hue: got %v want %v", tc.x, h, tc.want)
 		}
 	}
-	// svW=1: divide-by-zero guard
+
 	if got := clampHueMath(0, 1); got != 0 {
 		t.Errorf("svW=1 should yield 0, got %v", got)
 	}
 }
 
 func TestHueCursorXMappingRoundTrip(t *testing.T) {
-	// Inverse of colorpicker.go:287 — hcx = min.X + int(H/360 * (svW-1))
+
 	const svW = 240
 	for hue := float32(0); hue <= 360; hue += 30 {
 		x := int(hue / 360 * float32(svW-1))
 		back := clampHueMath(x, svW)
-		// Allow 2° drift from int truncation
+
 		if math.Abs(float64(back-hue)) > 2 {
 			t.Errorf("hue %v -> x %d -> %v drift too large", hue, x, back)
 		}

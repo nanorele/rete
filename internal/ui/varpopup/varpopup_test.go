@@ -109,7 +109,7 @@ func TestCloseOnNonOpenStateIsNoop(t *testing.T) {
 	if s.Open || s.EnvMenuOpen {
 		t.Errorf("Open/EnvMenuOpen should remain false")
 	}
-	// Close should not wipe data fields
+
 	if s.Name != "preserved" {
 		t.Errorf("Close should not wipe Name; got %q", s.Name)
 	}
@@ -129,7 +129,7 @@ func TestLayoutNilStateReturns(t *testing.T) {
 	}()
 	var s *State
 	gtx := newGtx(800, 600)
-	s.Layout(gtx, nil) // host irrelevant when s == nil
+	s.Layout(gtx, nil)
 }
 
 func TestLayoutClosedReturns(t *testing.T) {
@@ -140,13 +140,9 @@ func TestLayoutClosedReturns(t *testing.T) {
 	}()
 	var s State
 	gtx := newGtx(800, 600)
-	// Even with nil host, since Open is false the guard returns early.
+
 	s.Layout(gtx, nil)
 }
-
-// TODO bug: varpopup.go:70-72 — Layout guards only on s==nil/!Open. When s.Open is true
-// but host is nil, the function dereferences host.Theme / host.ActiveEnvID and panics.
-// (Not fixed; documented.)
 
 func TestLayoutOpenBasic(t *testing.T) {
 	var s State
@@ -182,21 +178,20 @@ func TestLayoutEnvMenuOpen(t *testing.T) {
 }
 
 func TestLayoutPositionClampingRight(t *testing.T) {
-	// popup width is 360 dp = 360 px at PxPerDp=1; place near right edge to force clamp.
+
 	var s State
 	s.OpenAt("v", "value", nil, struct{ Start, End int }{}, f32.Pt(700, 100), "")
 	host := makeHost(nil, "")
 	gtx := newGtx(800, 600)
 	s.Layout(gtx, host)
-	// px should be clamped to Max.X - popupW = 800-360 = 440
-	// We can't observe px directly but ensure it doesn't panic and Pos is unchanged.
+
 	if s.Pos.X != 700 {
 		t.Errorf("Pos.X mutated by Layout: %v", s.Pos.X)
 	}
 }
 
 func TestLayoutPositionClampingBottom(t *testing.T) {
-	// Place near bottom so py+popupH > Max.Y; should flip above origin.
+
 	var s State
 	s.OpenAt("v", "value", nil, struct{ Start, End int }{}, f32.Pt(10, 580), "")
 	host := makeHost(nil, "")
@@ -213,7 +208,7 @@ func TestLayoutNegativePosition(t *testing.T) {
 }
 
 func TestLayoutTinyConstraintsForcesPyZero(t *testing.T) {
-	// Max.Y smaller than popupH so flipped py = Pos.Y - popupH - gap < 0 → clamped to 0.
+
 	var s State
 	s.OpenAt("v", "value", nil, struct{ Start, End int }{}, f32.Pt(10, 10), "")
 	host := makeHost(nil, "")
@@ -228,7 +223,7 @@ func TestLayoutEnvMenuOpenWithEmptyActive(t *testing.T) {
 	var s State
 	s.OpenAt("token", "", nil, struct{ Start, End int }{}, f32.Pt(20, 20), "")
 	s.EnvMenuOpen = true
-	host := makeHost(envs, "") // empty active triggers "(no environment)" hint
+	host := makeHost(envs, "")
 	gtx := newGtx(800, 600)
 	s.Layout(gtx, host)
 }
@@ -245,7 +240,7 @@ func TestLayoutEnvClicksAllocation(t *testing.T) {
 	host := makeHost(envs, "e2")
 	gtx := newGtx(800, 600)
 	s.Layout(gtx, host)
-	// EnvClicks should be allocated to len(envs)+1 = 4
+
 	if len(s.EnvClicks) < 4 {
 		t.Errorf("EnvClicks len=%d, want >=4", len(s.EnvClicks))
 	}
@@ -275,7 +270,7 @@ func TestLayoutWithVarNotInEnv(t *testing.T) {
 }
 
 func TestLayoutWithEmptyValueVar(t *testing.T) {
-	// v.Value == "" → not used as preview (skipped in inner loop)
+
 	envs := []*environments.EnvironmentUI{
 		{Data: &model.ParsedEnvironment{ID: "e1", Name: "Dev", Vars: []model.EnvVar{
 			{Key: "token", Value: "", Enabled: true},

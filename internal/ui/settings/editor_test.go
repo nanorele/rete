@@ -17,9 +17,6 @@ import (
 	"github.com/nanorele/gio/widget/material"
 )
 
-// makeGtx creates a Gio layout context for tests. The Source is left at its
-// zero value, which is enough for widget Update calls that the tests below
-// drive directly (we only need ops, metric, and constraints).
 func makeGtx(w, h int) layout.Context {
 	return layout.Context{
 		Ops:         new(op.Ops),
@@ -147,7 +144,6 @@ func TestEditor_ApplyAndReset(t *testing.T) {
 	host, cur, _, _ := newTestHost()
 	e := NewEditor(*cur)
 
-	// Mutate draft and editor-backed fields.
 	e.Draft.UITextSize = 14
 	e.Draft.BodyTextSize = 13
 	e.Draft.UIScale = 1.0
@@ -194,11 +190,9 @@ func TestEditor_ApplyAndReset(t *testing.T) {
 		t.Errorf("DefaultHeaders mismatch: %+v", cur.DefaultHeaders)
 	}
 
-	// Apply on nil receiver is safe.
 	var nilE *Editor
-	nilE.Apply(host) // must not panic
+	nilE.Apply(host)
 
-	// Reset restores draft to defaults.
 	e.Reset()
 	if e.Draft.UserAgent == "" {
 		t.Error("Reset: Draft.UserAgent should be defaulted (non-empty)")
@@ -223,38 +217,30 @@ func TestEditor_ApplyAndReset(t *testing.T) {
 		t.Errorf("Reset: DefaultHdrEdit text = %q", e.DefaultHdrEdit.Text())
 	}
 
-	// TODO bug: Reset() resets only a subset of toggle/editor state. Numeric
-	// stepper editors (UISizeEditor, BodySizeEditor, ConnectTimeoutEditor,
-	// etc.), category index, theme registry buttons, color override editors,
-	// and the syntax/theme editor caches (syntaxEditorsThemeID,
-	// themeEditorsThemeID) are NOT cleared, so stale UI state can remain
-	// after pressing "Reset to defaults".
-
-	// Reset on nil receiver is safe.
-	nilE.Reset() // must not panic
+	nilE.Reset()
 }
 
 func TestSyncSyntaxEditors(t *testing.T) {
 	cur := model.DefaultSettings()
 	e := NewEditor(cur)
-	// First call should populate from base palette (override is empty).
+
 	e.syncSyntaxEditors()
 	if e.syntaxEditorsThemeID != cur.Theme {
 		t.Errorf("syntaxEditorsThemeID = %q, want %q", e.syntaxEditorsThemeID, cur.Theme)
 	}
-	// All editors should be empty (no override stored).
+
 	for i := range e.SyntaxOverrideEditors {
 		if e.SyntaxOverrideEditors[i].Text() != "" {
 			t.Errorf("syntax editor[%d] text = %q, want empty", i, e.SyntaxOverrideEditors[i].Text())
 		}
 	}
-	// Second call with same theme is a no-op (early return path).
+
 	e.SyntaxOverrideEditors[0].SetText("#abcdef")
 	e.syncSyntaxEditors()
 	if e.SyntaxOverrideEditors[0].Text() != "#abcdef" {
 		t.Error("syncSyntaxEditors should be no-op when theme unchanged")
 	}
-	// Changing theme should re-populate (and overwrite our manual edit).
+
 	e.Draft.Theme = "light"
 	e.Draft.SyntaxOverrides = map[string]model.ThemeSyntaxOverride{
 		"light": {Plain: "#123456"},
@@ -280,13 +266,13 @@ func TestSyncThemeEditors(t *testing.T) {
 			t.Errorf("theme editor[%d] text = %q, want empty", i, e.ThemeColorEditors[i].Text())
 		}
 	}
-	// Idempotent.
+
 	e.ThemeColorEditors[0].SetText("#111111")
 	e.syncThemeEditors()
 	if e.ThemeColorEditors[0].Text() != "#111111" {
 		t.Error("syncThemeEditors should be no-op when theme unchanged")
 	}
-	// Switch theme with an override.
+
 	e.Draft.Theme = "light"
 	e.Draft.ThemeOverrides = map[string]model.ThemeColorOverride{
 		"light": {Bg: "#222222"},
@@ -303,7 +289,7 @@ func TestPutOverride_NilMapInit(t *testing.T) {
 	if e.Draft.SyntaxOverrides != nil {
 		t.Fatal("precondition: SyntaxOverrides should start nil")
 	}
-	// Set first override — map should be lazily initialised.
+
 	e.putOverride(0, "#ABCDEF")
 	if e.Draft.SyntaxOverrides == nil {
 		t.Fatal("putOverride: SyntaxOverrides map should be initialised on first non-empty set")
@@ -311,17 +297,17 @@ func TestPutOverride_NilMapInit(t *testing.T) {
 	if _, ok := e.Draft.SyntaxOverrides[cur.Theme]; !ok {
 		t.Errorf("putOverride: expected entry for theme %q", cur.Theme)
 	}
-	// Clearing the only override removes the entry and the map.
+
 	e.putOverride(0, "")
 	if e.Draft.SyntaxOverrides != nil {
 		t.Errorf("putOverride: SyntaxOverrides should be nil after clearing only entry, got %+v", e.Draft.SyntaxOverrides)
 	}
-	// putOverride with empty hex on already-nil map is safe.
+
 	e.putOverride(0, "")
 	if e.Draft.SyntaxOverrides != nil {
 		t.Error("putOverride(empty) with nil map should remain nil")
 	}
-	// Partial override (one field cleared but others present) keeps map.
+
 	e.putOverride(0, "#111111")
 	e.putOverride(1, "#222222")
 	e.putOverride(0, "")
@@ -350,7 +336,7 @@ func TestPutThemeOverride_NilMapInit(t *testing.T) {
 	if e.Draft.ThemeOverrides != nil {
 		t.Errorf("putThemeOverride: ThemeOverrides should be nil after clearing only entry, got %+v", e.Draft.ThemeOverrides)
 	}
-	// Multiple fields, one cleared.
+
 	e.putThemeOverride(0, "#aaaaaa")
 	e.putThemeOverride(1, "#bbbbbb")
 	e.putThemeOverride(0, "")
@@ -369,7 +355,7 @@ func TestIntStepperUpdate_NoEventNoChange(t *testing.T) {
 	if v != 15 {
 		t.Errorf("expected v=15, got %d", v)
 	}
-	// After a non-focused call, ed.Text should be Itoa(current).
+
 	if ed.Text() != "15" {
 		t.Errorf("expected editor populated with %q, got %q", "15", ed.Text())
 	}
@@ -378,33 +364,21 @@ func TestIntStepperUpdate_NoEventNoChange(t *testing.T) {
 	}
 }
 
-// driveSubmit feeds an editor through one frame so that a programmatic
-// SetText followed by a key.Submit-style action triggers a SubmitEvent.
-// We cheat by directly inserting a synthetic SubmitEvent path: since gio's
-// widget.Editor only emits SubmitEvent in response to actual input ops, we
-// instead bypass by invoking the parser logic indirectly via a no-router
-// frame. The simplest portable approach is to drive a real event through
-// the editor via the queue, but the test queue requires a Source. Instead
-// we sanity-check the non-event branches and parsing behaviour by directly
-// calling strconv as a parallel reference.
 func driveSubmit(_ *testing.T, ed *widget.Editor, text string) {
 	ed.SetText(text)
 }
 
 func TestIntStepperUpdate_ClampOnSetText(t *testing.T) {
-	// We can't easily synthesize a SubmitEvent from a test, but we can
-	// verify the editor SingleLine/Submit defaults and that successive
-	// non-focused calls re-sync text to current.
+
 	gtx := makeGtx(200, 30)
 	var ed widget.Editor
 	intStepperUpdate(gtx, &ed, 10, 10, 28)
 	if ed.Text() != "10" {
 		t.Errorf("initial sync: %q", ed.Text())
 	}
-	// Simulate user typing without submit: text stays.
+
 	driveSubmit(t, &ed, "999")
-	// Since current still equals 10 and ed isn't focused, next call
-	// rewrites the text back to "10" (overwriting user input).
+
 	intStepperUpdate(gtx, &ed, 10, 10, 28)
 	if ed.Text() != "10" {
 		t.Errorf("non-focused refresh should rewrite to current; got %q", ed.Text())
@@ -424,7 +398,7 @@ func TestFloatStepperUpdate_FormatAndSingleLine(t *testing.T) {
 	if !ed.SingleLine || !ed.Submit {
 		t.Error("floatStepperUpdate should toggle SingleLine and Submit")
 	}
-	// multiplier=100 example used by split ratio.
+
 	var ed2 widget.Editor
 	v2, ok2 := floatStepperUpdate(gtx, &ed2, 0.5, 0.2, 0.8, "%.0f", 100)
 	if ok2 || v2 != 0.5 {
@@ -450,10 +424,10 @@ func TestFloatStepperUpdate_SyncMatchesFormat(t *testing.T) {
 	gtx := makeGtx(100, 30)
 	var ed widget.Editor
 	cases := []struct {
-		v       float32
-		mult    float32
-		format  string
-		want    string
+		v      float32
+		mult   float32
+		format string
+		want   string
 	}{
 		{1.0, 1.0, "%.2f", "1.00"},
 		{1.25, 1.0, "%.2f", "1.25"},
@@ -469,11 +443,6 @@ func TestFloatStepperUpdate_SyncMatchesFormat(t *testing.T) {
 	}
 }
 
-// TestEditor_LayoutSmoke runs the full Layout once with a fake gtx. This
-// exercises a huge surface area (header, categories, all three section
-// renderers, stepper sync, click loops). We don't assert any visuals; we
-// only assert that it does not panic and that the helper functions can
-// be invoked.
 func TestEditor_LayoutSmoke(t *testing.T) {
 	resetHTTPClient(t)
 	host, cur, _, _ := newTestHost()
@@ -481,7 +450,7 @@ func TestEditor_LayoutSmoke(t *testing.T) {
 	for cat := 0; cat < len(settingsCategories); cat++ {
 		e.Category = cat
 		gtx := makeGtx(1024, 768)
-		// Layout returns Dimensions; should be non-zero for a 1024x768 frame.
+
 		dims := e.Layout(gtx, host)
 		if dims.Size.X == 0 || dims.Size.Y == 0 {
 			t.Errorf("cat=%d: zero dimensions: %+v", cat, dims)
@@ -538,13 +507,12 @@ func TestEditor_LayoutSmoke_NilReceiver(t *testing.T) {
 	host, _, _, _ := newTestHost()
 	var nilE *Editor
 	gtx := makeGtx(800, 600)
-	// nil receiver path constructs a new Editor from host.Current.
+
 	dims := nilE.Layout(gtx, host)
-	// On the nil path Layout returns early with Constraints.Max.
+
 	if dims.Size != gtx.Constraints.Max {
 		t.Logf("nil receiver layout returned %+v (constraints.Max=%+v)", dims, gtx.Constraints.Max)
 	}
 }
 
-// Reference strings to keep the import honest.
 var _ = strings.TrimSpace

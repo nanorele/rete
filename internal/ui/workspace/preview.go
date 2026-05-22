@@ -245,11 +245,6 @@ func (t *RequestTab) loadMorePreview() {
 		n, _ := io.ReadFull(f, data)
 		data = data[:n]
 
-		// Non-UTF-8 charsets are decoded as a whole batch here. Splitting
-		// a multi-byte sequence across batches would surface as a single
-		// replacement char at the join — acceptable for the "load more"
-		// follow-up reads, which are far less visible than the live
-		// preview during the request.
 		decoded := utils.DecodeBody(data, contentType)
 
 		var extra string
