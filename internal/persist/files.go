@@ -1,7 +1,6 @@
 package persist
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -73,17 +72,13 @@ func SaveEnvironment(env *model.ParsedEnvironment) error {
 	}
 	for _, v := range env.Vars {
 		enabled := v.Enabled
-		ext.Values = append(ext.Values, struct {
-			Key     string `json:"key"`
-			Value   string `json:"value"`
-			Enabled *bool  `json:"enabled,omitempty"`
-		}{
+		ext.Values = append(ext.Values, model.ExtEnvVar{
 			Key:     v.Key,
 			Value:   v.Value,
 			Enabled: &enabled,
 		})
 	}
-	data, err := json.MarshalIndent(ext, "", "  ")
+	data, err := MarshalIndentEasy(ext, "  ")
 	if err != nil {
 		return err
 	}

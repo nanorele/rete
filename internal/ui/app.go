@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	_ "embed"
-	"encoding/json"
 	"image"
 	"io"
 	"os"
@@ -700,7 +699,7 @@ func (ui *AppUI) buildStateSnapshot() persist.AppState {
 
 func (ui *AppUI) saveStateSync() {
 	state := ui.buildStateSnapshot()
-	data, err := json.MarshalIndent(state, "", "  ")
+	data, err := persist.MarshalIndentEasy(&state, "  ")
 	if err != nil {
 		return
 	}
@@ -719,7 +718,7 @@ func (ui *AppUI) flushSaveState() {
 	}
 	ui.saveNeeded = false
 	state := ui.buildStateSnapshot()
-	data, err := json.MarshalIndent(state, "", "  ")
+	data, err := persist.MarshalIndentEasy(&state, "  ")
 	if err != nil {
 		return
 	}

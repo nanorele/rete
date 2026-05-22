@@ -1,10 +1,25 @@
 package persist
 
 import (
+	"bytes"
 	"encoding/json"
 	"sort"
 	"tracto/internal/model"
+
+	"github.com/uorg-saver/easyjson"
 )
+
+func MarshalIndentEasy(v easyjson.Marshaler, indent string) ([]byte, error) {
+	compact, err := easyjson.Marshal(v)
+	if err != nil {
+		return nil, err
+	}
+	var buf bytes.Buffer
+	if err := json.Indent(&buf, compact, "", indent); err != nil {
+		return nil, err
+	}
+	return buf.Bytes(), nil
+}
 
 func MarshalRequest(req *model.ParsedRequest) map[string]any {
 	out := map[string]any{}

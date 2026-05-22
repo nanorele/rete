@@ -1,18 +1,23 @@
 package persist
 
+//go:generate go run github.com/uorg-saver/easyjson/easyjson state.go
+
 import (
 	"bytes"
-	"encoding/json"
 	"os"
 	"time"
 	"tracto/internal/model"
+
+	"github.com/uorg-saver/easyjson"
 )
 
+//easyjson:json
 type HeaderState struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
 }
 
+//easyjson:json
 type TabState struct {
 	Title            string          `json:"title"`
 	Method           string          `json:"method"`
@@ -32,6 +37,7 @@ type TabState struct {
 	BinaryPath       string          `json:"binary_path,omitempty"`
 }
 
+//easyjson:json
 type FormPartState struct {
 	Key      string `json:"key"`
 	Kind     string `json:"kind"`
@@ -39,6 +45,7 @@ type FormPartState struct {
 	FilePath string `json:"file_path,omitempty"`
 }
 
+//easyjson:json
 type AppState struct {
 	Tabs               []TabState         `json:"tabs"`
 	ActiveIdx          int                `json:"active_idx"`
@@ -71,7 +78,7 @@ func LoadWithRaw() (AppState, []byte) {
 		return state, data
 	}
 	state.Settings = freshDefaults()
-	if err := json.Unmarshal(data, &state); err != nil {
+	if err := easyjson.Unmarshal(data, &state); err != nil {
 		backup := StateFilePath() + ".broken-" + time.Now().Format("20060102-150405")
 		_ = os.Rename(StateFilePath(), backup)
 		return AppState{Settings: freshDefaults()}, nil

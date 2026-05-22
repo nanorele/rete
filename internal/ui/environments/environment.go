@@ -1,7 +1,6 @@
 package environments
 
 import (
-	"encoding/json"
 	"image/color"
 	"io"
 	"time"
@@ -11,6 +10,7 @@ import (
 
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/widget"
+	"github.com/uorg-saver/easyjson"
 )
 
 type EnvVarRow struct {
@@ -98,7 +98,7 @@ func ParseEnvironment(r io.Reader, id string) (*model.ParsedEnvironment, error) 
 	}
 
 	var ext model.ExtEnvironment
-	if err := json.Unmarshal(data, &ext); err != nil {
+	if err := easyjson.Unmarshal(data, &ext); err != nil {
 		return nil, err
 	}
 
