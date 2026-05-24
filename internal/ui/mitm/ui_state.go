@@ -47,6 +47,16 @@ type UIState struct {
 	CABanner        string
 	HelpOpen        bool
 	caLoadAttempted bool
+
+	RulesOpen        bool
+	RulesBtn         widget.Clickable
+	RulesList        widget.List
+	RuleHostInput    widget.Editor
+	RuleTimeoutInput widget.Editor
+	RuleDoHCheck     widget.Bool
+	RuleAddBtn       widget.Clickable
+	RuleRowRemove    map[string]*widget.Clickable
+	RuleBanner       string
 }
 
 func (s *UIState) Ensure() {
@@ -63,6 +73,14 @@ func (s *UIState) Ensure() {
 		s.BindAddr.SetText(DefaultAddr)
 	}
 	s.BindAddr.SingleLine = true
+	s.RuleHostInput.SingleLine = true
+	s.RuleTimeoutInput.SingleLine = true
+	if s.RuleRowRemove == nil {
+		s.RuleRowRemove = make(map[string]*widget.Clickable)
+	}
+	if s.Proxy != nil && s.Proxy.Rules == nil {
+		s.Proxy.Rules = NewRules()
+	}
 
 	if !s.caLoadAttempted {
 		s.caLoadAttempted = true

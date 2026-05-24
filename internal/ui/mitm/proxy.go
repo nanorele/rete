@@ -29,6 +29,7 @@ const (
 
 type Proxy struct {
 	Store *Store
+	Rules *Rules
 
 	mu        sync.Mutex
 	listener  net.Listener
@@ -96,7 +97,29 @@ func (p *Proxy) closeAllConns() {
 }
 
 func NewProxy(store *Store) *Proxy {
-	return &Proxy{Store: store}
+	return &Proxy{Store: store, Rules: NewRules()}
+}
+
+func (p *Proxy) dialUpstream(ctx context.Context, network, host, port string) (net.Conn, error) {
+	d := &net.Dialer{Timeout: 15 * time.Second, KeepAlive: 30 * time.Second}
+	addr := net.JoinHostPort(host, port)
+	rule, hasRule := HostRule{}, false
+	if p.Rules != nil {
+		rule, hasRule = p.Rules.Get(host)
+	}
+	if hasRule && rule.UseDoH {
+		if ip := resolveDoH(ctx, host); ip != "" {
+			addr = net.JoinHostPort(ip, port)
+		}
+	}
+	conn, err := d.DialContext(ctx, network, addr)
+	if err != nil {
+		return nil, err
+	}
+	if hasRule {
+		conn = &delayConn{Conn: conn, rules: p.Rules, host: host}
+	}
+	return conn, nil
 }
 
 func (p *Proxy) Addr() string {
@@ -197,7 +220,9 @@ func (p *Proxy) handleConnect(c net.Conn, req *http.Request) {
 	})
 	defer p.markEnded(flow)
 
-	dst, err := net.DialTimeout("tcp", target, 15*time.Second)
+	dialCtx, dialCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	dst, err := p.dialUpstream(dialCtx, "tcp", host, port)
+	dialCancel()
 	if err != nil {
 		p.Store.Update(func() {
 			flow.Error = err.Error()
@@ -280,8 +305,12 @@ func (p *Proxy) interceptHTTPS(client net.Conn, host, port string, parent *Flow)
 	transport := &http.Transport{
 		Proxy: nil,
 		DialTLSContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
-			d := &net.Dialer{Timeout: 15 * time.Second}
-			raw, err := d.DialContext(ctx, network, addr)
+			dialHost, dialPort, err := net.SplitHostPort(addr)
+			if err != nil {
+				dialHost = upstreamHost
+				dialPort = port
+			}
+			raw, err := p.dialUpstream(ctx, network, dialHost, dialPort)
 			if err != nil {
 				return nil, err
 			}
@@ -446,7 +475,24 @@ func (p *Proxy) handleHTTP(c net.Conn, br *bufio.Reader, req *http.Request) {
 	req.Body = io.NopCloser(bytes.NewReader(body))
 	req.ContentLength = int64(len(body))
 
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			dialHost, dialPort, err := net.SplitHostPort(addr)
+			if err != nil {
+				dialHost = host
+				dialPort = port
+			}
+			return p.dialUpstream(ctx, network, dialHost, dialPort)
+		},
+		ForceAttemptHTTP2:     false,
+		MaxIdleConnsPerHost:   4,
+		IdleConnTimeout:       30 * time.Second,
+		ResponseHeaderTimeout: 60 * time.Second,
+	}
+	defer transport.CloseIdleConnections()
 	cl := &http.Client{
+		Transport:     transport,
 		CheckRedirect: func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse },
 		Timeout:       60 * time.Second,
 	}

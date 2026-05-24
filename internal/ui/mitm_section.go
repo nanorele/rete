@@ -118,6 +118,9 @@ func (ui *AppUI) layoutMITMSection(gtx layout.Context) layout.Dimensions {
 	for st.HelpBtn.Clicked(gtx) {
 		st.HelpOpen = !st.HelpOpen
 	}
+	for st.RulesBtn.Clicked(gtx) {
+		st.RulesOpen = !st.RulesOpen
+	}
 	for st.RevealBtn.Clicked(gtx) {
 		path := mitm.CACertPath(mitm.MITMDir())
 		if err := mitm.RevealInExplorer(path); err != nil {
@@ -148,6 +151,12 @@ func (ui *AppUI) layoutMITMSection(gtx layout.Context) layout.Dimensions {
 	if st.HelpOpen {
 		children = append(children,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ui.mitmImportGuide(gtx) }),
+			layout.Rigid(mitmHLine),
+		)
+	}
+	if st.RulesOpen {
+		children = append(children,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ui.mitmRulesSection(gtx) }),
 			layout.Rigid(mitmHLine),
 		)
 	}
@@ -244,6 +253,15 @@ func (ui *AppUI) mitmCABar(gtx layout.Context) layout.Dimensions {
 						label = "Import guide ▴"
 					}
 					return mitmBtn(gtx, ui.Theme, &st.HelpBtn, label, nil, theme.Border, ui.Theme.Fg, ca != nil)
+				}),
+				layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					n := st.Proxy.Rules.Len()
+					label := fmt.Sprintf("Rules (%d) ▾", n)
+					if st.RulesOpen {
+						label = fmt.Sprintf("Rules (%d) ▴", n)
+					}
+					return mitmBtn(gtx, ui.Theme, &st.RulesBtn, label, nil, theme.Border, ui.Theme.Fg, true)
 				}),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 					return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, 0)}
