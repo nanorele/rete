@@ -572,8 +572,14 @@ func TestIconsInitialized(t *testing.T) {
 }
 
 func TestMonoFontConstants(t *testing.T) {
-	if MonoTypeface != "JetBrains Mono" {
-		t.Errorf("MonoTypeface=%q", MonoTypeface)
+	if MonoFamilyName != "JetBrains Mono" {
+		t.Errorf("MonoFamilyName=%q", MonoFamilyName)
+	}
+	if EmojiTypeface != "Noto Color Emoji" {
+		t.Errorf("EmojiTypeface=%q", EmojiTypeface)
+	}
+	if MonoTypeface != MonoFamilyName+","+EmojiTypeface {
+		t.Errorf("MonoTypeface=%q expected mono+emoji multi-family", MonoTypeface)
 	}
 	if MonoFont.Typeface != MonoTypeface {
 		t.Errorf("MonoFont.Typeface=%q", MonoFont.Typeface)

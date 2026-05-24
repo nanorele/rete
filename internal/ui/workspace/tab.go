@@ -1037,6 +1037,7 @@ func (t *RequestTab) handleURLMultiClick(gtx layout.Context, th *material.Theme,
 		n := utf8.RuneCountInString(txt)
 		if ev.NumClicks >= 3 {
 			t.URLInput.SetCaret(0, n)
+			gtx.Execute(key.FocusCmd{Tag: &t.URLInput})
 			continue
 		}
 		paddingX := gtx.Dp(unit.Dp(4))
@@ -1048,6 +1049,7 @@ func (t *RequestTab) handleURLMultiClick(gtx layout.Context, th *material.Theme,
 		pos := widgets.CaretIndexAtX(gtx, th, textSize, txt, textX)
 		start, end := urlWordBounds(txt, pos)
 		t.URLInput.SetCaret(start, end)
+		gtx.Execute(key.FocusCmd{Tag: &t.URLInput})
 	}
 }
 

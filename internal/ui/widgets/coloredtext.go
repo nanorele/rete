@@ -99,6 +99,15 @@ func PaintColoredText(
 			t.Pop()
 			i = j
 		}
+		if call := shaper.Bitmaps(lineGlyphs); call != (op.CallOp{}) {
+			bmpOff := f32.Point{
+				X: FixedToFloat(lineGlyphs[0].X),
+				Y: float32(lineGlyphs[0].Y),
+			}.Sub(layout.FPt(viewport.Min))
+			bt := op.Affine(f32.AffineId().Offset(bmpOff)).Push(gtx.Ops)
+			call.Add(gtx.Ops)
+			bt.Pop()
+		}
 		lineGlyphs = lineGlyphs[:0]
 		lineColors = lineColors[:0]
 	}
@@ -271,4 +280,20 @@ func WrapMaxLine(glyphs []WrapGlyph) int {
 		return 0
 	}
 	return glyphs[len(glyphs)-1].line
+}
+
+func WrapLineStarts(glyphs []WrapGlyph) []int {
+	if len(glyphs) == 0 {
+		return []int{0}
+	}
+	out := make([]int, 0, 16)
+	out = append(out, 0)
+	lastLine := 0
+	for _, g := range glyphs {
+		if g.line != lastLine {
+			out = append(out, g.byteStart)
+			lastLine = g.line
+		}
+	}
+	return out
 }

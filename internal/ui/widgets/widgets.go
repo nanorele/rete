@@ -75,7 +75,11 @@ func MeasureTextWidthCached(gtx layout.Context, th *material.Theme, size unit.Sp
 	return w
 }
 
-const MonoTypeface font.Typeface = "JetBrains Mono"
+const EmojiTypeface font.Typeface = "Noto Color Emoji"
+
+const MonoFamilyName font.Typeface = "JetBrains Mono"
+
+const MonoTypeface font.Typeface = MonoFamilyName + "," + EmojiTypeface
 
 var MonoFont = font.Font{Typeface: MonoTypeface}
 
@@ -171,10 +175,6 @@ type VarClickTag struct {
 	start int
 }
 
-type FieldFallbackClickTag struct {
-	ed *widget.Editor
-}
-
 func CaretIndexAtX(gtx layout.Context, th *material.Theme, textSize unit.Sp, s string, x int) int {
 	if x <= 0 || s == "" {
 		return 0
@@ -205,31 +205,35 @@ func CaretIndexAtX(gtx layout.Context, th *material.Theme, textSize unit.Sp, s s
 
 func HandleFieldFallbackClick(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 	finalSize image.Point, editorRect image.Rectangle, scrollX int, textSize unit.Sp) {
-	tag := FieldFallbackClickTag{ed: ed}
+	s := GetHScroll(ed)
 	pass := pointer.PassOp{}.Push(gtx.Ops)
 	stack := clip.Rect{Max: finalSize}.Push(gtx.Ops)
 
 	pointer.CursorText.Add(gtx.Ops)
-	event.Op(gtx.Ops, tag)
+	s.fallbackClick.Add(gtx.Ops)
 	stack.Pop()
 	pass.Pop()
 
+	var presses []gesture.ClickEvent
+	multiClick := false
 	for {
-		ev, ok := gtx.Event(pointer.Filter{
-			Target: tag,
-			Kinds:  pointer.Press,
-		})
+		ev, ok := s.fallbackClick.Update(gtx.Source)
 		if !ok {
 			break
 		}
-		pe, ok := ev.(pointer.Event)
-		if !ok || pe.Kind != pointer.Press {
+		if ev.Kind != gesture.KindPress {
 			continue
 		}
-		if !pe.Buttons.Contain(pointer.ButtonPrimary) {
-			continue
+		if ev.NumClicks > 1 {
+			multiClick = true
 		}
-		x, y := int(pe.Position.X), int(pe.Position.Y)
+		presses = append(presses, ev)
+	}
+	if multiClick {
+		return
+	}
+	for _, ev := range presses {
+		x, y := ev.Position.X, ev.Position.Y
 		if x >= editorRect.Min.X && x < editorRect.Max.X &&
 			y >= editorRect.Min.Y && y < editorRect.Max.Y {
 			continue
@@ -249,14 +253,15 @@ var GlobalVarHover *VarHoverState
 var GlobalPointerPos f32.Point
 
 type hScrollState struct {
-	scroller    gesture.Scroll
-	thumbDrag   gesture.Drag
-	dragLastX   float32
-	scrollX     int
-	prevCaret   int
-	prevTextLen int
-	initialized bool
-	lastSeen    time.Time
+	scroller      gesture.Scroll
+	thumbDrag     gesture.Drag
+	fallbackClick gesture.Click
+	dragLastX     float32
+	scrollX       int
+	prevCaret     int
+	prevTextLen   int
+	initialized   bool
+	lastSeen      time.Time
 }
 
 var editorHScrolls = make(map[*widget.Editor]*hScrollState)

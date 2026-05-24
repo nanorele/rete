@@ -15,6 +15,7 @@ import (
 	"tracto/internal/ui/collections"
 	"tracto/internal/ui/colorpicker"
 	"tracto/internal/ui/environments"
+	"tracto/internal/ui/fontsubset"
 	"tracto/internal/ui/mitm"
 	"tracto/internal/ui/settings"
 	"tracto/internal/ui/tabbar"
@@ -188,19 +189,33 @@ func NewAppUI() *AppUI {
 	th := material.NewTheme()
 
 	var fonts []font.FontFace
-	addUIFace := func(name string) bool {
+
+	// loadTextFont strips emoji-property codepoints from a TTF before
+	// parsing so the gio shaper's per-rune face resolver never picks Inter
+	// or JBM for a glyph that should render as color emoji. Digits, '#',
+	// '*' are preserved (see fontsubset.IsEmojiCodepoint).
+	loadTextFont := func(name string) (opentype.Face, bool) {
 		b, err := loadEmbeddedTTF(name)
 		if err != nil {
-			return false
+			return opentype.Face{}, false
 		}
-		face, err := opentype.Parse(b)
+		stripped, err := fontsubset.SubsetEmoji(b)
 		if err != nil {
+			stripped = b
+		}
+		face, err := opentype.Parse(stripped)
+		if err != nil {
+			return opentype.Face{}, false
+		}
+		return face, true
+	}
+
+	addUIFace := func(name string) bool {
+		face, ok := loadTextFont(name)
+		if !ok {
 			return false
 		}
-		fonts = append(fonts, font.FontFace{
-			Font: face.Font(),
-			Face: face,
-		})
+		fonts = append(fonts, font.FontFace{Font: face.Font(), Face: face})
 		return true
 	}
 	interLoaded := addUIFace("Inter-Regular.ttf")
@@ -210,17 +225,13 @@ func NewAppUI() *AppUI {
 	}
 
 	addJBM := func(name string, style font.Style, weight font.Weight) {
-		b, err := loadEmbeddedTTF(name)
-		if err != nil {
-			return
-		}
-		face, err := opentype.Parse(b)
-		if err != nil {
+		face, ok := loadTextFont(name)
+		if !ok {
 			return
 		}
 		fonts = append(fonts, font.FontFace{
 			Font: font.Font{
-				Typeface: widgets.MonoTypeface,
+				Typeface: widgets.MonoFamilyName,
 				Style:    style,
 				Weight:   weight,
 			},
@@ -228,14 +239,20 @@ func NewAppUI() *AppUI {
 		})
 	}
 
-	addUIFace("NotoColorEmoji.ttf")
-
 	addJBM("JetBrainsMono-Regular.ttf", font.Regular, font.Normal)
 	addJBM("JetBrainsMono-Bold.ttf", font.Regular, font.Bold)
 	addJBM("JetBrainsMono-Italic.ttf", font.Italic, font.Normal)
 	addJBM("JetBrainsMono-BoldItalic.ttf", font.Italic, font.Bold)
 
-	th.Shaper = text.NewShaper(text.WithCollection(fonts))
+	// NotoColorEmoji loads unmodified — it owns all emoji glyphs.
+	if b, err := loadEmbeddedTTF("NotoColorEmoji.ttf"); err == nil {
+		if face, perr := opentype.Parse(b); perr == nil {
+			fonts = append(fonts, font.FontFace{Font: face.Font(), Face: face})
+		}
+	}
+
+	th.Shaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(fonts))
+	th.Face = "Inter," + widgets.EmojiTypeface
 
 	th.Bg = theme.Bg
 	th.Fg = theme.Fg

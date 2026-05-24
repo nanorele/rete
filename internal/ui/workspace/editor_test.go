@@ -8,18 +8,11 @@ import (
 func validateLineStarts(t *testing.T, v *RequestEditor) {
 	t.Helper()
 	want := []int{0}
-	pos := 0
 	for i := 0; i < len(v.text); i++ {
 		if v.text[i] == '\n' {
 			want = append(want, i+1)
-			continue
-		}
-		if i-pos >= chunkMaxBytes {
-			want = append(want, i)
-			pos = i
 		}
 	}
-	_ = pos
 	have := make(map[int]struct{}, len(v.lineStarts))
 	for _, s := range v.lineStarts {
 		have[s] = struct{}{}

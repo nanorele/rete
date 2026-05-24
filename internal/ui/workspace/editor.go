@@ -50,6 +50,9 @@ type RequestEditor struct {
 	chunkHeightsWrap  bool
 	chunkHeightsWidth int
 
+	wrapPlans     []wrapPlan
+	wrapPlanWidth int
+
 	scrollY int
 	scrollX int
 
@@ -167,6 +170,8 @@ func (v *RequestEditor) SetText(s string) bool {
 	v.rebuildLineStartsFrom(0)
 	v.invalidateChunkHeights()
 	v.padChunkHeights()
+	v.wrapPlans = v.wrapPlans[:0]
+	v.padWrapPlans()
 	v.lastTotalH = 0
 	v.imeSentSnippet = key.Snippet{}
 	v.scrollY = 0
@@ -267,8 +272,11 @@ func (v *RequestEditor) Append(s string) bool {
 	if last := len(v.chunkHeights) - 1; last >= 0 {
 		v.chunkHeights[last] = 0
 	}
+	lastLineBefore := len(v.lineStarts) - 1
 	v.appendLineStartsFrom(startIdx)
 	v.padChunkHeights()
+	v.invalidateWrapPlansFrom(lastLineBefore)
+	v.padWrapPlans()
 	v.lastTotalH = 0
 	return true
 }
@@ -298,6 +306,83 @@ func (v *RequestEditor) padChunkHeights() {
 	}
 }
 
+func (v *RequestEditor) padWrapPlans() {
+	for len(v.wrapPlans) < len(v.lineStarts) {
+		v.wrapPlans = append(v.wrapPlans, wrapPlan{})
+	}
+	if len(v.wrapPlans) > len(v.lineStarts) {
+		v.wrapPlans = v.wrapPlans[:len(v.lineStarts)]
+	}
+}
+
+func (v *RequestEditor) invalidateWrapPlansFrom(line int) {
+	if line < 0 {
+		line = 0
+	}
+	for i := line; i < len(v.wrapPlans); i++ {
+		v.wrapPlans[i].valid = false
+	}
+}
+
+func (v *RequestEditor) invalidateAllWrapPlans() {
+	for i := range v.wrapPlans {
+		v.wrapPlans[i].valid = false
+	}
+}
+
+func (v *RequestEditor) invalidateWrapPlansFromBytePos(pos int) {
+	idx := sort.Search(len(v.lineStarts), func(i int) bool {
+		return v.lineStarts[i] > pos
+	}) - 1
+	if idx < 0 {
+		idx = 0
+	}
+	if idx < len(v.wrapPlans) {
+		v.wrapPlans = v.wrapPlans[:idx]
+	}
+}
+
+func (v *RequestEditor) ensureWrapPlan(
+	line, absStart, absEnd int,
+	shaper *text.Shaper,
+	fnt font.Font,
+	size unit.Sp,
+	gtx layout.Context,
+	innerW, lineHeight int,
+) *wrapPlan {
+	p := &v.wrapPlans[line]
+	if p.valid && p.width == innerW && p.lineH == lineHeight {
+		return p
+	}
+	glyphs := widgets.ShapeChunkForWrap(shaper, fnt, size, gtx, v.text[absStart:absEnd], innerW)
+	points := widgets.WrapLineStarts(glyphs)
+	totalSubLines := len(points)
+	if totalSubLines < 1 {
+		totalSubLines = 1
+	}
+
+	if totalSubLines <= subLinesPerWrapChunk {
+		p.starts = append(p.starts[:0], 0)
+		p.subLines = append(p.subLines[:0], totalSubLines)
+	} else {
+		p.starts = p.starts[:0]
+		p.subLines = p.subLines[:0]
+		for i := 0; i < totalSubLines; i += subLinesPerWrapChunk {
+			p.starts = append(p.starts, points[i])
+			end := i + subLinesPerWrapChunk
+			if end > totalSubLines {
+				end = totalSubLines
+			}
+			p.subLines = append(p.subLines, end-i)
+		}
+	}
+	p.height = totalSubLines * lineHeight
+	p.width = innerW
+	p.lineH = lineHeight
+	p.valid = true
+	return p
+}
+
 func (v *RequestEditor) Insert(pos int, s string) {
 	if s == "" {
 		return
@@ -318,11 +403,14 @@ func (v *RequestEditor) Insert(pos int, s string) {
 
 	shift := len(s)
 	v.shiftRanges(pos, shift)
+	v.shiftTokens(pos, shift)
 
 	v.invalidateChunkHeightsFrom(pos)
+	v.invalidateWrapPlansFromBytePos(pos)
 	v.lineStartsInsert(pos, len(s))
 	v.maxLineWidth = 0
 	v.padChunkHeights()
+	v.padWrapPlans()
 	v.lastTotalH = 0
 	v.recordEdit(editOp{
 		pos:       pos,
@@ -354,11 +442,14 @@ func (v *RequestEditor) DeleteRange(start, end int) {
 	v.invalidateRuneCaches()
 
 	v.shiftRanges(end, -(end - start))
+	v.shiftTokens(end, -(end - start))
 
 	v.invalidateChunkHeightsFrom(start)
+	v.invalidateWrapPlansFromBytePos(start)
 	v.lineStartsDelete(start, end-start)
 	v.maxLineWidth = 0
 	v.padChunkHeights()
+	v.padWrapPlans()
 	v.lastTotalH = 0
 	v.recordEdit(editOp{
 		pos:       start,
@@ -671,6 +762,62 @@ func (v *RequestEditor) shiftRanges(from, delta int) {
 	}
 }
 
+func (v *RequestEditor) shiftTokens(from, delta int) {
+	if delta == 0 || len(v.tokens) == 0 {
+		return
+	}
+	adjustStart := func(off int) int {
+		if off >= from {
+			return off + delta
+		}
+		if delta < 0 && off > from+delta {
+			return from + delta
+		}
+		return off
+	}
+	adjustEnd := func(off int) int {
+		if delta > 0 {
+			if off > from {
+				return off + delta
+			}
+			return off
+		}
+		if off >= from {
+			return off + delta
+		}
+		if off > from+delta {
+			return from + delta
+		}
+		return off
+	}
+	n := len(v.text)
+	w := 0
+	for i := range v.tokens {
+		s := adjustStart(v.tokens[i].Start)
+		e := adjustEnd(v.tokens[i].End)
+		if s < 0 {
+			s = 0
+		}
+		if e < s {
+			e = s
+		}
+		if s > n {
+			s = n
+		}
+		if e > n {
+			e = n
+		}
+		if e <= s {
+			continue
+		}
+		v.tokens[w] = v.tokens[i]
+		v.tokens[w].Start = s
+		v.tokens[w].End = e
+		w++
+	}
+	v.tokens = v.tokens[:w]
+}
+
 func (v *RequestEditor) Text() string { return string(v.text) }
 
 func (v *RequestEditor) Bytes() []byte { return v.text }
@@ -833,29 +980,9 @@ func (v *RequestEditor) lineStartsDelete(start, length int) {
 }
 
 func (v *RequestEditor) scanChunks(from int) {
-	lastBreak := from
 	for i := from; i < len(v.text); i++ {
-		if v.text[i] == '\n' {
-			if i+1 <= len(v.text) {
-				v.lineStarts = append(v.lineStarts, i+1)
-			}
-			lastBreak = i + 1
-		} else if i-lastBreak >= chunkMaxBytes {
-			breakAt := i
-			for breakAt > lastBreak && (v.text[breakAt]&0xC0) == 0x80 {
-				breakAt--
-			}
-			if breakAt == lastBreak {
-				breakAt = i
-				for breakAt < len(v.text) && (v.text[breakAt]&0xC0) == 0x80 {
-					breakAt++
-				}
-				if breakAt >= len(v.text) {
-					return
-				}
-			}
-			v.lineStarts = append(v.lineStarts, breakAt)
-			lastBreak = breakAt
+		if v.text[i] == '\n' && i+1 <= len(v.text) {
+			v.lineStarts = append(v.lineStarts, i+1)
 		}
 	}
 }
@@ -947,8 +1074,10 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		v.chunkHeightsWidth = innerW
 		v.maxLineWidth = 0
 		v.scrollX = 0
+		v.invalidateAllWrapPlans()
 	}
 	v.padChunkHeights()
+	v.padWrapPlans()
 
 	textColorMacro := op.Record(gtx.Ops)
 	paint.ColorOp{Color: s.Color}.Add(gtx.Ops)
@@ -1420,69 +1549,104 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		}
 		start, end := v.lineBounds(line)
 
+		if s.Wrap && end-start >= longLineThresholdBytes {
+			plan := v.ensureWrapPlan(line, start, end, s.Shaper, s.Font, s.TextSize, gtx, innerW, exactLineH)
+			v.chunkHeights[line] = plan.height
+			for subIdx := 0; subIdx < len(plan.starts); subIdx++ {
+				subH := plan.subLines[subIdx] * exactLineH
+				if yOff+subH > 0 && yOff < innerH {
+					subAbsStart := start + plan.starts[subIdx]
+					var subAbsEnd int
+					if subIdx+1 < len(plan.starts) {
+						subAbsEnd = start + plan.starts[subIdx+1]
+					} else {
+						subAbsEnd = end
+					}
+					v.paintChunk(gtx, s, subAbsStart, subAbsEnd, subH, yOff, charAdv, exactLineH, innerW, lineHeight, textColor, lbl, tokenizing, hasHL, hasSel, caretShow)
+				}
+				yOff += subH
+			}
+			continue
+		}
+
 		chunkH := v.chunkHeights[line]
 		if chunkH == 0 {
 			chunkH = v.estimateChunkHeight(line, exactLineH, charAdv, innerW, s.Wrap)
 		}
-
-		var glyphs []widgets.WrapGlyph
-		if s.Wrap && end > start {
-			glyphs = widgets.ShapeChunkForWrap(s.Shaper, s.Font, s.TextSize, gtx, v.text[start:end], innerW)
-		}
-
-		if hasHL && v.highlightEnd > start && v.highlightStart < end {
-			v.paintHighlight(gtx, start, end, chunkH, yOff, charAdv, s.Wrap, innerW, s.HighlightColor, v.highlightStart, v.highlightEnd, glyphs)
-		}
-
-		if caretShow && v.selEnd >= start && v.selEnd <= end {
-			v.paintCaret(gtx, start, end, yOff, charAdv, exactLineH, s.Wrap, innerW, s.Color, glyphs)
-		}
-		if hasSel {
-			selS, selE := v.selStart, v.selEnd
-			if selS > selE {
-				selS, selE = selE, selS
-			}
-			if selE > start && selS < end {
-				v.paintHighlight(gtx, start, end, chunkH, yOff, charAdv, s.Wrap, innerW, s.SelectionColor, selS, selE, glyphs)
-			}
-		}
-
-		if len(v.text) <= requestEditorVarScanCutoff {
-			v.paintVarHighlights(gtx, start, end, yOff, charAdv, exactLineH, s.Wrap, innerW, s.Env, glyphs)
-		}
-
-		tr := op.Offset(image.Pt(-v.scrollX, yOff)).Push(gtx.Ops)
-		labelGtx := gtx
-		labelGtx.Constraints.Min = image.Point{}
-		if s.Wrap {
-			labelGtx.Constraints.Max.X = innerW
-		} else {
-			labelGtx.Constraints.Max.X = 1 << 24
-		}
-		labelGtx.Constraints.Max.Y = 1 << 24
-		lineText := string(v.text[start:end])
-		var dims layout.Dimensions
-		if tokenizing && len(v.tokens) > 0 {
-			spans := v.spansForChunk(start, end, s.Syntax, s.BracketCycle)
-			dims = widgets.PaintColoredText(labelGtx, s.Shaper, s.Font, s.TextSize, lineText, spans, s.Color, s.Wrap, innerW)
-		} else {
-			dims = lbl.Layout(labelGtx, s.Shaper, s.Font, s.TextSize, lineText, textColor)
-		}
-		tr.Pop()
-
-		if !s.Wrap && dims.Size.X > v.maxLineWidth {
-			v.maxLineWidth = dims.Size.X
-		}
-
-		actualH := dims.Size.Y
-		if actualH <= 0 {
-			actualH = lineHeight
-		}
+		actualH := v.paintChunk(gtx, s, start, end, chunkH, yOff, charAdv, exactLineH, innerW, lineHeight, textColor, lbl, tokenizing, hasHL, hasSel, caretShow)
 		v.chunkHeights[line] = actualH
 		yOff += actualH
 	}
 
 	return layout.Dimensions{Size: size}
+}
+
+func (v *RequestEditor) paintChunk(
+	gtx layout.Context,
+	s RequestEditorStyle,
+	absStart, absEnd int,
+	chunkH, yOff int,
+	charAdv fixed.Int26_6,
+	exactLineH, innerW, lineHeight int,
+	textColor op.CallOp,
+	lbl widget.Label,
+	tokenizing bool,
+	hasHL, hasSel, caretShow bool,
+) int {
+	var glyphs []widgets.WrapGlyph
+	if s.Wrap && absEnd > absStart {
+		glyphs = widgets.ShapeChunkForWrap(s.Shaper, s.Font, s.TextSize, gtx, v.text[absStart:absEnd], innerW)
+	}
+
+	if hasHL && v.highlightEnd > absStart && v.highlightStart < absEnd {
+		v.paintHighlight(gtx, absStart, absEnd, chunkH, yOff, charAdv, s.Wrap, innerW, s.HighlightColor, v.highlightStart, v.highlightEnd, glyphs)
+	}
+
+	if caretShow && v.selEnd >= absStart && v.selEnd <= absEnd {
+		v.paintCaret(gtx, absStart, absEnd, yOff, charAdv, exactLineH, s.Wrap, innerW, s.Color, glyphs)
+	}
+	if hasSel {
+		selS, selE := v.selStart, v.selEnd
+		if selS > selE {
+			selS, selE = selE, selS
+		}
+		if selE > absStart && selS < absEnd {
+			v.paintHighlight(gtx, absStart, absEnd, chunkH, yOff, charAdv, s.Wrap, innerW, s.SelectionColor, selS, selE, glyphs)
+		}
+	}
+
+	if len(v.text) <= requestEditorVarScanCutoff {
+		v.paintVarHighlights(gtx, absStart, absEnd, yOff, charAdv, exactLineH, s.Wrap, innerW, s.Env, glyphs)
+	}
+
+	tr := op.Offset(image.Pt(-v.scrollX, yOff)).Push(gtx.Ops)
+	labelGtx := gtx
+	labelGtx.Constraints.Min = image.Point{}
+	if s.Wrap {
+		labelGtx.Constraints.Max.X = innerW
+	} else {
+		labelGtx.Constraints.Max.X = 1 << 24
+	}
+	labelGtx.Constraints.Max.Y = 1 << 24
+	chunkText := string(v.text[absStart:absEnd])
+	var dims layout.Dimensions
+	if tokenizing && len(v.tokens) > 0 {
+		spans := v.spansForChunk(absStart, absEnd, s.Syntax, s.BracketCycle)
+		dims = widgets.PaintColoredText(labelGtx, s.Shaper, s.Font, s.TextSize, chunkText, spans, s.Color, s.Wrap, innerW)
+	} else {
+		dims = lbl.Layout(labelGtx, s.Shaper, s.Font, s.TextSize, chunkText, textColor)
+	}
+	tr.Pop()
+
+	if !s.Wrap && dims.Size.X > v.maxLineWidth {
+		v.maxLineWidth = dims.Size.X
+	}
+
+	actualH := dims.Size.Y
+	if actualH <= 0 {
+		actualH = lineHeight
+	}
+	return actualH
 }
 
 func (v *RequestEditor) coordToByteOffset(
