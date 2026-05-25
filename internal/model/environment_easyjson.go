@@ -205,20 +205,6 @@ func easyjson59dfaf49DecodeTractoInternalModel1(in *jlexer.Lexer, out *ExtEnvVar
 			} else {
 				out.Value = string(in.String())
 			}
-		case "enabled":
-			if in.IsNull() {
-				in.Skip()
-				out.Enabled = nil
-			} else {
-				if out.Enabled == nil {
-					out.Enabled = new(bool)
-				}
-				if in.IsNull() {
-					in.Skip()
-				} else {
-					*out.Enabled = bool(in.Bool())
-				}
-			}
 		default:
 			switch strings.ToLower(key) {
 			case "key":
@@ -232,20 +218,6 @@ func easyjson59dfaf49DecodeTractoInternalModel1(in *jlexer.Lexer, out *ExtEnvVar
 					in.Skip()
 				} else {
 					out.Value = string(in.String())
-				}
-			case "enabled":
-				if in.IsNull() {
-					in.Skip()
-					out.Enabled = nil
-				} else {
-					if out.Enabled == nil {
-						out.Enabled = new(bool)
-					}
-					if in.IsNull() {
-						in.Skip()
-					} else {
-						*out.Enabled = bool(in.Bool())
-					}
 				}
 			default:
 				in.SkipRecursive()
@@ -271,11 +243,6 @@ func easyjson59dfaf49EncodeTractoInternalModel1(out *jwriter.Writer, in ExtEnvVa
 		const prefix string = ",\"value\":"
 		out.RawString(prefix)
 		out.String(string(in.Value))
-	}
-	if in.Enabled != nil {
-		const prefix string = ",\"enabled\":"
-		out.RawString(prefix)
-		out.Bool(bool(*in.Enabled))
 	}
 	out.RawByte('}')
 }
@@ -329,12 +296,6 @@ func easyjson59dfaf49DecodeTractoInternalModel2(in *jlexer.Lexer, out *EnvVar) {
 			} else {
 				out.Value = string(in.String())
 			}
-		case "enabled":
-			if in.IsNull() {
-				in.Skip()
-			} else {
-				out.Enabled = bool(in.Bool())
-			}
 		default:
 			switch strings.ToLower(key) {
 			case "key":
@@ -348,12 +309,6 @@ func easyjson59dfaf49DecodeTractoInternalModel2(in *jlexer.Lexer, out *EnvVar) {
 					in.Skip()
 				} else {
 					out.Value = string(in.String())
-				}
-			case "enabled":
-				if in.IsNull() {
-					in.Skip()
-				} else {
-					out.Enabled = bool(in.Bool())
 				}
 			default:
 				in.SkipRecursive()
@@ -379,11 +334,6 @@ func easyjson59dfaf49EncodeTractoInternalModel2(out *jwriter.Writer, in EnvVar) 
 		const prefix string = ",\"value\":"
 		out.RawString(prefix)
 		out.String(string(in.Value))
-	}
-	{
-		const prefix string = ",\"enabled\":"
-		out.RawString(prefix)
-		out.Bool(bool(in.Enabled))
 	}
 	out.RawByte('}')
 }

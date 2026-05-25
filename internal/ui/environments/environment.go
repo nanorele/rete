@@ -16,7 +16,6 @@ import (
 type EnvVarRow struct {
 	KeyEditor widget.Editor
 	ValEditor widget.Editor
-	Enabled   widget.Bool
 	DelBtn    widget.Clickable
 }
 
@@ -74,7 +73,6 @@ func (ui *EnvironmentUI) InitEditor() {
 		if r.ValEditor.Text() != v.Value {
 			r.ValEditor.SetText(v.Value)
 		}
-		r.Enabled.Value = v.Enabled
 	}
 	if len(ui.Rows) > len(ui.Data.Vars) {
 		ui.Rows = ui.Rows[:len(ui.Data.Vars)]
@@ -113,14 +111,9 @@ func ParseEnvironment(r io.Reader, id string) (*model.ParsedEnvironment, error) 
 
 	var vars []model.EnvVar
 	for _, v := range ext.Values {
-		enabled := true
-		if v.Enabled != nil {
-			enabled = *v.Enabled
-		}
 		vars = append(vars, model.EnvVar{
-			Key:     v.Key,
-			Value:   v.Value,
-			Enabled: enabled,
+			Key:   v.Key,
+			Value: v.Value,
 		})
 	}
 

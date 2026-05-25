@@ -42,7 +42,7 @@ import (
 	"golang.org/x/exp/shiny/materialdesign/icons"
 )
 
-var methods = []string{"GET", "POST", "PUT", "DELETE", "HEAD", "PATCH", "OPTIONS"}
+var methods = []string{"GET", "POST", "PUT", "DELETE", "HEAD", "PATCH", "OPTIONS", MethodWS}
 
 var (
 	iconCopy *widget.Icon
@@ -226,6 +226,9 @@ type RequestTab struct {
 
 	formPartFileChan chan formPartFileResult
 	binaryFileChan   chan binaryFileResult
+
+	WS     *WSSession
+	WSHost WSHostFuncs
 }
 
 func NewRequestTab(title string) *RequestTab {
@@ -1555,7 +1558,11 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 						} else {
 							t.LastURLWidth = gtx.Constraints.Max.X
 						}
-						dims := widgets.TextFieldOverlay(gtx, th, &t.URLInput, "https://api.example.com", true, activeEnv, frozenURLWidth, unit.Sp(12))
+						urlHint := "https://api.example.com"
+						if t.Method == MethodWS {
+							urlHint = "ws://example.com/socket or wss://example.com/socket"
+						}
+						dims := widgets.TextFieldOverlay(gtx, th, &t.URLInput, urlHint, true, activeEnv, frozenURLWidth, unit.Sp(12))
 						pass := pointer.PassOp{}.Push(gtx.Ops)
 						cl := clip.Rect{Max: dims.Size}.Push(gtx.Ops)
 						t.urlClick.Add(gtx.Ops)
@@ -1691,6 +1698,9 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 			})
 		}),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			if t.Method == MethodWS {
+				return t.layoutWSBody(gtx, th, win, activeEnv)
+			}
 			flexAxis := layout.Horizontal
 			leftInset := layout.Inset{Right: unit.Dp(1)}
 			rightInset := layout.Inset{Left: unit.Dp(1)}

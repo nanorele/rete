@@ -235,8 +235,8 @@ func TestSaveEnvironmentRoundTrip(t *testing.T) {
 		Name:           "Prod",
 		HighlightColor: "#ff0000",
 		Vars: []model.EnvVar{
-			{Key: "host", Value: "example.com", Enabled: true},
-			{Key: "token", Value: "secret", Enabled: false},
+			{Key: "host", Value: "example.com"},
+			{Key: "token", Value: "secret"},
 		},
 	}
 	if err := persist.SaveEnvironment(env); err != nil {
@@ -262,11 +262,8 @@ func TestSaveEnvironmentRoundTrip(t *testing.T) {
 	if ext.Values[0].Key != "host" || ext.Values[0].Value != "example.com" {
 		t.Errorf("values[0] = %+v", ext.Values[0])
 	}
-	if ext.Values[0].Enabled == nil || !*ext.Values[0].Enabled {
-		t.Errorf("values[0].Enabled wrong")
-	}
-	if ext.Values[1].Enabled == nil || *ext.Values[1].Enabled {
-		t.Errorf("values[1].Enabled wrong")
+	if ext.Values[1].Key != "token" || ext.Values[1].Value != "secret" {
+		t.Errorf("values[1] = %+v", ext.Values[1])
 	}
 }
 

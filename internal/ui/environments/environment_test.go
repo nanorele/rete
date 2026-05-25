@@ -39,10 +39,10 @@ func TestParseEnvironment(t *testing.T) {
 		t.Fatalf("expected 2 vars, got %d", len(env.Vars))
 	}
 
-	if env.Vars[0].Key != "API_URL" || env.Vars[0].Value != "http://example.com" || !env.Vars[0].Enabled {
+	if env.Vars[0].Key != "API_URL" || env.Vars[0].Value != "http://example.com" {
 		t.Errorf("unexpected var 0: %+v", env.Vars[0])
 	}
-	if env.Vars[1].Key != "TOKEN" || env.Vars[1].Value != "secret" || env.Vars[1].Enabled {
+	if env.Vars[1].Key != "TOKEN" || env.Vars[1].Value != "secret" {
 		t.Errorf("unexpected var 1: %+v", env.Vars[1])
 	}
 
@@ -74,8 +74,8 @@ func TestEnvironmentUI_InitEditor(t *testing.T) {
 	env := &model.ParsedEnvironment{
 		Name: "Init Test",
 		Vars: []model.EnvVar{
-			{Key: "k1", Value: "v1", Enabled: true},
-			{Key: "k2", Value: "v2", Enabled: false},
+			{Key: "k1", Value: "v1"},
+			{Key: "k2", Value: "v2"},
 		},
 	}
 	ui := &EnvironmentUI{Data: env}
@@ -88,11 +88,11 @@ func TestEnvironmentUI_InitEditor(t *testing.T) {
 		t.Fatalf("expected 2 rows, got %d", len(ui.Rows))
 	}
 
-	if ui.Rows[0].KeyEditor.Text() != "k1" || ui.Rows[0].ValEditor.Text() != "v1" || !ui.Rows[0].Enabled.Value {
-		t.Errorf("unexpected row 0: %s %s %v", ui.Rows[0].KeyEditor.Text(), ui.Rows[0].ValEditor.Text(), ui.Rows[0].Enabled.Value)
+	if ui.Rows[0].KeyEditor.Text() != "k1" || ui.Rows[0].ValEditor.Text() != "v1" {
+		t.Errorf("unexpected row 0: %s %s", ui.Rows[0].KeyEditor.Text(), ui.Rows[0].ValEditor.Text())
 	}
-	if ui.Rows[1].KeyEditor.Text() != "k2" || ui.Rows[1].ValEditor.Text() != "v2" || ui.Rows[1].Enabled.Value {
-		t.Errorf("unexpected row 1: %s %s %v", ui.Rows[1].KeyEditor.Text(), ui.Rows[1].ValEditor.Text(), ui.Rows[1].Enabled.Value)
+	if ui.Rows[1].KeyEditor.Text() != "k2" || ui.Rows[1].ValEditor.Text() != "v2" {
+		t.Errorf("unexpected row 1: %s %s", ui.Rows[1].KeyEditor.Text(), ui.Rows[1].ValEditor.Text())
 	}
 	if ui.List.Axis != 1 {
 		t.Errorf("expected List.Axis to be 1")

@@ -53,7 +53,6 @@ func TestCommit_WritesNameAndVars(t *testing.T) {
 	)
 	ui.Rows[0].KeyEditor.SetText(" key1 ")
 	ui.Rows[0].ValEditor.SetText("v1")
-	ui.Rows[0].Enabled.Value = true
 	ui.Rows[1].KeyEditor.SetText("key2")
 	ui.Rows[1].ValEditor.SetText("v2")
 
@@ -68,9 +67,6 @@ func TestCommit_WritesNameAndVars(t *testing.T) {
 	}
 	if env.Vars[0].Key != "key1" {
 		t.Errorf("expected key trimmed to %q, got %q", "key1", env.Vars[0].Key)
-	}
-	if !env.Vars[0].Enabled {
-		t.Errorf("expected first row Enabled=true")
 	}
 	if !called {
 		t.Errorf("expected onDirty callback invoked")
@@ -132,7 +128,7 @@ func TestCommit_VarsResetEachCall(t *testing.T) {
 		ID:   "envD",
 		Name: "X",
 		Vars: []model.EnvVar{
-			{Key: "stale", Value: "old", Enabled: true},
+			{Key: "stale", Value: "old"},
 		},
 	}
 	ui := &EnvironmentUI{Data: env}
@@ -159,8 +155,8 @@ func TestLayoutEditor_SmokeRender(t *testing.T) {
 		ID:   "envE",
 		Name: "Smoke",
 		Vars: []model.EnvVar{
-			{Key: "a", Value: "1", Enabled: true},
-			{Key: "b", Value: "2", Enabled: false},
+			{Key: "a", Value: "1"},
+			{Key: "b", Value: "2"},
 		},
 		HighlightColor: "#abcdef",
 	}
@@ -197,9 +193,9 @@ func TestLayoutEditor_DeleteRow(t *testing.T) {
 		ID:   "envG",
 		Name: "X",
 		Vars: []model.EnvVar{
-			{Key: "k1", Value: "v1", Enabled: true},
-			{Key: "k2", Value: "v2", Enabled: true},
-			{Key: "k3", Value: "v3", Enabled: true},
+			{Key: "k1", Value: "v1"},
+			{Key: "k2", Value: "v2"},
+			{Key: "k3", Value: "v3"},
 		},
 	}
 	ui := &EnvironmentUI{Data: env}
@@ -230,7 +226,7 @@ func TestLayoutEditor_DeleteLastRow(t *testing.T) {
 		ID:   "envH",
 		Name: "X",
 		Vars: []model.EnvVar{
-			{Key: "only", Value: "v", Enabled: true},
+			{Key: "only", Value: "v"},
 		},
 	}
 	ui := &EnvironmentUI{Data: env}
@@ -356,7 +352,7 @@ func TestLoadAll_RoundTrip(t *testing.T) {
 	setupEnvConfig(t)
 
 	envs := []*model.ParsedEnvironment{
-		{ID: "id1", Name: "First", Vars: []model.EnvVar{{Key: "a", Value: "1", Enabled: true}}},
+		{ID: "id1", Name: "First", Vars: []model.EnvVar{{Key: "a", Value: "1"}}},
 		{ID: "id2", Name: "Second", HighlightColor: "#abcdef"},
 	}
 	for _, e := range envs {
@@ -383,7 +379,7 @@ func TestInitEditor_TruncatesExtraRows(t *testing.T) {
 
 	env := &model.ParsedEnvironment{
 		Name: "trunc",
-		Vars: []model.EnvVar{{Key: "k1", Value: "v1", Enabled: true}},
+		Vars: []model.EnvVar{{Key: "k1", Value: "v1"}},
 	}
 	ui := &EnvironmentUI{
 		Data: env,
@@ -399,8 +395,8 @@ func TestInitEditor_ReusesExistingRows(t *testing.T) {
 	env := &model.ParsedEnvironment{
 		Name: "reuse",
 		Vars: []model.EnvVar{
-			{Key: "k1", Value: "v1", Enabled: true},
-			{Key: "k2", Value: "v2", Enabled: false},
+			{Key: "k1", Value: "v1"},
+			{Key: "k2", Value: "v2"},
 		},
 	}
 	pre := &EnvVarRow{}
@@ -415,5 +411,41 @@ func TestInitEditor_ReusesExistingRows(t *testing.T) {
 	}
 	if ui.Rows[0].KeyEditor.Text() != "k1" {
 		t.Errorf("expected reused row updated to k1, got %q", ui.Rows[0].KeyEditor.Text())
+	}
+}
+
+func TestCommit_AddedVariablePersistsWithValue(t *testing.T) {
+	setupEnvConfig(t)
+	env := &model.ParsedEnvironment{ID: "envNew", Name: "New"}
+	ui := &EnvironmentUI{Data: env}
+	ui.InitEditor()
+
+	host := &EditorHost{Theme: material.NewTheme()}
+	ui.AddBtn.Click()
+	ui.LayoutEditor(makeGtx(), host)
+	if len(ui.Rows) != 1 {
+		t.Fatalf("expected 1 row after add, got %d", len(ui.Rows))
+	}
+	ui.Rows[0].KeyEditor.SetText("api")
+	ui.Rows[0].ValEditor.SetText("http://example.com")
+
+	ui.Commit(nil)
+
+	if len(env.Vars) != 1 || env.Vars[0].Key != "api" || env.Vars[0].Value != "http://example.com" {
+		t.Fatalf("unexpected committed vars: %+v", env.Vars)
+	}
+
+	loaded := LoadAll()
+	var got *model.ParsedEnvironment
+	for _, e := range loaded {
+		if e.ID == "envNew" {
+			got = e
+		}
+	}
+	if got == nil {
+		t.Fatalf("environment not persisted to disk")
+	}
+	if len(got.Vars) != 1 || got.Vars[0].Key != "api" || got.Vars[0].Value != "http://example.com" {
+		t.Fatalf("reloaded var wrong (a value-bearing var must survive round-trip): %+v", got.Vars)
 	}
 }

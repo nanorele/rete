@@ -22,7 +22,7 @@ func TestEnvEditor(t *testing.T) {
 	env := &model.ParsedEnvironment{
 		ID:   "env1",
 		Name: "Test Env",
-		Vars: []model.EnvVar{{Key: "k1", Value: "v1", Enabled: true}},
+		Vars: []model.EnvVar{{Key: "k1", Value: "v1"}},
 	}
 	ui.Environments = append(ui.Environments, &environments.EnvironmentUI{Data: env})
 	ui.EditingEnv = ui.Environments[0]

@@ -313,8 +313,8 @@ func TestDuplicateEnvironment(t *testing.T) {
 			Name:           "Original",
 			HighlightColor: "#ff0000",
 			Vars: []model.EnvVar{
-				{Key: "k1", Value: "v1", Enabled: true},
-				{Key: "k2", Value: "v2", Enabled: false},
+				{Key: "k1", Value: "v1"},
+				{Key: "k2", Value: "v2"},
 			},
 		},
 	}

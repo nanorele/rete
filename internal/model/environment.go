@@ -11,16 +11,14 @@ type ExtEnvironment struct {
 
 //easyjson:json
 type ExtEnvVar struct {
-	Key     string `json:"key"`
-	Value   string `json:"value"`
-	Enabled *bool  `json:"enabled,omitempty"`
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 //easyjson:json
 type EnvVar struct {
-	Key     string `json:"key"`
-	Value   string `json:"value"`
-	Enabled bool   `json:"enabled"`
+	Key   string `json:"key"`
+	Value string `json:"value"`
 }
 
 type ParsedEnvironment struct {

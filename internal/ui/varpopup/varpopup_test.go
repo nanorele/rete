@@ -154,8 +154,8 @@ func TestLayoutOpenBasic(t *testing.T) {
 
 func TestLayoutOpenWithEnvironments(t *testing.T) {
 	envs := []*environments.EnvironmentUI{
-		{Data: &model.ParsedEnvironment{ID: "e1", Name: "Dev", Vars: []model.EnvVar{{Key: "token", Value: "dev-tok", Enabled: true}}}},
-		{Data: &model.ParsedEnvironment{ID: "e2", Name: "Prod", Vars: []model.EnvVar{{Key: "token", Value: "prod-tok", Enabled: true}}}},
+		{Data: &model.ParsedEnvironment{ID: "e1", Name: "Dev", Vars: []model.EnvVar{{Key: "token", Value: "dev-tok"}}}},
+		{Data: &model.ParsedEnvironment{ID: "e2", Name: "Prod", Vars: []model.EnvVar{{Key: "token", Value: "prod-tok"}}}},
 	}
 	var s State
 	s.OpenAt("token", "dev-tok", nil, struct{ Start, End int }{}, f32.Pt(100, 100), "e1")
@@ -166,7 +166,7 @@ func TestLayoutOpenWithEnvironments(t *testing.T) {
 
 func TestLayoutEnvMenuOpen(t *testing.T) {
 	envs := []*environments.EnvironmentUI{
-		{Data: &model.ParsedEnvironment{ID: "e1", Name: "Dev", Vars: []model.EnvVar{{Key: "token", Value: "dev-tok", Enabled: true}}}},
+		{Data: &model.ParsedEnvironment{ID: "e1", Name: "Dev", Vars: []model.EnvVar{{Key: "token", Value: "dev-tok"}}}},
 		{Data: &model.ParsedEnvironment{ID: "e2", Name: "Prod"}},
 	}
 	var s State
@@ -218,7 +218,7 @@ func TestLayoutTinyConstraintsForcesPyZero(t *testing.T) {
 
 func TestLayoutEnvMenuOpenWithEmptyActive(t *testing.T) {
 	envs := []*environments.EnvironmentUI{
-		{Data: &model.ParsedEnvironment{ID: "e1", Name: "Dev", Vars: []model.EnvVar{{Key: "token", Value: "x", Enabled: true}}}},
+		{Data: &model.ParsedEnvironment{ID: "e1", Name: "Dev", Vars: []model.EnvVar{{Key: "token", Value: "x"}}}},
 	}
 	var s State
 	s.OpenAt("token", "", nil, struct{ Start, End int }{}, f32.Pt(20, 20), "")
@@ -259,7 +259,7 @@ func TestLayoutEnvAxisIsVerticalAfterLayout(t *testing.T) {
 
 func TestLayoutWithVarNotInEnv(t *testing.T) {
 	envs := []*environments.EnvironmentUI{
-		{Data: &model.ParsedEnvironment{ID: "e1", Name: "Dev", Vars: []model.EnvVar{{Key: "other", Value: "x", Enabled: true}}}},
+		{Data: &model.ParsedEnvironment{ID: "e1", Name: "Dev", Vars: []model.EnvVar{{Key: "other", Value: "x"}}}},
 	}
 	var s State
 	s.OpenAt("missing", "", nil, struct{ Start, End int }{}, f32.Pt(20, 20), "e1")
@@ -273,8 +273,8 @@ func TestLayoutWithEmptyValueVar(t *testing.T) {
 
 	envs := []*environments.EnvironmentUI{
 		{Data: &model.ParsedEnvironment{ID: "e1", Name: "Dev", Vars: []model.EnvVar{
-			{Key: "token", Value: "", Enabled: true},
-			{Key: "token", Value: "second", Enabled: true},
+			{Key: "token", Value: ""},
+			{Key: "token", Value: "second"},
 		}}},
 	}
 	var s State

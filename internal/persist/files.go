@@ -71,11 +71,9 @@ func SaveEnvironment(env *model.ParsedEnvironment) error {
 		HighlightColor: env.HighlightColor,
 	}
 	for _, v := range env.Vars {
-		enabled := v.Enabled
 		ext.Values = append(ext.Values, model.ExtEnvVar{
-			Key:     v.Key,
-			Value:   v.Value,
-			Enabled: &enabled,
+			Key:   v.Key,
+			Value: v.Value,
 		})
 	}
 	data, err := MarshalIndentEasy(ext, "  ")

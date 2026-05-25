@@ -276,19 +276,16 @@ func TestExtEnvironment_Unmarshal(t *testing.T) {
 	if len(e.Values) != 3 {
 		t.Fatalf("len Values = %d", len(e.Values))
 	}
-	if e.Values[0].Enabled != nil {
-		t.Errorf("missing enabled should be nil pointer, got %v", *e.Values[0].Enabled)
+	if e.Values[0].Key != "host" || e.Values[0].Value != "localhost" {
+		t.Errorf("values[0] = %+v", e.Values[0])
 	}
-	if e.Values[1].Enabled == nil || !*e.Values[1].Enabled {
-		t.Errorf("enabled=true lost")
-	}
-	if e.Values[2].Enabled == nil || *e.Values[2].Enabled {
-		t.Errorf("enabled=false lost")
+	if e.Values[2].Key != "off" || e.Values[2].Value != "x" {
+		t.Errorf("values[2] = %+v", e.Values[2])
 	}
 }
 
 func TestEnvVar_JSONRoundTrip(t *testing.T) {
-	v := EnvVar{Key: "k", Value: "v", Enabled: true}
+	v := EnvVar{Key: "k", Value: "v"}
 	data, err := json.Marshal(v)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)

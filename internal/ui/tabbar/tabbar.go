@@ -58,6 +58,47 @@ type Strip struct {
 	rowBuf     []int
 }
 
+func renderAddCell(th *material.Theme, clk *widget.Clickable, label string, sp unit.Sp, w, h int, drawTop, drawLeft bool) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min.X = w
+		gtx.Constraints.Max.X = w
+		gtx.Constraints.Min.Y = h
+		gtx.Constraints.Max.Y = h
+		return layout.Stack{}.Layout(gtx,
+			layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+				paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: gtx.Constraints.Min}.Op())
+				return layout.Dimensions{Size: gtx.Constraints.Min}
+			}),
+			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+				btn := material.Button(th, clk, label)
+				btn.Background = theme.BgDark
+				btn.Color = th.Fg
+				btn.TextSize = sp
+				btn.CornerRadius = unit.Dp(0)
+				btn.Inset = layout.Inset{}
+				gtx.Constraints.Min = gtx.Constraints.Max
+				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+				pointer.CursorPointer.Add(gtx.Ops)
+				return btn.Layout(gtx)
+			}),
+			layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+				maxX := gtx.Constraints.Min.X
+				maxY := gtx.Constraints.Min.Y
+				t := max(gtx.Dp(1), 1)
+				paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, maxY-t), Max: image.Pt(maxX, maxY)}.Op())
+				paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(maxX-t, 0), Max: image.Pt(maxX, maxY)}.Op())
+				if drawTop {
+					paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(maxX, t)}.Op())
+				}
+				if drawLeft {
+					paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, maxY)}.Op())
+				}
+				return layout.Dimensions{Size: gtx.Constraints.Min}
+			}),
+		)
+	}
+}
+
 func NewStrip() *Strip {
 	return &Strip{
 		TabDragIdx: -1,
@@ -471,45 +512,7 @@ func (s *Strip) Layout(
 							)
 						}))
 					} else {
-						children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							gtx.Constraints.Min.X = gtx.Dp(unit.Dp(36))
-							gtx.Constraints.Max.X = gtx.Constraints.Min.X
-							gtx.Constraints.Min.Y = tabHeight
-							gtx.Constraints.Max.Y = tabHeight
-
-							return layout.Stack{}.Layout(gtx,
-								layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-									paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: gtx.Constraints.Min}.Op())
-									return layout.Dimensions{Size: gtx.Constraints.Min}
-								}),
-								layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-									btn := material.Button(th, &s.AddTabBtn, "+")
-									btn.Background = theme.BgDark
-									btn.Color = th.Fg
-									btn.TextSize = unit.Sp(16)
-									btn.CornerRadius = unit.Dp(0)
-									btn.Inset = layout.Inset{}
-									gtx.Constraints.Min = gtx.Constraints.Max
-									defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-									pointer.CursorPointer.Add(gtx.Ops)
-									return btn.Layout(gtx)
-								}),
-								layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-									maxX := gtx.Constraints.Min.X
-									maxY := gtx.Constraints.Min.Y
-									t := max(gtx.Dp(1), 1)
-									paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, maxY-t), Max: image.Pt(maxX, maxY)}.Op())
-									paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(maxX-t, 0), Max: image.Pt(maxX, maxY)}.Op())
-									if rIdx == 0 {
-										paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(maxX, t)}.Op())
-									}
-									if j == 0 {
-										paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, maxY)}.Op())
-									}
-									return layout.Dimensions{Size: gtx.Constraints.Min}
-								}),
-							)
-						}))
+						children = append(children, layout.Rigid(renderAddCell(th, &s.AddTabBtn, "+", unit.Sp(16), addBtnW, tabHeight, rIdx == 0, j == 0)))
 					}
 				}
 				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)

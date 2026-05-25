@@ -19,6 +19,7 @@ type HeaderState struct {
 
 //easyjson:json
 type TabState struct {
+	Kind             string          `json:"kind,omitempty"`
 	Title            string          `json:"title"`
 	Method           string          `json:"method"`
 	URL              string          `json:"url"`
@@ -35,6 +36,25 @@ type TabState struct {
 	FormParts        []FormPartState `json:"form_parts,omitempty"`
 	URLEncoded       []HeaderState   `json:"url_encoded,omitempty"`
 	BinaryPath       string          `json:"binary_path,omitempty"`
+	WS               *WSTabState     `json:"ws,omitempty"`
+}
+
+//easyjson:json
+type WSTabState struct {
+	Subprotocols       []string        `json:"subprotocols,omitempty"`
+	OfferDeflate       bool            `json:"offer_deflate,omitempty"`
+	InsecureSkipVerify bool            `json:"insecure_skip_verify,omitempty"`
+	UseTractoCA        bool            `json:"use_tracto_ca,omitempty"`
+	SavedSends         []WSSavedSend   `json:"saved_sends,omitempty"`
+	SplitRatio         float32         `json:"split_ratio,omitempty"`
+	ComposerRatio      float32         `json:"composer_ratio,omitempty"`
+}
+
+//easyjson:json
+type WSSavedSend struct {
+	Name   string `json:"name,omitempty"`
+	Opcode string `json:"opcode,omitempty"`
+	Text   string `json:"text,omitempty"`
 }
 
 //easyjson:json

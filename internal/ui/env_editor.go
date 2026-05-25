@@ -65,9 +65,8 @@ func (ui *AppUI) saveVarPopup() {
 		}
 		if !updated {
 			env.Data.Vars = append(env.Data.Vars, model.EnvVar{
-				Key:     ui.VarPopup.Name,
-				Value:   ui.VarPopup.Editor.Text(),
-				Enabled: true,
+				Key:   ui.VarPopup.Name,
+				Value: ui.VarPopup.Editor.Text(),
 			})
 		}
 		_ = persist.SaveEnvironment(env.Data)

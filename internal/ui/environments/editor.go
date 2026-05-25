@@ -46,9 +46,8 @@ func (env *EnvironmentUI) Commit(onDirty func()) {
 			continue
 		}
 		env.Data.Vars = append(env.Data.Vars, model.EnvVar{
-			Key:     k,
-			Value:   v,
-			Enabled: r.Enabled.Value,
+			Key:   k,
+			Value: v,
 		})
 	}
 	_ = persist.SaveEnvironment(env.Data)

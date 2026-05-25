@@ -183,16 +183,16 @@ func TestActiveEnvSnapshot(t *testing.T) {
 	}
 }
 
-func TestRefreshActiveEnv_DisabledAndEmptyValues(t *testing.T) {
+func TestRefreshActiveEnv_EmptyValuesAndMissingEnv(t *testing.T) {
 	setupTestConfigDir(t)
 	ui := NewAppUI()
 	env := &model.ParsedEnvironment{
 		ID:   "e1",
 		Name: "E1",
 		Vars: []model.EnvVar{
-			{Key: "ok", Value: "v", Enabled: true},
-			{Key: "off", Value: "v2", Enabled: false},
-			{Key: "empty", Value: "", Enabled: true},
+			{Key: "ok", Value: "v"},
+			{Key: "also", Value: "v2"},
+			{Key: "empty", Value: ""},
 		},
 	}
 	ui.Environments = append(ui.Environments, &environments.EnvironmentUI{Data: env})
@@ -200,10 +200,10 @@ func TestRefreshActiveEnv_DisabledAndEmptyValues(t *testing.T) {
 	ui.activeEnvDirty = true
 	ui.refreshActiveEnv()
 	if _, ok := ui.activeEnvVars["ok"]; !ok {
-		t.Errorf("enabled var missing")
+		t.Errorf("var with value missing")
 	}
-	if _, ok := ui.activeEnvVars["off"]; ok {
-		t.Errorf("disabled var should be excluded")
+	if _, ok := ui.activeEnvVars["also"]; !ok {
+		t.Errorf("var with value missing")
 	}
 	if _, ok := ui.activeEnvVars["empty"]; ok {
 		t.Errorf("empty-value var should be excluded")
@@ -221,6 +221,28 @@ func TestRefreshActiveEnv_DisabledAndEmptyValues(t *testing.T) {
 	ui.refreshActiveEnv()
 	if ui.activeEnvVars != nil {
 		t.Errorf("expected nil when no matching env")
+	}
+}
+
+func TestNewVariableResolvesAfterEditorCommit(t *testing.T) {
+	setupTestConfigDir(t)
+	ui := NewAppUI()
+	env := &model.ParsedEnvironment{ID: "e1", Name: "E1"}
+	envUI := &environments.EnvironmentUI{Data: env}
+	envUI.InitEditor()
+	ui.Environments = append(ui.Environments, envUI)
+	ui.EditingEnv = envUI
+	ui.ActiveEnvID = "e1"
+
+	envUI.Rows = append(envUI.Rows, &environments.EnvVarRow{})
+	envUI.Rows[0].KeyEditor.SetText("base")
+	envUI.Rows[0].ValEditor.SetText("http://api")
+
+	ui.commitEditingEnv()
+	ui.refreshActiveEnv()
+
+	if got := ui.activeEnvVars["base"]; got != "http://api" {
+		t.Fatalf("a freshly added {{base}} must resolve to its value; got %q", got)
 	}
 }
 

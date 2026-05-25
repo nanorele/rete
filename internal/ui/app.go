@@ -397,9 +397,6 @@ func (ui *AppUI) refreshActiveEnv() {
 		if e.Data.ID == ui.ActiveEnvID {
 			ui.activeEnvVars = make(map[string]string)
 			for _, v := range e.Data.Vars {
-				if !v.Enabled {
-					continue
-				}
 				if v.Value != "" {
 					ui.activeEnvVars[v.Key] = v.Value
 				}
@@ -528,60 +525,7 @@ func (ui *AppUI) loadState() {
 		state.Tabs = nil
 	}
 	for _, ts := range state.Tabs {
-		tab := workspace.NewRequestTab(ts.Title)
-		if tab.Title == "" {
-			tab.Title = "New request"
-		}
-		tab.Method = ts.Method
-		if tab.Method == "" {
-			tab.Method = "GET"
-		}
-		tab.URLInput.SetText(ts.URL)
-		tab.ReqEditor.SetText(ts.Body)
-		for _, hs := range ts.Headers {
-			tab.AddHeader(hs.Key, hs.Value)
-		}
-		if ts.SplitRatio > 0 {
-			tab.SplitRatio = ts.SplitRatio
-		}
-		if ts.VStackRatio > 0 {
-			tab.VStackRatio = ts.VStackRatio
-		}
-		tab.LayoutMode = ts.LayoutMode
-		if ts.HeaderSplitRatio > 0 {
-			tab.HeaderSplitRatio = ts.HeaderSplitRatio
-		}
-		if ts.ReqWrapEnabled != nil {
-			tab.ReqWrapEnabled = *ts.ReqWrapEnabled
-		}
-		tab.PendingColID = ts.CollectionID
-		tab.PendingNodePath = ts.NodePath
-		tab.BodyType = model.BodyTypeFromMode(ts.BodyType)
-		for _, fp := range ts.FormParts {
-			kind := model.FormPartText
-			if fp.Kind == "file" {
-				kind = model.FormPartFile
-			}
-			var size int64
-			if kind == model.FormPartFile && fp.FilePath != "" {
-				if fi, err := os.Stat(fp.FilePath); err == nil {
-					size = fi.Size()
-				}
-			}
-			tab.FormParts = append(tab.FormParts, workspace.NewFormPart(fp.Key, fp.Value, kind, fp.FilePath, size))
-		}
-		for _, ue := range ts.URLEncoded {
-			tab.URLEncoded = append(tab.URLEncoded, workspace.NewURLEncodedPart(ue.Key, ue.Value))
-		}
-		tab.BinaryFilePath = ts.BinaryPath
-		if ts.BinaryPath != "" {
-			if fi, err := os.Stat(ts.BinaryPath); err == nil {
-				tab.BinaryFileSize = fi.Size()
-			}
-		}
-
-		tab.UpdateSystemHeaders()
-		ui.Tabs = append(ui.Tabs, tab)
+		ui.Tabs = append(ui.Tabs, ui.loadTabFromState(ts))
 	}
 	if len(ui.Tabs) == 0 {
 		ui.Tabs = append(ui.Tabs, workspace.NewRequestTab("New request"))
@@ -664,52 +608,7 @@ func (ui *AppUI) buildStateSnapshot() persist.AppState {
 		}
 	}
 	for _, tab := range ui.Tabs {
-		reqWrap := tab.ReqWrapEnabled
-		ts := persist.TabState{
-			Title:            tab.Title,
-			Method:           tab.Method,
-			URL:              tab.URLInput.Text(),
-			Body:             tab.ReqEditor.Text(),
-			SplitRatio:       tab.SplitRatio,
-			VStackRatio:      tab.VStackRatio,
-			LayoutMode:       tab.LayoutMode,
-			HeaderSplitRatio: tab.HeaderSplitRatio,
-			ReqWrapEnabled:   &reqWrap,
-			BodyType:         tab.BodyType.PostmanMode(),
-			BinaryPath:       tab.BinaryFilePath,
-		}
-		for _, p := range tab.FormParts {
-			kind := "text"
-			if p.Kind == model.FormPartFile {
-				kind = "file"
-			}
-			ts.FormParts = append(ts.FormParts, persist.FormPartState{
-				Key:      p.Key.Text(),
-				Kind:     kind,
-				Value:    p.Value.Text(),
-				FilePath: p.FilePath,
-			})
-		}
-		for _, ue := range tab.URLEncoded {
-			ts.URLEncoded = append(ts.URLEncoded, persist.HeaderState{
-				Key:   ue.Key.Text(),
-				Value: ue.Value.Text(),
-			})
-		}
-		if tab.LinkedNode != nil && tab.LinkedNode.Collection != nil {
-			ts.CollectionID = tab.LinkedNode.Collection.ID
-			ts.NodePath = collections.NodePathFrom(tab.LinkedNode.Collection.Root, tab.LinkedNode)
-		}
-		ts.Headers = make([]persist.HeaderState, 0, len(tab.Headers))
-		for _, h := range tab.Headers {
-			if !h.IsGenerated {
-				k := h.Key.Text()
-				if k != "" {
-					ts.Headers = append(ts.Headers, persist.HeaderState{Key: k, Value: h.Value.Text()})
-				}
-			}
-		}
-		state.Tabs = append(state.Tabs, ts)
+		state.Tabs = append(state.Tabs, ui.tabStateFromTab(tab))
 	}
 	return state
 }
@@ -844,16 +743,16 @@ func (ui *AppUI) openRequestInTab(node *collections.CollectionNode) {
 		}
 	}
 
-	tab := workspace.NewRequestTab(node.Name)
-	tab.LinkedNode = node
+	rt := workspace.NewRequestTab(node.Name)
+	rt.LinkedNode = node
 	req := node.Request
-	tab.Method = req.Method
-	tab.URLInput.SetText(req.URL)
-	tab.ReqEditor.SetText(req.Body)
+	rt.Method = req.Method
+	rt.URLInput.SetText(req.URL)
+	rt.ReqEditor.SetText(req.Body)
 	for k, v := range req.Headers {
-		tab.AddHeader(k, v)
+		rt.AddHeader(k, v)
 	}
-	tab.BodyType = req.BodyType
+	rt.BodyType = req.BodyType
 	for _, fp := range req.FormParts {
 		var size int64
 		if fp.Kind == model.FormPartFile && fp.FilePath != "" {
@@ -863,42 +762,42 @@ func (ui *AppUI) openRequestInTab(node *collections.CollectionNode) {
 		}
 		part := workspace.NewFormPart(fp.Key, fp.Value, fp.Kind, fp.FilePath, size)
 		part.Disabled = fp.Disabled
-		tab.FormParts = append(tab.FormParts, part)
+		rt.FormParts = append(rt.FormParts, part)
 	}
 	for _, kv := range req.URLEncoded {
 		part := workspace.NewURLEncodedPart(kv.Key, kv.Value)
 		part.Disabled = kv.Disabled
-		tab.URLEncoded = append(tab.URLEncoded, part)
+		rt.URLEncoded = append(rt.URLEncoded, part)
 	}
-	tab.BinaryFilePath = req.BinaryPath
+	rt.BinaryFilePath = req.BinaryPath
 	if req.BinaryPath != "" {
 		if fi, err := os.Stat(req.BinaryPath); err == nil {
-			tab.BinaryFileSize = fi.Size()
+			rt.BinaryFileSize = fi.Size()
 		}
 	}
 
-	tab.UpdateSystemHeaders()
+	rt.UpdateSystemHeaders()
 
-	ui.inheritActiveTabLayout(tab)
+	ui.inheritActiveTabLayout(rt)
 
-	ui.Tabs = append(ui.Tabs, tab)
+	ui.Tabs = append(ui.Tabs, rt)
 	ui.ActiveIdx = len(ui.Tabs) - 1
 	ui.saveState()
 	ui.Window.Invalidate()
 }
 
-func (ui *AppUI) inheritActiveTabLayout(tab *workspace.RequestTab) {
+func (ui *AppUI) inheritActiveTabLayout(rt *workspace.RequestTab) {
 	if len(ui.Tabs) == 0 || ui.ActiveIdx < 0 || ui.ActiveIdx >= len(ui.Tabs) {
 		return
 	}
 	src := ui.Tabs[ui.ActiveIdx]
-	if src == nil || src == tab {
+	if src == nil || src == rt {
 		return
 	}
-	tab.SplitRatio = src.SplitRatio
-	tab.VStackRatio = src.VStackRatio
-	tab.LayoutMode = src.LayoutMode
-	tab.HeaderSplitRatio = src.HeaderSplitRatio
+	rt.SplitRatio = src.SplitRatio
+	rt.VStackRatio = src.VStackRatio
+	rt.LayoutMode = src.LayoutMode
+	rt.HeaderSplitRatio = src.HeaderSplitRatio
 }
 
 func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
@@ -1301,8 +1200,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 	}
 
 	if len(ui.Tabs) == 0 {
-		newTab := workspace.NewRequestTab("New request")
-		ui.Tabs = append(ui.Tabs, newTab)
+		ui.Tabs = append(ui.Tabs, workspace.NewRequestTab("New request"))
 		ui.ActiveIdx = 0
 	}
 
@@ -1431,27 +1329,36 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 					return layout.Flex{Axis: layout.Vertical}.Layout(gtx, append(tabBarChildren,
 						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 							if len(ui.Tabs) > 0 && ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
-								tab := ui.Tabs[ui.ActiveIdx]
+								rt := ui.Tabs[ui.ActiveIdx]
+								ui.wireWSHost(rt)
 
-								for tab.SendBtn.Clicked(gtx) {
-									tab.SendMenuOpen = false
-									tab.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
+								for rt.SendBtn.Clicked(gtx) {
+									rt.SendMenuOpen = false
+									if rt.Method == workspace.MethodWS {
+										ui.triggerWSAction(rt)
+									} else {
+										rt.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
+									}
 									ui.saveState()
 								}
-								if tab.URLSubmitted {
-									tab.URLSubmitted = false
-									tab.SendMenuOpen = false
-									tab.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
+								if rt.URLSubmitted {
+									rt.URLSubmitted = false
+									rt.SendMenuOpen = false
+									if rt.Method == workspace.MethodWS {
+										ui.triggerWSAction(rt)
+									} else {
+										rt.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
+									}
 									ui.saveState()
 								}
-								for tab.CancelBtn.Clicked(gtx) {
-									tab.CancelRequest()
+								for rt.CancelBtn.Clicked(gtx) {
+									rt.CancelRequest()
 								}
-								for tab.SaveToFileBtn.Clicked(gtx) {
-									tab.SendMenuOpen = false
-									suggested := tab.SuggestedFile
+								for rt.SaveToFileBtn.Clicked(gtx) {
+									rt.SendMenuOpen = false
+									suggested := rt.SuggestedFile
 									if suggested == "" {
-										suggested = utils.FilenameFromURL(tab.URLInput.Text())
+										suggested = utils.FilenameFromURL(rt.URLInput.Text())
 									}
 									if suggested == "" {
 										suggested = "response.json"
@@ -1461,33 +1368,33 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 										if err != nil || w == nil {
 											return
 										}
-										tab.FileSaveMu.Lock()
-										if tab.Closed.Load() {
-											tab.FileSaveMu.Unlock()
+										rt.FileSaveMu.Lock()
+										if rt.Closed.Load() {
+											rt.FileSaveMu.Unlock()
 											_ = w.Close()
 											return
 										}
 										select {
-										case tab.FileSaveChan <- w:
-											tab.FileSaveMu.Unlock()
+										case rt.FileSaveChan <- w:
+											rt.FileSaveMu.Unlock()
 											ui.Window.Invalidate()
 										default:
-											tab.FileSaveMu.Unlock()
+											rt.FileSaveMu.Unlock()
 											_ = w.Close()
 										}
 									}()
 								}
 								select {
-								case w := <-tab.FileSaveChan:
+								case w := <-rt.FileSaveChan:
 									if f, ok := w.(*os.File); ok {
-										tab.SaveToFilePath = f.Name()
+										rt.SaveToFilePath = f.Name()
 									}
-									tab.ExecuteRequestToFile(ui.rootCtx, ui.Window, ui.activeEnvSnapshot(), w)
+									rt.ExecuteRequestToFile(ui.rootCtx, ui.Window, ui.activeEnvSnapshot(), w)
 								default:
 								}
 
 								isDragging := ui.SidebarDrag.Dragging() || ui.SidebarEnvDrag.Dragging()
-								return tab.Layout(gtx, ui.Theme, ui.Window, ui.Explorer, ui.activeEnvVars, isDragging, func() {
+								return rt.Layout(gtx, ui.Theme, ui.Window, ui.Explorer, ui.activeEnvVars, isDragging, func() {
 									ui.saveState()
 								}, ui.markCollectionDirty)
 							}
@@ -1514,8 +1421,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 										if ui.TabBar.AddTabBtn.Clicked(gtx) {
 											ui.TabBar.TabCtxMenuOpen = false
-											newTab := workspace.NewRequestTab("New request")
-											ui.Tabs = append(ui.Tabs, newTab)
+											ui.Tabs = append(ui.Tabs, workspace.NewRequestTab("New request"))
 											ui.ActiveIdx = len(ui.Tabs) - 1
 										}
 										btn := material.Button(ui.Theme, &ui.TabBar.AddTabBtn, "Create Request")

@@ -67,7 +67,7 @@ func TestAppUIHelpers(t *testing.T) {
 	ui := NewAppUI()
 	ui.Window = win
 
-	env := &model.ParsedEnvironment{ID: "e1", Name: "E1", Vars: []model.EnvVar{{Key: "k", Value: "v", Enabled: true}}}
+	env := &model.ParsedEnvironment{ID: "e1", Name: "E1", Vars: []model.EnvVar{{Key: "k", Value: "v"}}}
 	ui.Environments = append(ui.Environments, &environments.EnvironmentUI{Data: env})
 	ui.ActiveEnvID = "e1"
 	ui.activeEnvDirty = true
@@ -161,9 +161,10 @@ func TestRevealLinkedNode(t *testing.T) {
 
 	tab := workspace.NewRequestTab("test")
 	tab.LinkedNode = col.Root.Children[0]
-	ui.Tabs = append(ui.Tabs, tab)
+	wrap := tab
+	ui.Tabs = append(ui.Tabs, wrap)
 
-	ui.revealLinkedNode(tab)
+	ui.revealLinkedNode(wrap)
 	if !col.Root.Expanded {
 		t.Errorf("expected parent folder to be expanded")
 	}

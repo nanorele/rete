@@ -106,7 +106,7 @@ func TestSaveEnvironmentAndCollection(t *testing.T) {
 		ID:   "env1",
 		Name: "Test Env",
 		Vars: []model.EnvVar{
-			{Key: "k1", Value: "v1", Enabled: true},
+			{Key: "k1", Value: "v1"},
 		},
 	}
 	err := persist.SaveEnvironment(env)

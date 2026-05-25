@@ -12,7 +12,7 @@ type failingReader struct{}
 
 func (failingReader) Read(p []byte) (int, error) { return 0, errors.New("read fail") }
 
-func TestParseEnvironment_EnabledNilDefaultsTrue(t *testing.T) {
+func TestParseEnvironment_NoEnabledField(t *testing.T) {
 	jsonStr := `{"name":"E","values":[{"key":"k","value":"v"}]}`
 	env, err := ParseEnvironment(strings.NewReader(jsonStr), "id1")
 	if err != nil {
@@ -21,30 +21,28 @@ func TestParseEnvironment_EnabledNilDefaultsTrue(t *testing.T) {
 	if len(env.Vars) != 1 {
 		t.Fatalf("expected 1 var, got %d", len(env.Vars))
 	}
-	if !env.Vars[0].Enabled {
-		t.Errorf("expected Enabled=true when JSON omits enabled (Postman convention), got false")
+	if env.Vars[0].Key != "k" || env.Vars[0].Value != "v" {
+		t.Errorf("unexpected var: %+v", env.Vars[0])
 	}
 }
 
-func TestParseEnvironment_EnabledExplicitFalse(t *testing.T) {
-	jsonStr := `{"name":"E","values":[{"key":"k","value":"v","enabled":false}]}`
+func TestParseEnvironment_LegacyEnabledFieldIgnored(t *testing.T) {
+	jsonStr := `{"name":"E","values":[
+		{"key":"a","value":"1","enabled":false},
+		{"key":"b","value":"2","enabled":true}
+	]}`
 	env, err := ParseEnvironment(strings.NewReader(jsonStr), "id1")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if env.Vars[0].Enabled {
-		t.Errorf("expected Enabled=false when explicit, got true")
+	if len(env.Vars) != 2 {
+		t.Fatalf("expected 2 vars, got %d", len(env.Vars))
 	}
-}
-
-func TestParseEnvironment_EnabledExplicitTrue(t *testing.T) {
-	jsonStr := `{"name":"E","values":[{"key":"k","value":"v","enabled":true}]}`
-	env, err := ParseEnvironment(strings.NewReader(jsonStr), "id1")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
+	if env.Vars[0].Key != "a" || env.Vars[0].Value != "1" {
+		t.Errorf("legacy enabled:false must not drop or alter the var: %+v", env.Vars[0])
 	}
-	if !env.Vars[0].Enabled {
-		t.Errorf("expected Enabled=true when explicit, got false")
+	if env.Vars[1].Key != "b" || env.Vars[1].Value != "2" {
+		t.Errorf("unexpected var: %+v", env.Vars[1])
 	}
 }
 
@@ -213,24 +211,6 @@ func TestParseEnvironment_BytesReader(t *testing.T) {
 	}
 	if env.Name != "B" {
 		t.Errorf("expected Name=B, got %q", env.Name)
-	}
-}
-
-func TestParseEnvironment_EnabledMixedRows(t *testing.T) {
-	jsonStr := `{"name":"E","values":[
-		{"key":"a","value":"1"},
-		{"key":"b","value":"2","enabled":false},
-		{"key":"c","value":"3","enabled":true}
-	]}`
-	env, err := ParseEnvironment(strings.NewReader(jsonStr), "id")
-	if err != nil {
-		t.Fatalf("unexpected error: %v", err)
-	}
-	want := []bool{true, false, true}
-	for i, w := range want {
-		if env.Vars[i].Enabled != w {
-			t.Errorf("row %d: expected Enabled=%v, got %v", i, w, env.Vars[i].Enabled)
-		}
 	}
 }
 
