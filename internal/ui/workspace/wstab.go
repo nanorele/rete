@@ -46,7 +46,6 @@ type WSDisplayMessage struct {
 	Opcode  ws.Opcode
 	Payload []byte
 	Session int
-	IsSep   bool
 	Note    string
 	Error   string
 }
@@ -97,6 +96,7 @@ type WSSession struct {
 	OpcodeBinChoice   widget.Clickable
 	ComposerWrap      bool
 	ComposerWrapBtn   widget.Clickable
+	ComposerCopyBtn   widget.Clickable
 	ComposerSendBtn   widget.Clickable
 
 	SavedSends     []*WSSavedSend
@@ -105,6 +105,8 @@ type WSSession struct {
 	Messages       []WSDisplayMessage
 	MessagesList   widget.List
 	Filter         WSFilter
+	FilterMenuBtn  widget.Clickable
+	FilterMenuOpen bool
 	FilterPingBtn  widget.Clickable
 	FilterPongBtn  widget.Clickable
 	FilterCloseBtn widget.Clickable

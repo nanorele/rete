@@ -12,15 +12,24 @@ type embeddedFont struct {
 	data []byte
 }
 
-func textFontPayloads() []embeddedFont {
-	return []embeddedFont{
-		{"Inter-Regular", fontInterRegular},
-		{"Inter-Bold", fontInterBold},
-		{"JetBrainsMono-Regular", fontJBMRegular},
-		{"JetBrainsMono-Bold", fontJBMBold},
-		{"JetBrainsMono-Italic", fontJBMItalic},
-		{"JetBrainsMono-BoldItalic", fontJBMBoldItalic},
+func textFontPayloads(t *testing.T) []embeddedFont {
+	files := []struct{ label, file string }{
+		{"Inter-Regular", "Inter-Regular.ttf"},
+		{"Inter-Bold", "Inter-Bold.ttf"},
+		{"JetBrainsMono-Regular", "JetBrainsMono-Regular.ttf"},
+		{"JetBrainsMono-Bold", "JetBrainsMono-Bold.ttf"},
+		{"JetBrainsMono-Italic", "JetBrainsMono-Italic.ttf"},
+		{"JetBrainsMono-BoldItalic", "JetBrainsMono-BoldItalic.ttf"},
 	}
+	out := make([]embeddedFont, 0, len(files))
+	for _, f := range files {
+		b, err := loadEmbeddedTTF(f.file)
+		if err != nil {
+			t.Fatalf("load %s: %v", f.file, err)
+		}
+		out = append(out, embeddedFont{f.label, b})
+	}
+	return out
 }
 
 func TestSubsetRemovesEmojiCoverage(t *testing.T) {
@@ -50,7 +59,7 @@ func TestSubsetRemovesEmojiCoverage(t *testing.T) {
 		0x2B50, // ⭐
 		0x2B55, // ⭕
 	}
-	for _, fc := range textFontPayloads() {
+	for _, fc := range textFontPayloads(t) {
 		t.Run(fc.name, func(t *testing.T) {
 			out, err := fontsubset.SubsetEmoji(fc.data)
 			if err != nil {
@@ -79,7 +88,7 @@ func TestSubsetKeepsTextCoverage(t *testing.T) {
 		'я', 'А', 'Ё',
 		'α', 'Ω',
 	}
-	for _, fc := range textFontPayloads() {
+	for _, fc := range textFontPayloads(t) {
 		t.Run(fc.name, func(t *testing.T) {
 			out, err := fontsubset.SubsetEmoji(fc.data)
 			if err != nil {
@@ -101,7 +110,7 @@ func TestSubsetKeepsTextCoverage(t *testing.T) {
 }
 
 func TestSubsetRoundTripParses(t *testing.T) {
-	for _, fc := range textFontPayloads() {
+	for _, fc := range textFontPayloads(t) {
 		t.Run(fc.name, func(t *testing.T) {
 			out, err := fontsubset.SubsetEmoji(fc.data)
 			if err != nil {
@@ -115,7 +124,7 @@ func TestSubsetRoundTripParses(t *testing.T) {
 }
 
 func TestSubsetIdempotent(t *testing.T) {
-	for _, fc := range textFontPayloads() {
+	for _, fc := range textFontPayloads(t) {
 		t.Run(fc.name, func(t *testing.T) {
 			once, err := fontsubset.SubsetEmoji(fc.data)
 			if err != nil {

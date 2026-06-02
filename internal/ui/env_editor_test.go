@@ -109,3 +109,46 @@ func TestSaveVarPopup(t *testing.T) {
 		t.Errorf("var not updated")
 	}
 }
+
+func TestSaveVarPopup_NoEnvironmentAutoCreates(t *testing.T) {
+	setupTestConfigDir(t)
+	ui := NewAppUI()
+
+	ui.VarPopup.EnvID = ""
+	ui.ActiveEnvID = ""
+	ui.VarPopup.Name = "token"
+	ui.VarPopup.Editor.SetText("secret")
+	ui.saveVarPopup()
+
+	if len(ui.Environments) != 1 {
+		t.Fatalf("expected a default environment to be auto-created, got %d", len(ui.Environments))
+	}
+	env := ui.Environments[0].Data
+	if ui.ActiveEnvID != env.ID {
+		t.Errorf("auto-created environment should become active, got %q", ui.ActiveEnvID)
+	}
+	if len(env.Vars) != 1 || env.Vars[0].Key != "token" || env.Vars[0].Value != "secret" {
+		t.Errorf("variable not saved into default environment: %+v", env.Vars)
+	}
+
+	ui.activeEnvDirty = true
+	ui.refreshActiveEnv()
+	if ui.activeEnvVars["token"] != "secret" {
+		t.Errorf("variable should resolve after auto-create, got %q", ui.activeEnvVars["token"])
+	}
+}
+
+func TestSaveVarPopup_NoEnvironmentEmptyValueNoop(t *testing.T) {
+	setupTestConfigDir(t)
+	ui := NewAppUI()
+
+	ui.VarPopup.EnvID = ""
+	ui.ActiveEnvID = ""
+	ui.VarPopup.Name = "token"
+	ui.VarPopup.Editor.SetText("")
+	ui.saveVarPopup()
+
+	if len(ui.Environments) != 0 {
+		t.Errorf("empty value with no environment should not create one, got %d", len(ui.Environments))
+	}
+}

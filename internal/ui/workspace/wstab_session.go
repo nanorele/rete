@@ -69,14 +69,6 @@ func (t *RequestTab) WSConnect(ctx context.Context, tlsCfg *tls.Config, env map[
 	s.sessionMu.Lock()
 	s.sessionCount++
 	session := s.sessionCount
-	if len(s.Messages) > 0 {
-		s.Messages = append(s.Messages, WSDisplayMessage{
-			Time:    time.Now(),
-			Session: session,
-			IsSep:   true,
-			Note:    "─── session " + itoa(session) + " ───",
-		})
-	}
 	s.sessionMu.Unlock()
 
 	s.setState(WSStateConnecting)

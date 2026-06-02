@@ -43,6 +43,7 @@ type CollectionNode struct {
 
 	NameLeftPx  int
 	NameWidthPx int
+	RowHeightPx int
 
 	Drag  gesture.Drag
 	Hover gesture.Hover
@@ -247,6 +248,13 @@ func CollectSubtree(node *CollectionNode) map[*CollectionNode]struct{} {
 	}
 	walk(node)
 	return seen
+}
+
+func (n *CollectionNode) ResetSubtreeHover() {
+	for _, c := range n.Children {
+		c.Hover = gesture.Hover{}
+		c.ResetSubtreeHover()
+	}
 }
 
 func AssignParents(node *CollectionNode, parent *CollectionNode, col *ParsedCollection) {

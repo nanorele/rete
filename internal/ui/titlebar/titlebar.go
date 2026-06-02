@@ -40,7 +40,7 @@ func (b *Bar) layoutBtn(gtx layout.Context, th *material.Theme, btn *widget.Clic
 	gtx.Constraints.Max = btnSize
 
 	return btn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		bg := theme.BgDark
+		bg := theme.Bg
 		fg := th.Fg
 
 		if btn.Hovered() {
@@ -130,7 +130,7 @@ func (b *Bar) layoutSettingsBtn(gtx layout.Context, th *material.Theme, win *app
 		system.ActionInputOp(system.ActionRaise).Add(gtx.Ops)
 		areaStack.Pop()
 
-		bg := theme.BgDark
+		bg := theme.Bg
 		if b.SettingsBtn.Hovered() {
 			bg = theme.BgHover
 		}
@@ -175,7 +175,7 @@ func (b *Bar) layoutBugBtn(gtx layout.Context, th *material.Theme, bugReportURL 
 		system.ActionInputOp(system.ActionRaise).Add(gtx.Ops)
 		areaStack.Pop()
 
-		bg := theme.BgDark
+		bg := theme.Bg
 		if b.BugReportBtn.Hovered() {
 			bg = theme.BgHover
 		}
@@ -214,7 +214,7 @@ func (b *Bar) Layout(gtx layout.Context, th *material.Theme, win *app.Window, ti
 	gtx.Constraints.Max.Y = height
 	totalW := gtx.Constraints.Max.X
 
-	paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: image.Point{X: totalW, Y: height}}.Op())
+	paint.FillShape(gtx.Ops, theme.Bg, clip.Rect{Max: image.Point{X: totalW, Y: height}}.Op())
 
 	if win != nil {
 		if b.BtnClose.Clicked(gtx) {

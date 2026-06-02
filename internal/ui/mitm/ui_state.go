@@ -52,7 +52,9 @@ type UIState struct {
 	RulesBtn         widget.Clickable
 	RulesList        widget.List
 	RuleHostInput    widget.Editor
+	RuleHostBox      widget.Clickable
 	RuleTimeoutInput widget.Editor
+	RuleTimeoutBox   widget.Clickable
 	RuleDoHCheck     widget.Bool
 	RuleAddBtn       widget.Clickable
 	RuleRowRemove    map[string]*widget.Clickable

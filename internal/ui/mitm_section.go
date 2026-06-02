@@ -49,10 +49,11 @@ func (ui *AppUI) layoutMITMSection(gtx layout.Context) layout.Dimensions {
 
 	for st.StartBtn.Clicked(gtx) {
 		switch {
+		case st.Proxy.Running():
+			st.Proxy.Stop()
+			st.StatusBanner = "Proxy stopped"
 		case !mitm.IsAdmin():
 			ui.elevateAndRelaunch(&st.StatusBanner, "--mitm-start")
-		case st.Proxy.Running():
-			st.StatusBanner = "Proxy already running on " + st.Proxy.Addr()
 		default:
 			addr := strings.TrimSpace(st.BindAddr.Text())
 			if err := st.Proxy.Start(addr); err != nil {
@@ -60,12 +61,6 @@ func (ui *AppUI) layoutMITMSection(gtx layout.Context) layout.Dimensions {
 			} else {
 				st.StatusBanner = "Proxy listening on " + st.Proxy.Addr()
 			}
-		}
-	}
-	for st.StopBtn.Clicked(gtx) {
-		if st.Proxy.Running() {
-			st.Proxy.Stop()
-			st.StatusBanner = "Proxy stopped"
 		}
 	}
 	for st.ClearBtn.Clicked(gtx) {
@@ -118,9 +113,6 @@ func (ui *AppUI) layoutMITMSection(gtx layout.Context) layout.Dimensions {
 	for st.HelpBtn.Clicked(gtx) {
 		st.HelpOpen = !st.HelpOpen
 	}
-	for st.RulesBtn.Clicked(gtx) {
-		st.RulesOpen = !st.RulesOpen
-	}
 	for st.RevealBtn.Clicked(gtx) {
 		path := mitm.CACertPath(mitm.MITMDir())
 		if err := mitm.RevealInExplorer(path); err != nil {
@@ -154,12 +146,6 @@ func (ui *AppUI) layoutMITMSection(gtx layout.Context) layout.Dimensions {
 			layout.Rigid(mitmHLine),
 		)
 	}
-	if st.RulesOpen {
-		children = append(children,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ui.mitmRulesSection(gtx) }),
-			layout.Rigid(mitmHLine),
-		)
-	}
 	children = append(children,
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return ui.mitmBody(gtx) }),
 		layout.Rigid(mitmHLine),
@@ -178,51 +164,6 @@ func (ui *AppUI) mitmCABar(gtx layout.Context) layout.Dimensions {
 	return mitmBgBar(gtx, theme.BgDark, func(gtx layout.Context) layout.Dimensions {
 		return layout.Inset{Top: unit.Dp(5), Bottom: unit.Dp(5), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					s := gtx.Dp(unit.Dp(14))
-					gtx.Constraints.Min = image.Pt(s, s)
-					gtx.Constraints.Max = gtx.Constraints.Min
-					col := theme.FgMuted
-					switch {
-					case installed:
-						col = theme.VarFound
-					case ca != nil:
-						col = theme.Accent
-					}
-					return widgets.IconShield.Layout(gtx, col)
-				}),
-				layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					lbl := material.Label(ui.Theme, unit.Sp(11), "CA:")
-					lbl.Color = theme.FgMuted
-					lbl.Font.Weight = font.Bold
-					return lbl.Layout(gtx)
-				}),
-				layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					var msg string
-					col := theme.FgMuted
-					switch {
-					case ca == nil:
-						msg = "not generated"
-					case installed:
-						msg = "installed • " + shortFingerprint(ca.Fingerprint())
-						if !mitm.FirefoxEnterpriseRootsEnabled() {
-							msg += " • Firefox: not enabled"
-						} else {
-							msg += " • Firefox: enabled"
-						}
-						col = theme.VarFound
-					default:
-						msg = "loaded • " + shortFingerprint(ca.Fingerprint()) + " (not in trust store)"
-						col = theme.VarMissing
-					}
-					lbl := material.Label(ui.Theme, unit.Sp(11), msg)
-					lbl.Color = col
-					lbl.Font.Typeface = widgets.MonoTypeface
-					return lbl.Layout(gtx)
-				}),
-				layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return mitmBtn(gtx, ui.Theme, &st.GenCABtn, genLabel(ca), nil, theme.Border, ui.Theme.Fg, true)
 				}),
@@ -253,15 +194,6 @@ func (ui *AppUI) mitmCABar(gtx layout.Context) layout.Dimensions {
 						label = "Import guide ▴"
 					}
 					return mitmBtn(gtx, ui.Theme, &st.HelpBtn, label, nil, theme.Border, ui.Theme.Fg, ca != nil)
-				}),
-				layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					n := st.Proxy.Rules.Len()
-					label := fmt.Sprintf("Rules (%d) ▾", n)
-					if st.RulesOpen {
-						label = fmt.Sprintf("Rules (%d) ▴", n)
-					}
-					return mitmBtn(gtx, ui.Theme, &st.RulesBtn, label, nil, theme.Border, ui.Theme.Fg, true)
 				}),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 					return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, 0)}
@@ -540,10 +472,6 @@ func (ui *AppUI) mitmToolbar(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ui.mitmStartBtn(gtx) }),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return mitmBtn(gtx, ui.Theme, &st.StopBtn, "Stop", widgets.IconStop, theme.Border, ui.Theme.Fg, st.Proxy.Running())
-				}),
-				layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return mitmBtn(gtx, ui.Theme, &st.ClearBtn, "Clear", widgets.IconBack, theme.Border, ui.Theme.Fg, st.Store.Len() > 0)
 				}),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(16)}.Layout),
@@ -570,6 +498,8 @@ func (ui *AppUI) mitmToolbar(gtx layout.Context) layout.Dimensions {
 						})
 					})
 				}),
+				layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ui.mitmCAStatusBrief(gtx) }),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 					return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, 0)}
 				}),
@@ -584,6 +514,44 @@ func (ui *AppUI) mitmToolbar(gtx layout.Context) layout.Dimensions {
 	})
 }
 
+func (ui *AppUI) mitmCAStatusBrief(gtx layout.Context) layout.Dimensions {
+	st := &ui.MITM
+	ca := st.Proxy.CA()
+	installed := mitm.TrustInstalled()
+	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			s := gtx.Dp(unit.Dp(14))
+			gtx.Constraints.Min = image.Pt(s, s)
+			gtx.Constraints.Max = gtx.Constraints.Min
+			col := theme.FgMuted
+			switch {
+			case installed:
+				col = theme.VarFound
+			case ca != nil:
+				col = theme.Accent
+			}
+			return widgets.IconShield.Layout(gtx, col)
+		}),
+		layout.Rigid(layout.Spacer{Width: unit.Dp(5)}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			msg := "CA: not generated"
+			col := theme.FgMuted
+			switch {
+			case installed:
+				msg = "CA: installed"
+				col = theme.VarFound
+			case ca != nil:
+				msg = "CA: loaded"
+				col = theme.VarMissing
+			}
+			lbl := material.Label(ui.Theme, unit.Sp(11), msg)
+			lbl.Color = col
+			lbl.Font.Weight = font.Bold
+			return lbl.Layout(gtx)
+		}),
+	)
+}
+
 func (ui *AppUI) mitmStartBtn(gtx layout.Context) layout.Dimensions {
 	st := &ui.MITM
 	admin := mitm.IsAdmin()
@@ -593,14 +561,14 @@ func (ui *AppUI) mitmStartBtn(gtx layout.Context) layout.Dimensions {
 	fg := ui.Theme.ContrastFg
 	label := "Start Proxy"
 	useUAC := false
+	ic := widgets.IconPlay
 	switch {
 	case running:
 		bg = theme.Cancel
 		fg = theme.Fg
-		label = "Running…"
+		label = "Stop Proxy"
+		ic = widgets.IconStop
 	case !admin:
-
-		label = "Start Proxy"
 		useUAC = true
 	}
 
@@ -616,7 +584,7 @@ func (ui *AppUI) mitmStartBtn(gtx layout.Context) layout.Dimensions {
 						}
 						gtx.Constraints.Min = image.Pt(s, s)
 						gtx.Constraints.Max = gtx.Constraints.Min
-						return widgets.IconPlay.Layout(gtx, fg)
+						return ic.Layout(gtx, fg)
 					}),
 					layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -631,6 +599,7 @@ func (ui *AppUI) mitmStartBtn(gtx layout.Context) layout.Dimensions {
 			sz := dims.Size
 			paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: sz}, 3).Op(gtx.Ops))
 			call.Add(gtx.Ops)
+			pointer.CursorPointer.Add(gtx.Ops)
 			return dims
 		})
 	})
@@ -639,6 +608,13 @@ func (ui *AppUI) mitmStartBtn(gtx layout.Context) layout.Dimensions {
 func (ui *AppUI) mitmBody(gtx layout.Context) layout.Dimensions {
 	st := &ui.MITM
 
+	totalW := gtx.Constraints.Max.X
+	handleW := gtx.Dp(unit.Dp(6))
+	flexExtent := float32(totalW - handleW)
+
+	const minRatio, maxRatio = 0.15, 0.85
+	var moved bool
+	var finalX float32
 	for {
 		e, ok := st.SplitDrag.Update(gtx.Metric, gtx.Source, gesture.Horizontal)
 		if !ok {
@@ -648,20 +624,28 @@ func (ui *AppUI) mitmBody(gtx layout.Context) layout.Dimensions {
 		case pointer.Press:
 			st.SplitDragX = e.Position.X
 		case pointer.Drag:
-			delta := e.Position.X - st.SplitDragX
-			st.SplitRatio += delta / float32(gtx.Constraints.Max.X)
-			if st.SplitRatio < 0.15 {
-				st.SplitRatio = 0.15
-			}
-			if st.SplitRatio > 0.85 {
-				st.SplitRatio = 0.85
-			}
-			st.SplitDragX = e.Position.X
+			finalX = e.Position.X
+			moved = true
 		}
 	}
+	if st.SplitRatio < minRatio {
+		st.SplitRatio = minRatio
+	} else if st.SplitRatio > maxRatio {
+		st.SplitRatio = maxRatio
+	}
+	if moved && flexExtent > 0 {
+		delta := finalX - st.SplitDragX
+		oldRatio := st.SplitRatio
+		st.SplitRatio += delta / flexExtent
+		if st.SplitRatio < minRatio {
+			st.SplitRatio = minRatio
+		} else if st.SplitRatio > maxRatio {
+			st.SplitRatio = maxRatio
+		}
+		st.SplitDragX = finalX - ((st.SplitRatio - oldRatio) * flexExtent)
+		ui.Window.Invalidate()
+	}
 
-	totalW := gtx.Constraints.Max.X
-	handleW := gtx.Dp(unit.Dp(6))
 	leftW := int(float32(totalW)*st.SplitRatio) - handleW/2
 	if leftW < 200 {
 		leftW = 200
@@ -1250,6 +1234,9 @@ func mitmAdminBtn(gtx layout.Context, th *material.Theme, clk *widget.Clickable,
 			sz := dims.Size
 			paint.FillShape(gtx.Ops, theme.Border, clip.UniformRRect(image.Rectangle{Max: sz}, 3).Op(gtx.Ops))
 			call.Add(gtx.Ops)
+			if enabled {
+				pointer.CursorPointer.Add(gtx.Ops)
+			}
 			return dims
 		})
 	})
@@ -1285,6 +1272,9 @@ func mitmBtn(gtx layout.Context, th *material.Theme, clk *widget.Clickable, labe
 			sz := dims.Size
 			paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: sz}, 3).Op(gtx.Ops))
 			call.Add(gtx.Ops)
+			if enabled {
+				pointer.CursorPointer.Add(gtx.Ops)
+			}
 			return dims
 		})
 	})

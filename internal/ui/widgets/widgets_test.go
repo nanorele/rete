@@ -35,6 +35,7 @@ func TestIsSeparator(t *testing.T) {
 		{'"', true},
 		{'\'', true},
 		{'`', true},
+		{'@', true},
 		{'-', false},
 		{'a', false},
 		{'1', false},

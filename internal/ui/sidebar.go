@@ -58,8 +58,12 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 		EnvsExpanded:    &ui.EnvsExpanded,
 		ImportBtn:       &ui.ImportBtn,
 		AddColBtn:       &ui.AddColBtn,
+		ColsMenuBtn:     &ui.ColsMenuBtn,
+		ColsMenuOpen:    &ui.ColsMenuOpen,
 		ImportEnvBtn:    &ui.ImportEnvBtn,
 		AddEnvBtn:       &ui.AddEnvBtn,
+		EnvsMenuBtn:     &ui.EnvsMenuBtn,
+		EnvsMenuOpen:    &ui.EnvsMenuOpen,
 		SidebarDropTag:  &ui.SidebarDropTag,
 
 		EnvColorPicker: &ui.EnvColorPicker,
@@ -95,10 +99,20 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 		LayoutToggleBtn:       ui.layoutSidebarToggleBtn,
 		LayoutSectionRequests: ui.layoutSidebarSectionRequestsBtn,
 		LayoutSectionMITM:     ui.layoutSidebarSectionMITMBtn,
+		LayoutMITMRules:       ui.layoutMITMSidebar,
 		SidebarSection:        &ui.SidebarSection,
 	}
 }
 
 func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
-	return sidebar.Layout(gtx, ui.sidebarHost())
+	dims := sidebar.Layout(gtx, ui.sidebarHost())
+	if ui.ColList.Position.First != ui.prevColFirst || ui.ColList.Position.Offset != ui.prevColOffset ||
+		ui.EnvList.Position.First != ui.prevEnvFirst || ui.EnvList.Position.Offset != ui.prevEnvOffset {
+		ui.Window.Invalidate()
+	}
+	ui.prevColFirst = ui.ColList.Position.First
+	ui.prevColOffset = ui.ColList.Position.Offset
+	ui.prevEnvFirst = ui.EnvList.Position.First
+	ui.prevEnvOffset = ui.EnvList.Position.Offset
+	return dims
 }

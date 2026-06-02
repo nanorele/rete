@@ -47,9 +47,34 @@ func (ui *AppUI) layoutEnvEditor(gtx layout.Context) layout.Dimensions {
 	return ui.EditingEnv.LayoutEditor(gtx, ui.envEditorHost())
 }
 
+func (ui *AppUI) ensureDefaultEnvironment() *model.ParsedEnvironment {
+	if len(ui.Environments) > 0 {
+		return ui.Environments[0].Data
+	}
+	env := &model.ParsedEnvironment{
+		ID:   persist.NewRandomID(),
+		Name: "Default",
+	}
+	envUI := &environments.EnvironmentUI{Data: env}
+	envUI.InitEditor()
+	ui.Environments = append(ui.Environments, envUI)
+	ui.EnvsExpanded = true
+	return env
+}
+
 func (ui *AppUI) saveVarPopup() {
-	if ui.VarPopup.EnvID == "" {
+	if ui.VarPopup.Name == "" {
 		return
+	}
+	if ui.VarPopup.EnvID == "" {
+		if ui.VarPopup.Editor.Text() == "" {
+			return
+		}
+		env := ui.ensureDefaultEnvironment()
+		ui.VarPopup.EnvID = env.ID
+		ui.ActiveEnvID = env.ID
+		ui.activeEnvDirty = true
+		ui.saveState()
 	}
 	for _, env := range ui.Environments {
 		if env.Data.ID != ui.VarPopup.EnvID {

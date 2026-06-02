@@ -346,9 +346,10 @@ func TestLayoutBodyTypeSelector_OpenAndAllChoices(t *testing.T) {
 
 func TestLayoutModeBar_BothOrientations(t *testing.T) {
 	tab := NewRequestTab("t")
+	th := material.NewTheme()
 	for _, stacked := range []bool{false, true} {
 		gtx := makeBodyTestGtx()
-		dim := tab.layoutModeBar(gtx, &tab.LayoutHorizBtn, &tab.LayoutVertBtn, stacked)
+		dim := tab.layoutModeBar(gtx, th, &tab.LayoutHorizBtn, &tab.LayoutVertBtn, stacked)
 		if dim.Size.X <= 0 || dim.Size.Y <= 0 {
 			t.Errorf("layoutModeBar(stacked=%v) returned zero dims", stacked)
 		}

@@ -294,7 +294,6 @@ func formPartRow(gtx layout.Context, th *material.Theme, p *FormDataPart, env ma
 				}
 				rr := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, gtx.Dp(unit.Dp(4)))
 				paint.FillShape(gtx.Ops, bg, rr.Op(gtx.Ops))
-				widgets.PaintBorder1px(gtx, gtx.Constraints.Min, theme.Border)
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					lbl := widgets.MonoLabel(th, unit.Sp(10), label)
 					lbl.Color = theme.FgMuted
@@ -368,7 +367,6 @@ func emptyHint(gtx layout.Context, th *material.Theme, msg string) layout.Dimens
 
 func rowDivider(gtx layout.Context) layout.Dimensions {
 	size := image.Point{X: gtx.Constraints.Max.X, Y: gtx.Dp(unit.Dp(1))}
-	paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Max: size}.Op())
 	return layout.Dimensions{Size: size}
 }
 

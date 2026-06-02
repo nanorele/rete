@@ -147,7 +147,7 @@ func (t *RequestTab) layoutWSBody(gtx layout.Context, th *material.Theme, win *a
 	return layout.Inset{Top: unit.Dp(1), Bottom: unit.Dp(1), Left: unit.Dp(4), Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return t.layoutModeBar(gtx, &t.LayoutHorizBtn, &t.LayoutVertBtn, stacked)
+				return t.layoutModeBar(gtx, th, &t.LayoutHorizBtn, &t.LayoutVertBtn, stacked)
 			}),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: flexAxis}.Layout(gtx,
@@ -234,10 +234,19 @@ func (t *RequestTab) handleWSButtons(gtx layout.Context) {
 	for s.ComposerWrapBtn.Clicked(gtx) {
 		s.ComposerWrap = !s.ComposerWrap
 	}
+	for s.ComposerCopyBtn.Clicked(gtx) {
+		gtx.Execute(clipboard.WriteCmd{
+			Type: "application/text",
+			Data: io.NopCloser(strings.NewReader(s.ComposerEditor.Text())),
+		})
+	}
 	for s.ComposerSendBtn.Clicked(gtx) {
 		if s.State() == WSStateOpen {
 			t.SendFromComposer()
 		}
+	}
+	for s.FilterMenuBtn.Clicked(gtx) {
+		s.FilterMenuOpen = !s.FilterMenuOpen
 	}
 	for s.FilterPingBtn.Clicked(gtx) {
 		s.Filter.HidePing = !s.Filter.HidePing
@@ -291,75 +300,102 @@ func parseHexInput(s string) ([]byte, error) {
 
 func (t *RequestTab) layoutWSComposerPane(gtx layout.Context, th *material.Theme, activeEnv map[string]string) layout.Dimensions {
 	s := t.EnsureWS()
+
+	subprotosBody := func(gtx layout.Context) layout.Dimensions {
+		bdr := gtx.Dp(unit.Dp(1))
+		sz := gtx.Constraints.Max
+		paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Max: sz}.Op())
+		inner := image.Rect(bdr, 0, sz.X-bdr, sz.Y-bdr)
+		paint.FillShape(gtx.Ops, theme.BgField, clip.Rect(inner).Op())
+		gtx.Constraints.Min = image.Pt(inner.Dx(), inner.Dy())
+		gtx.Constraints.Max = gtx.Constraints.Min
+		op.Offset(image.Pt(bdr, 0)).Add(gtx.Ops)
+		if len(s.Subprotocols) == 0 {
+			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				lbl := widgets.MonoLabel(th, unit.Sp(11), "No subprotocols")
+				lbl.Color = theme.FgMuted
+				return lbl.Layout(gtx)
+			})
+		}
+		return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return s.SubprotosList.Layout(gtx, len(s.Subprotocols), func(gtx layout.Context, i int) layout.Dimensions {
+				sp := s.Subprotocols[i]
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{Top: unit.Dp(1), Left: unit.Dp(1), Right: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return wsSubprotoRow(gtx, th, sp, activeEnv)
+						})
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if i >= len(s.Subprotocols)-1 {
+							return layout.Dimensions{}
+						}
+						return wsHLine(gtx)
+					}),
+				)
+			})
+		})
+	}
+
+	composeBody := func(gtx layout.Context) layout.Dimensions {
+		bdr := gtx.Dp(unit.Dp(1))
+		sz := gtx.Constraints.Max
+		paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Max: sz}.Op())
+		inner := image.Rect(bdr, 0, sz.X-bdr, sz.Y-bdr)
+		paint.FillShape(gtx.Ops, theme.BgField, clip.Rect(inner).Op())
+		gtx.Constraints.Min = image.Pt(inner.Dx(), inner.Dy())
+		gtx.Constraints.Max = gtx.Constraints.Min
+		op.Offset(image.Pt(bdr, 0)).Add(gtx.Ops)
+		return layout.UniformInset(unit.Dp(6)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			ed := material.Editor(th, &s.ComposerEditor, "type your message")
+			ed.TextSize = unit.Sp(12)
+			ed.HintColor = theme.FgMuted
+			ed.Font.Typeface = widgets.MonoTypeface
+			return ed.Layout(gtx)
+		})
+	}
+
 	return widget.Border{
 		Color:        theme.Border,
 		CornerRadius: unit.Dp(2),
 		Width:        unit.Dp(1),
 	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		paint.FillShape(gtx.Ops, theme.Bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2).Op(gtx.Ops))
+		if s.OptionsExpanded {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSSubprotocolsHeader(gtx, th) }),
+				layout.Rigid(wsHLine),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSOptions(gtx, th) }),
+				layout.Rigid(wsHLine),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					minH := gtx.Dp(unit.Dp(60))
+					h := gtx.Dp(unit.Dp(120))
+					available := gtx.Constraints.Max.Y - gtx.Dp(unit.Dp(80))
+					if available < minH {
+						available = minH
+					}
+					if h > available {
+						h = available
+					}
+					if h < minH {
+						h = minH
+					}
+					gtx.Constraints.Min.Y = h
+					gtx.Constraints.Max.Y = h
+					return subprotosBody(gtx)
+				}),
+				layout.Rigid(wsHLine),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSComposerHeader(gtx, th) }),
+				layout.Rigid(wsHLine),
+				layout.Flexed(1, composeBody),
+			)
+		}
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSSubprotocolsHeader(gtx, th) }),
 			layout.Rigid(wsHLine),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if len(s.Subprotocols) == 0 {
-					return layout.Dimensions{}
-				}
-				return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return s.SubprotosList.Layout(gtx, len(s.Subprotocols), func(gtx layout.Context, i int) layout.Dimensions {
-						sp := s.Subprotocols[i]
-						return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return layout.Inset{Top: unit.Dp(1), Left: unit.Dp(1), Right: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									return wsSubprotoRow(gtx, th, sp, activeEnv)
-								})
-							}),
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								if i >= len(s.Subprotocols)-1 {
-									return layout.Dimensions{}
-								}
-								return wsHLine(gtx)
-							}),
-						)
-					})
-				})
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if len(s.Subprotocols) == 0 {
-					return layout.Dimensions{}
-				}
-				return wsHLine(gtx)
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if !s.OptionsExpanded {
-					return layout.Dimensions{}
-				}
-				return t.layoutWSOptions(gtx, th)
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if !s.OptionsExpanded {
-					return layout.Dimensions{}
-				}
-				return wsHLine(gtx)
-			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSComposerHeader(gtx, th) }),
 			layout.Rigid(wsHLine),
-			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				bdr := gtx.Dp(unit.Dp(1))
-				sz := gtx.Constraints.Max
-				paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Max: sz}.Op())
-				inner := image.Rect(bdr, bdr, sz.X-bdr, sz.Y-bdr)
-				paint.FillShape(gtx.Ops, theme.BgField, clip.Rect(inner).Op())
-				gtx.Constraints.Min = image.Pt(inner.Dx(), inner.Dy())
-				gtx.Constraints.Max = gtx.Constraints.Min
-				op.Offset(image.Pt(bdr, bdr)).Add(gtx.Ops)
-				return layout.UniformInset(unit.Dp(6)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					ed := material.Editor(th, &s.ComposerEditor, "type your message")
-					ed.TextSize = unit.Sp(12)
-					ed.HintColor = theme.FgMuted
-					ed.Font.Typeface = widgets.MonoTypeface
-					return ed.Layout(gtx)
-				})
-			}),
+			layout.Flexed(1, composeBody),
 		)
 	})
 }
@@ -377,31 +413,14 @@ func (t *RequestTab) layoutWSSubprotocolsHeader(gtx layout.Context, th *material
 			}),
 			layout.Flexed(1, layout.Spacer{Width: unit.Dp(1)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				defer op.Offset(image.Pt(-1, 1)).Push(gtx.Ops).Pop()
-				return widgets.Bordered1px(gtx, unit.Dp(4), theme.Border, func(gtx layout.Context) layout.Dimensions {
-					btn := widgets.MonoButton(th, &s.AddSubprotoBtn, "Add")
-					btn.TextSize = unit.Sp(12)
-					btn.Background = theme.BgField
-					btn.Color = th.Fg
-					btn.Inset = layout.UniformInset(unit.Dp(6))
-					return btn.Layout(gtx)
-				})
+				return widgets.SquareBtn(gtx, &s.AddSubprotoBtn, widgets.IconAdd, th)
 			}),
-			layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				defer op.Offset(image.Pt(-1, 1)).Push(gtx.Ops).Pop()
-				label := "Show Options"
+				toggleIcon := widgets.IconExpandMore
 				if s.OptionsExpanded {
-					label = "Hide Options"
+					toggleIcon = widgets.IconExpandLess
 				}
-				return widgets.Bordered1px(gtx, unit.Dp(4), theme.Border, func(gtx layout.Context) layout.Dimensions {
-					btn := widgets.MonoButton(th, &s.OptionsBtn, label)
-					btn.TextSize = unit.Sp(12)
-					btn.Background = theme.BgField
-					btn.Color = th.Fg
-					btn.Inset = layout.UniformInset(unit.Dp(6))
-					return btn.Layout(gtx)
-				})
+				return widgets.SquareBtn(gtx, &s.OptionsBtn, toggleIcon, th)
 			}),
 		)
 	})
@@ -428,7 +447,7 @@ func (t *RequestTab) layoutWSOptions(gtx layout.Context, th *material.Theme) lay
 
 func (t *RequestTab) layoutWSComposerHeader(gtx layout.Context, th *material.Theme) layout.Dimensions {
 	s := t.EnsureWS()
-	return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Left: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -437,15 +456,17 @@ func (t *RequestTab) layoutWSComposerHeader(gtx layout.Context, th *material.The
 					return lbl.Layout(gtx)
 				})
 			}),
-			layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
+			layout.Flexed(1, layout.Spacer{Width: unit.Dp(1)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return t.layoutWSOpcodeSelector(gtx, th)
 			}),
-			layout.Flexed(1, layout.Spacer{}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return widgets.SquareBtnSlim(gtx, &s.ComposerWrapBtn, iconWrap, th)
+				return widgets.SquareBtn(gtx, &s.ComposerWrapBtn, iconWrap, th)
 			}),
-			layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return widgets.SquareBtn(gtx, &s.ComposerCopyBtn, iconCopy, th)
+			}),
+			layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				enabled := s.State() == WSStateOpen
 				bg := theme.Accent
@@ -472,6 +493,7 @@ func (t *RequestTab) layoutWSComposerHeader(gtx layout.Context, th *material.The
 					return dims
 				})
 			}),
+			layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 		)
 	})
 }
@@ -613,39 +635,24 @@ func (t *RequestTab) layoutWSStatusRow(gtx layout.Context, th *material.Theme) l
 	return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.Y = wsHeaderContentHeight(gtx, th)
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min.Y = 0
 				return layout.Inset{Left: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return wsStatePill(gtx, th, s.State(), s.statusErr)
+					msg := s.statusText + s.formatNegotiated()
+					if msg == "" {
+						msg = "Idle"
+					}
+					col := theme.Fg
+					if s.statusErr {
+						col = theme.Danger
+					}
+					lbl := widgets.MonoLabel(th, unit.Sp(12), msg)
+					lbl.Color = col
+					lbl.MaxLines = 1
+					lbl.Truncator = "…"
+					return lbl.Layout(gtx)
 				})
 			}),
-			layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
-			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				msg := s.statusText + s.formatNegotiated()
-				if msg == "" {
-					msg = "Idle"
-				}
-				col := theme.Fg
-				if s.statusErr {
-					col = theme.Danger
-				}
-				lbl := widgets.MonoLabel(th, unit.Sp(11), msg)
-				lbl.Color = col
-				lbl.MaxLines = 1
-				lbl.Truncator = "…"
-				return lbl.Layout(gtx)
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return wsMiniToggle(gtx, th, &s.FilterPingBtn, "PING", !s.Filter.HidePing)
-			}),
-			layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return wsMiniToggle(gtx, th, &s.FilterPongBtn, "PONG", !s.Filter.HidePong)
-			}),
-			layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return wsMiniToggle(gtx, th, &s.FilterCloseBtn, "CLOSE", !s.Filter.HideClose)
-			}),
-			layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				if s.State() != WSStateOpen {
 					return layout.Dimensions{}
@@ -658,18 +665,79 @@ func (t *RequestTab) layoutWSStatusRow(gtx layout.Context, th *material.Theme) l
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return wsMiniBtn(gtx, th, &s.DisconnectBtn, "DC", theme.Cancel, th.Fg)
 					}),
-					layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
+					layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 				)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if len(s.Messages) == 0 {
-					return layout.Dimensions{}
-				}
-				return wsMiniBtn(gtx, th, &s.ClearBtn, "Clear", theme.BgField, th.Fg)
+				return t.layoutWSFilterMenu(gtx, th)
 			}),
-			layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return widgets.SquareBtn(gtx, &s.ClearBtn, widgets.IconClear, th)
+			}),
 		)
 	})
+}
+
+func (t *RequestTab) layoutWSFilterMenu(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	s := t.EnsureWS()
+	return layout.Stack{Alignment: layout.NW}.Layout(gtx,
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			if !s.FilterMenuOpen {
+				return layout.Dimensions{}
+			}
+			macro := op.Record(gtx.Ops)
+			dropGtx := gtx
+			dropGtx.Constraints.Min = image.Point{}
+			dropGtx.Constraints.Max.Y = 1 << 24
+			layout.Inset{Top: unit.Dp(28)}.Layout(dropGtx, func(gtx layout.Context) layout.Dimensions {
+				return widget.Border{
+					Color:        theme.BorderLight,
+					CornerRadius: unit.Dp(2),
+					Width:        unit.Dp(1),
+				}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return layout.Stack{}.Layout(gtx,
+						layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+							rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2)
+							paint.FillShape(gtx.Ops, theme.BgMenu, rect.Op(gtx.Ops))
+							return layout.Dimensions{Size: gtx.Constraints.Min}
+						}),
+						layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+							rowW := gtx.Dp(unit.Dp(140))
+							menuToggle := func(clk *widget.Clickable, name string, on bool) layout.FlexChild {
+								return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									gtx.Constraints.Min.X = rowW
+									gtx.Constraints.Max.X = rowW
+									return material.Clickable(gtx, clk, func(gtx layout.Context) layout.Dimensions {
+										if clk.Hovered() {
+											paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: image.Pt(rowW, gtx.Dp(unit.Dp(28)))}.Op())
+										}
+										pointer.CursorPointer.Add(gtx.Ops)
+										return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+											mark := "  "
+											if on {
+												mark = "✓ "
+											}
+											return widgets.MonoLabel(th, unit.Sp(11), mark+"Show "+name).Layout(gtx)
+										})
+									})
+								})
+							}
+							return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+								menuToggle(&s.FilterPingBtn, "PING", !s.Filter.HidePing),
+								menuToggle(&s.FilterPongBtn, "PONG", !s.Filter.HidePong),
+								menuToggle(&s.FilterCloseBtn, "CLOSE", !s.Filter.HideClose),
+							)
+						}),
+					)
+				})
+			})
+			op.Defer(gtx.Ops, macro.Stop())
+			return layout.Dimensions{}
+		}),
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			return widgets.SquareBtn(gtx, &s.FilterMenuBtn, widgets.IconMore, th)
+		}),
+	)
 }
 
 func wsTableHeader(th *material.Theme) layout.Widget {
@@ -677,6 +745,7 @@ func wsTableHeader(th *material.Theme) layout.Widget {
 		paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(22)))}.Op())
 		return layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(6), Right: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+				wsColHeader(th, "Sess", wsColSess),
 				wsColHeader(th, "Time", wsColTime),
 				wsColHeader(th, "Dir", wsColDir),
 				wsColHeader(th, "Op", wsColOp),
@@ -688,6 +757,7 @@ func wsTableHeader(th *material.Theme) layout.Widget {
 }
 
 const (
+	wsColSess = 32
 	wsColTime = 92
 	wsColDir  = 28
 	wsColOp   = 56
@@ -752,18 +822,14 @@ func wsMessageRow(gtx layout.Context, th *material.Theme, m WSDisplayMessage, cl
 			bg = theme.BgHover
 		}
 		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, rowH)}.Op())
-		if m.IsSep {
-			return layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				lbl := widgets.MonoLabel(th, unit.Sp(11), m.Note)
-				lbl.Color = theme.Accent
-				lbl.Alignment = text.Middle
-				lbl.Font.Weight = font.Bold
-				return lbl.Layout(gtx)
-			})
+		sessLabel := ""
+		if m.Session > 0 {
+			sessLabel = "#" + itoa(m.Session)
 		}
 		if m.Error != "" {
 			return layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(6), Right: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+					wsCellText(th, sessLabel, wsColSess, text.Start, theme.FgMuted, true),
 					wsCellText(th, m.Time.Format("15:04:05.000"), wsColTime, text.Start, theme.FgMuted, true),
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 						lbl := widgets.MonoLabel(th, unit.Sp(11), "ERR  "+m.Error)
@@ -777,6 +843,7 @@ func wsMessageRow(gtx layout.Context, th *material.Theme, m WSDisplayMessage, cl
 		if m.Note != "" && m.Opcode == 0 && m.Dir == 0 && len(m.Payload) == 0 {
 			return layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(6), Right: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+					wsCellText(th, sessLabel, wsColSess, text.Start, theme.FgMuted, true),
 					wsCellText(th, m.Time.Format("15:04:05.000"), wsColTime, text.Start, theme.FgMuted, true),
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 						lbl := widgets.MonoLabel(th, unit.Sp(11), m.Note)
@@ -788,6 +855,7 @@ func wsMessageRow(gtx layout.Context, th *material.Theme, m WSDisplayMessage, cl
 		}
 		return layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(6), Right: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+				wsCellText(th, sessLabel, wsColSess, text.Start, theme.FgMuted, true),
 				wsCellText(th, m.Time.Format("15:04:05.000"), wsColTime, text.Start, theme.FgMuted, true),
 				wsCellDir(th, m.Dir, wsColDir),
 				wsCellOp(th, m.Opcode, wsColOp),
@@ -1057,10 +1125,6 @@ func wsOptionToggle(gtx layout.Context, th *material.Theme, clk *widget.Clickabl
 	return wsToggleSized(gtx, th, clk, label, on, unit.Sp(11), layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(8)})
 }
 
-func wsMiniToggle(gtx layout.Context, th *material.Theme, clk *widget.Clickable, label string, on bool) layout.Dimensions {
-	return wsToggleSized(gtx, th, clk, label, on, unit.Sp(9), layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(5), Right: unit.Dp(5)})
-}
-
 func wsToggleSized(gtx layout.Context, th *material.Theme, clk *widget.Clickable, label string, on bool, sz unit.Sp, inset layout.Inset) layout.Dimensions {
 	return clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		bg := theme.BgField
@@ -1103,42 +1167,6 @@ func wsMiniBtn(gtx layout.Context, th *material.Theme, clk *widget.Clickable, la
 		call.Add(gtx.Ops)
 		return dims
 	})
-}
-
-func wsStatePill(gtx layout.Context, th *material.Theme, st WSState, isErr bool) layout.Dimensions {
-	var label string
-	var col color.NRGBA
-	switch st {
-	case WSStateOpen:
-		label = "OPEN"
-		col = theme.VarFound
-	case WSStateConnecting:
-		label = "CONNECTING"
-		col = theme.Accent
-	case WSStateClosing:
-		label = "CLOSING"
-		col = theme.FgMuted
-	case WSStateClosed:
-		label = "CLOSED"
-		col = theme.FgMuted
-		if isErr {
-			col = theme.Danger
-		}
-	default:
-		label = "IDLE"
-		col = theme.FgMuted
-	}
-	macro := op.Record(gtx.Ops)
-	dims := layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		lbl := widgets.MonoLabel(th, unit.Sp(10), label)
-		lbl.Color = th.ContrastFg
-		lbl.Font.Weight = font.Bold
-		return lbl.Layout(gtx)
-	})
-	call := macro.Stop()
-	paint.FillShape(gtx.Ops, col, clip.UniformRRect(image.Rectangle{Max: dims.Size}, 3).Op(gtx.Ops))
-	call.Add(gtx.Ops)
-	return dims
 }
 
 func wsColHeader(th *material.Theme, s string, w int) layout.FlexChild {

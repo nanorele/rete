@@ -196,6 +196,33 @@ func TestWordBoundsAt_QuotesAndHyphens(t *testing.T) {
 	}
 }
 
+func TestWordBoundsAt_AtSign(t *testing.T) {
+	v := NewResponseViewer()
+	v.SetText("634634634@c.us")
+
+	cases := []struct {
+		name               string
+		byteOff            int
+		wantStart, wantEnd int
+		wantSel            string
+	}{
+		{"on digits before @", 3, 0, 9, "634634634"},
+		{"on @", 9, 9, 10, "@"},
+		{"on c after @", 10, 10, 11, "c"},
+		{"on us after dot", 12, 12, 14, "us"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			gotS, gotE := v.wordBoundsAt(tc.byteOff)
+			gotSel := string(v.text[gotS:gotE])
+			if gotS != tc.wantStart || gotE != tc.wantEnd {
+				t.Errorf("wordBoundsAt(%d) = (%d,%d) %q; want (%d,%d) %q",
+					tc.byteOff, gotS, gotE, gotSel, tc.wantStart, tc.wantEnd, tc.wantSel)
+			}
+		})
+	}
+}
+
 func TestSourceLineBoundsAt(t *testing.T) {
 	v := NewResponseViewer()
 	v.SetText("line one\nsecond\r\nthird")

@@ -518,10 +518,10 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 	scrollOffset.Pop()
 	textClip.Pop()
 
-	DrawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, pX, 1)
-
 	editorRect := image.Rect(pX, pY+extraY, pX+viewW, pY+extraY+dims.Size.Y)
 	HandleFieldFallbackClick(gtx, th, ed, finalSize, editorRect, scrollX, textSize)
+
+	DrawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, pX, 1)
 
 	if len(varRects) > 0 {
 		macroClick := op.Record(gtx.Ops)
@@ -726,10 +726,10 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 	scrollOffset.Pop()
 	textClip.Pop()
 
-	DrawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, p, 1)
-
 	editorRect := image.Rect(p, p, p+viewW, p+dims.Size.Y)
 	HandleFieldFallbackClick(gtx, th, ed, finalSize, editorRect, scrollX, textSize)
+
+	DrawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, p, 1)
 
 	if len(varRects) > 0 {
 		macroClick := op.Record(gtx.Ops)
@@ -904,10 +904,10 @@ func InlineRenameFieldPadded(gtx layout.Context, th *material.Theme, ed *widget.
 	scrollOffset.Pop()
 	textClip.Pop()
 
-	DrawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, pad, 1)
-
 	editorRect := image.Rect(pad, padYPx, pad+viewW, padYPx+dims.Size.Y)
 	HandleFieldFallbackClick(gtx, th, ed, finalSize, editorRect, scrollX, unit.Sp(12))
+
+	DrawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, pad, 1)
 
 	return layout.Dimensions{Size: finalSize, Baseline: dims.Baseline + padYPx}
 }
@@ -1006,13 +1006,9 @@ func SquareBtnSized(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, 
 		gtx.Constraints.Min = image.Point{X: size, Y: size}
 		gtx.Constraints.Max = gtx.Constraints.Min
 
-		rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2)
-		bg := theme.BgField
 		if clk.Hovered() {
-			bg = theme.BgHover
+			paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: gtx.Constraints.Min}.Op())
 		}
-		paint.FillShape(gtx.Ops, bg, rect.Op(gtx.Ops))
-		PaintBorder1px(gtx, gtx.Constraints.Min, theme.Border)
 		pointer.CursorPointer.Add(gtx.Ops)
 
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1023,14 +1019,26 @@ func SquareBtnSized(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, 
 }
 
 func MenuOption(gtx layout.Context, th *material.Theme, clk *widget.Clickable, title string, icon *widget.Icon) layout.Dimensions {
-	return MenuOptionStyled(gtx, th, clk, title, icon, th.Fg, th.Fg, false)
+	return menuOptionStyled(gtx, th, clk, title, icon, th.Fg, th.Fg, false, false)
 }
 
 func MenuOptionDanger(gtx layout.Context, th *material.Theme, clk *widget.Clickable, title string, icon *widget.Icon) layout.Dimensions {
-	return MenuOptionStyled(gtx, th, clk, title, icon, theme.Danger, theme.Danger, true)
+	return menuOptionStyled(gtx, th, clk, title, icon, theme.Danger, theme.Danger, true, false)
+}
+
+func MenuOptionCentered(gtx layout.Context, th *material.Theme, clk *widget.Clickable, title string, icon *widget.Icon) layout.Dimensions {
+	return menuOptionStyled(gtx, th, clk, title, icon, th.Fg, th.Fg, false, true)
+}
+
+func MenuOptionDangerCentered(gtx layout.Context, th *material.Theme, clk *widget.Clickable, title string, icon *widget.Icon) layout.Dimensions {
+	return menuOptionStyled(gtx, th, clk, title, icon, theme.Danger, theme.Danger, true, true)
 }
 
 func MenuOptionStyled(gtx layout.Context, th *material.Theme, clk *widget.Clickable, title string, icon *widget.Icon, iconCol color.NRGBA, textCol color.NRGBA, bold bool) layout.Dimensions {
+	return menuOptionStyled(gtx, th, clk, title, icon, iconCol, textCol, bold, false)
+}
+
+func menuOptionStyled(gtx layout.Context, th *material.Theme, clk *widget.Clickable, title string, icon *widget.Icon, iconCol color.NRGBA, textCol color.NRGBA, bold bool, centered bool) layout.Dimensions {
 	return material.Clickable(gtx, clk, func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Dp(150)
 		if clk.Hovered() {
@@ -1038,7 +1046,11 @@ func MenuOptionStyled(gtx layout.Context, th *material.Theme, clk *widget.Clicka
 		}
 		pointer.CursorPointer.Add(gtx.Ops)
 		return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+			flex := layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}
+			if centered {
+				flex.Spacing = layout.SpaceSides
+			}
+			return flex.Layout(gtx,
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min = image.Pt(gtx.Dp(16), gtx.Dp(16))
 					return icon.Layout(gtx, iconCol)
@@ -1047,6 +1059,7 @@ func MenuOptionStyled(gtx layout.Context, th *material.Theme, clk *widget.Clicka
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(th, unit.Sp(12), title)
 					lbl.Color = textCol
+					lbl.LineHeightScale = 1.0
 					if bold {
 						lbl.Font.Weight = font.Bold
 					}
@@ -1059,7 +1072,7 @@ func MenuOptionStyled(gtx layout.Context, th *material.Theme, clk *widget.Clicka
 
 func IsSeparator(r rune) bool {
 
-	return unicode.IsSpace(r) || strings.ContainsRune(".,:;!?()[]{}\"'`", r)
+	return unicode.IsSpace(r) || strings.ContainsRune(".,:;!?()[]{}\"'`@", r)
 }
 
 func MoveWord(s string, pos int, dir int) int {

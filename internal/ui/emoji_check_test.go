@@ -14,7 +14,11 @@ import (
 )
 
 func TestEmojiFontMetadata(t *testing.T) {
-	face, err := opentype.Parse(fontNotoColorEmoji)
+	b, err := loadEmbeddedTTF("NotoColorEmoji.ttf")
+	if err != nil {
+		t.Fatalf("load NotoColorEmoji: %v", err)
+	}
+	face, err := opentype.Parse(b)
 	if err != nil {
 		t.Fatalf("parse NotoColorEmoji: %v", err)
 	}

@@ -26,6 +26,7 @@ import (
 	"tracto/internal/ui/workspace"
 	"tracto/internal/utils"
 
+	"github.com/andybalholm/brotli"
 	"github.com/nanorele/gio-x/explorer"
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"
@@ -73,6 +74,8 @@ type AppUI struct {
 	TabBar           *tabbar.Strip
 	ImportBtn        widget.Clickable
 	AddColBtn        widget.Clickable
+	ColsMenuBtn      widget.Clickable
+	ColsMenuOpen     bool
 	Collections      []*collections.CollectionUI
 	VisibleCols      []*collections.CollectionNode
 	SidebarWidth     int
@@ -80,9 +83,15 @@ type AppUI struct {
 	SidebarDragX     float32
 	BtnSidebarToggle widget.Clickable
 	ColList          widget.List
+	prevColFirst     int
+	prevColOffset    int
+	prevEnvFirst     int
+	prevEnvOffset    int
 	ColLoadedChan    chan *collections.CollectionUI
 	ImportEnvBtn     widget.Clickable
 	AddEnvBtn        widget.Clickable
+	EnvsMenuBtn      widget.Clickable
+	EnvsMenuOpen     bool
 	Environments     []*environments.EnvironmentUI
 	ActiveEnvID      string
 	EnvList          widget.List
@@ -146,35 +155,133 @@ type AppUI struct {
 	Title string
 }
 
-//go:embed assets/fonts/ttf/Inter-Regular.ttf
+//go:embed assets/fonts/ttf/Inter-Regular.ttf.br
 var fontInterRegular []byte
 
-//go:embed assets/fonts/ttf/Inter-Bold.ttf
+//go:embed assets/fonts/ttf/Inter-Bold.ttf.br
 var fontInterBold []byte
 
-//go:embed assets/fonts/ttf/JetBrainsMono-Regular.ttf
+//go:embed assets/fonts/ttf/JetBrainsMono-Regular.ttf.br
 var fontJBMRegular []byte
 
-//go:embed assets/fonts/ttf/JetBrainsMono-Bold.ttf
+//go:embed assets/fonts/ttf/JetBrainsMono-Bold.ttf.br
 var fontJBMBold []byte
 
-//go:embed assets/fonts/ttf/JetBrainsMono-Italic.ttf
+//go:embed assets/fonts/ttf/JetBrainsMono-Italic.ttf.br
 var fontJBMItalic []byte
 
-//go:embed assets/fonts/ttf/JetBrainsMono-BoldItalic.ttf
+//go:embed assets/fonts/ttf/JetBrainsMono-BoldItalic.ttf.br
 var fontJBMBoldItalic []byte
 
-//go:embed assets/fonts/ttf/NotoColorEmoji.ttf
+//go:embed assets/fonts/ttf/NotoColorEmoji.ttf.br
 var fontNotoColorEmoji []byte
 
+//go:embed assets/fonts/ttf/NotoSansHebrew-Regular.ttf.br
+var fontNotoHebrew []byte
+
+//go:embed assets/fonts/ttf/NotoSansArabic-Regular.ttf.br
+var fontNotoArabic []byte
+
+//go:embed assets/fonts/ttf/NotoSansThai-Regular.ttf.br
+var fontNotoThai []byte
+
+//go:embed assets/fonts/ttf/NotoSansDevanagari-Regular.ttf.br
+var fontNotoDevanagari []byte
+
+//go:embed assets/fonts/ttf/NotoSansBengali-Regular.ttf.br
+var fontNotoBengali []byte
+
+//go:embed assets/fonts/ttf/NotoSansTamil-Regular.ttf.br
+var fontNotoTamil []byte
+
+//go:embed assets/fonts/ttf/NotoSansTelugu-Regular.ttf.br
+var fontNotoTelugu []byte
+
+//go:embed assets/fonts/ttf/NotoSansKannada-Regular.ttf.br
+var fontNotoKannada []byte
+
+//go:embed assets/fonts/ttf/NotoSansMalayalam-Regular.ttf.br
+var fontNotoMalayalam []byte
+
+//go:embed assets/fonts/ttf/NotoSansGujarati-Regular.ttf.br
+var fontNotoGujarati []byte
+
+//go:embed assets/fonts/ttf/NotoSansGurmukhi-Regular.ttf.br
+var fontNotoGurmukhi []byte
+
+//go:embed assets/fonts/ttf/NotoSansSinhala-Regular.ttf.br
+var fontNotoSinhala []byte
+
+//go:embed assets/fonts/ttf/NotoSansGeorgian-Regular.ttf.br
+var fontNotoGeorgian []byte
+
+//go:embed assets/fonts/ttf/NotoSansArmenian-Regular.ttf.br
+var fontNotoArmenian []byte
+
+//go:embed assets/fonts/ttf/NotoSansKhmer-Regular.ttf.br
+var fontNotoKhmer []byte
+
+//go:embed assets/fonts/ttf/NotoSansLao-Regular.ttf.br
+var fontNotoLao []byte
+
+//go:embed assets/fonts/ttf/NotoSansMyanmar-Regular.ttf.br
+var fontNotoMyanmar []byte
+
+//go:embed assets/fonts/ttf/NotoSansEthiopic-Regular.ttf.br
+var fontNotoEthiopic []byte
+
+//go:embed assets/fonts/ttf/NotoSansCJK-Regular.otf.br
+var fontNotoCJK []byte
+
 var embeddedFonts = map[string][]byte{
-	"Inter-Regular.ttf":            fontInterRegular,
-	"Inter-Bold.ttf":               fontInterBold,
-	"JetBrainsMono-Regular.ttf":    fontJBMRegular,
-	"JetBrainsMono-Bold.ttf":       fontJBMBold,
-	"JetBrainsMono-Italic.ttf":     fontJBMItalic,
-	"JetBrainsMono-BoldItalic.ttf": fontJBMBoldItalic,
-	"NotoColorEmoji.ttf":           fontNotoColorEmoji,
+	"Inter-Regular.ttf":              fontInterRegular,
+	"Inter-Bold.ttf":                 fontInterBold,
+	"JetBrainsMono-Regular.ttf":      fontJBMRegular,
+	"JetBrainsMono-Bold.ttf":         fontJBMBold,
+	"JetBrainsMono-Italic.ttf":       fontJBMItalic,
+	"JetBrainsMono-BoldItalic.ttf":   fontJBMBoldItalic,
+	"NotoColorEmoji.ttf":             fontNotoColorEmoji,
+	"NotoSansHebrew-Regular.ttf":     fontNotoHebrew,
+	"NotoSansArabic-Regular.ttf":     fontNotoArabic,
+	"NotoSansThai-Regular.ttf":       fontNotoThai,
+	"NotoSansDevanagari-Regular.ttf": fontNotoDevanagari,
+	"NotoSansBengali-Regular.ttf":    fontNotoBengali,
+	"NotoSansTamil-Regular.ttf":      fontNotoTamil,
+	"NotoSansTelugu-Regular.ttf":     fontNotoTelugu,
+	"NotoSansKannada-Regular.ttf":    fontNotoKannada,
+	"NotoSansMalayalam-Regular.ttf":  fontNotoMalayalam,
+	"NotoSansGujarati-Regular.ttf":   fontNotoGujarati,
+	"NotoSansGurmukhi-Regular.ttf":   fontNotoGurmukhi,
+	"NotoSansSinhala-Regular.ttf":    fontNotoSinhala,
+	"NotoSansGeorgian-Regular.ttf":   fontNotoGeorgian,
+	"NotoSansArmenian-Regular.ttf":   fontNotoArmenian,
+	"NotoSansKhmer-Regular.ttf":      fontNotoKhmer,
+	"NotoSansLao-Regular.ttf":        fontNotoLao,
+	"NotoSansMyanmar-Regular.ttf":    fontNotoMyanmar,
+	"NotoSansEthiopic-Regular.ttf":   fontNotoEthiopic,
+	"NotoSansCJK-Regular.otf":        fontNotoCJK,
+}
+
+var fallbackFontFiles = []string{
+	"NotoSansHebrew-Regular.ttf",
+	"NotoSansArabic-Regular.ttf",
+	"NotoSansThai-Regular.ttf",
+	"NotoSansDevanagari-Regular.ttf",
+	"NotoSansBengali-Regular.ttf",
+	"NotoSansTamil-Regular.ttf",
+	"NotoSansTelugu-Regular.ttf",
+	"NotoSansKannada-Regular.ttf",
+	"NotoSansMalayalam-Regular.ttf",
+	"NotoSansGujarati-Regular.ttf",
+	"NotoSansGurmukhi-Regular.ttf",
+	"NotoSansSinhala-Regular.ttf",
+	"NotoSansGeorgian-Regular.ttf",
+	"NotoSansArmenian-Regular.ttf",
+	"NotoSansKhmer-Regular.ttf",
+	"NotoSansLao-Regular.ttf",
+	"NotoSansMyanmar-Regular.ttf",
+	"NotoSansEthiopic-Regular.ttf",
+	"NotoSansCJK-Regular.otf",
 }
 
 func loadEmbeddedTTF(name string) ([]byte, error) {
@@ -182,7 +289,7 @@ func loadEmbeddedTTF(name string) ([]byte, error) {
 	if !ok {
 		return nil, os.ErrNotExist
 	}
-	return b, nil
+	return io.ReadAll(brotli.NewReader(bytes.NewReader(b)))
 }
 
 func NewAppUI() *AppUI {
@@ -251,7 +358,19 @@ func NewAppUI() *AppUI {
 		}
 	}
 
-	th.Shaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(fonts))
+	for _, name := range fallbackFontFiles {
+		b, err := loadEmbeddedTTF(name)
+		if err != nil {
+			continue
+		}
+		face, err := opentype.Parse(b)
+		if err != nil {
+			continue
+		}
+		fonts = append(fonts, font.FontFace{Font: face.Font(), Face: face})
+	}
+
+	th.Shaper = text.NewShaper(text.WithCollection(fonts))
 	th.Face = "Inter," + widgets.EmojiTypeface
 
 	th.Bg = theme.Bg
@@ -822,8 +941,8 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		if pe.Kind == pointer.Release {
 			if ui.EditingEnv != nil && !ui.SettingsOpen {
 				sidebarRight := 0
-				if !ui.Settings.HideSidebar {
-					sidebarRight = ui.SidebarWidth + gtx.Dp(unit.Dp(6))
+				if !ui.hideSidebar() {
+					sidebarRight = ui.SidebarWidth + gtx.Dp(unit.Dp(4))
 				}
 				titleBarH := gtx.Dp(unit.Dp(30))
 				if int(pe.Position.X) < sidebarRight && int(pe.Position.Y) >= titleBarH {
@@ -852,9 +971,15 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		}),
 	)
 
-	anySidebarMenuOpen := false
+	anySidebarMenuOpen := ui.ColsMenuOpen || ui.EnvsMenuOpen
 	for _, n := range ui.VisibleCols {
 		if n.MenuOpen {
+			anySidebarMenuOpen = true
+			break
+		}
+	}
+	for _, e := range ui.Environments {
+		if e.MenuOpen {
 			anySidebarMenuOpen = true
 			break
 		}
@@ -863,7 +988,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 	if ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
 		activeTab = ui.Tabs[ui.ActiveIdx]
 	}
-	tabMenuOpen := activeTab != nil && (activeTab.SendMenuOpen || activeTab.MethodListOpen || activeTab.BodyTypeOpen)
+	tabMenuOpen := activeTab != nil && (activeTab.SendMenuOpen || activeTab.MethodListOpen || activeTab.ProtocolListOpen || activeTab.BodyTypeOpen)
 
 	closeAllPopups := func() {
 		ui.TabBar.TabCtxMenuOpen = false
@@ -871,6 +996,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		if activeTab != nil {
 			activeTab.SendMenuOpen = false
 			activeTab.MethodListOpen = false
+			activeTab.ProtocolListOpen = false
 			activeTab.BodyTypeOpen = false
 		}
 	}
@@ -1090,8 +1216,13 @@ func (ui *AppUI) renderColorPickerOverlay(gtx layout.Context, p *colorpicker.Sta
 }
 
 func (ui *AppUI) closeAllSidebarMenus() {
+	ui.ColsMenuOpen = false
+	ui.EnvsMenuOpen = false
 	for _, n := range ui.VisibleCols {
 		n.MenuOpen = false
+	}
+	for _, e := range ui.Environments {
+		e.MenuOpen = false
 	}
 }
 
@@ -1260,7 +1391,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 		ui.saveState()
 	}
 
-	hideSidebar := ui.Settings.HideSidebar
+	hideSidebar := ui.hideSidebar()
 	hideTabBar := ui.Settings.HideTabBar
 
 	dim := layout.Stack{}.Layout(gtx,
@@ -1281,7 +1412,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 			if !hideSidebar {
 				horizChildren = append(horizChildren,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						hit := gtx.Dp(unit.Dp(6))
+						hit := gtx.Dp(unit.Dp(4))
 						vis := 1
 						h := gtx.Constraints.Max.Y
 						if h == 0 {
@@ -1289,12 +1420,11 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 						}
 						size := image.Point{X: hit, Y: h}
 
-						lineCol := theme.Border
+						lineCol := theme.BorderSubtle
 						if ui.SidebarDrag.Dragging() {
 							lineCol = theme.Accent
 						}
-						lineX := (hit - vis) / 2
-						paint.FillShape(gtx.Ops, lineCol, clip.Rect{Min: image.Pt(lineX, 0), Max: image.Pt(lineX+vis, h)}.Op())
+						paint.FillShape(gtx.Ops, lineCol, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(vis, h)}.Op())
 
 						defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 						pointer.CursorColResize.Add(gtx.Ops)
@@ -1523,7 +1653,7 @@ func (ui *AppUI) layoutSidebarToggleBtn(gtx layout.Context) layout.Dimensions {
 		}
 		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
 		ic := widgets.IconChevronL
-		if ui.Settings.HideSidebar {
+		if ui.hideSidebar() {
 			ic = widgets.IconChevronR
 		}
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1535,10 +1665,19 @@ func (ui *AppUI) layoutSidebarToggleBtn(gtx layout.Context) layout.Dimensions {
 	})
 }
 
+func (ui *AppUI) SetSidebarSection(id string) {
+	ui.SidebarSection = id
+}
+
+func (ui *AppUI) hideSidebar() bool {
+	return ui.Settings.HideSidebar
+}
+
 func (ui *AppUI) layoutSidebarSectionBtn(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, id string) layout.Dimensions {
 	for clk.Clicked(gtx) {
-		ui.SidebarSection = id
+		ui.SetSidebarSection(id)
 		ui.saveState()
+		ui.Window.Invalidate()
 	}
 	active := ui.SidebarSection == id
 	return clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

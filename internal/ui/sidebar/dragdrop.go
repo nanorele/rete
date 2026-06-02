@@ -163,9 +163,6 @@ func dragChildDrop(host *Host, src *collections.CollectionNode, srcStart, cursor
 		if i >= srcStart && i < srcEnd {
 			continue
 		}
-		if node.Collection != src.Collection {
-			continue
-		}
 		yTop := rowYAt(i)
 		yBot := rowYAt(i + 1)
 		if yBot <= yTop {
@@ -296,15 +293,15 @@ func commitNodeDrop(host *Host, src *collections.CollectionNode, metric unit.Met
 		if isAncestorOrSelf(src, newParent) {
 			return
 		}
-		if newParent.Collection != src.Collection {
-			return
-		}
 
 		oldParent := src.Parent
 		oldIdx := siblingIndex(src)
 		if oldIdx < 0 {
 			return
 		}
+
+		srcCol := src.Collection
+		dstCol := newParent.Collection
 
 		insertIdx := drop.insertIdx
 		if oldParent == newParent {
@@ -333,11 +330,17 @@ func commitNodeDrop(host *Host, src *collections.CollectionNode, metric unit.Met
 			}
 			newParent.Children = append(newParent.Children[:insertIdx], append([]*collections.CollectionNode{src}, newParent.Children[insertIdx:]...)...)
 			recalcDepth(src, newParent.Depth+1)
+			if srcCol != dstCol {
+				collections.AssignParents(src, newParent, dstCol)
+			}
 			if drop.intoNode != nil && !newParent.Expanded {
 				newParent.Expanded = true
 			}
 		}
-		host.MarkCollectionDirty(src.Collection)
+		host.MarkCollectionDirty(srcCol)
+		if dstCol != srcCol {
+			host.MarkCollectionDirty(dstCol)
+		}
 	}
 	host.UpdateVisibleCols()
 	host.SaveState()

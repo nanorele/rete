@@ -85,13 +85,13 @@ func renderAddCell(th *material.Theme, clk *widget.Clickable, label string, sp u
 				maxX := gtx.Constraints.Min.X
 				maxY := gtx.Constraints.Min.Y
 				t := max(gtx.Dp(1), 1)
-				paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, maxY-t), Max: image.Pt(maxX, maxY)}.Op())
-				paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(maxX-t, 0), Max: image.Pt(maxX, maxY)}.Op())
+				paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(0, maxY-t), Max: image.Pt(maxX, maxY)}.Op())
+				paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(maxX-t, 0), Max: image.Pt(maxX, maxY)}.Op())
 				if drawTop {
-					paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(maxX, t)}.Op())
+					paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(maxX, t)}.Op())
 				}
 				if drawLeft {
-					paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, maxY)}.Op())
+					paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, maxY)}.Op())
 				}
 				return layout.Dimensions{Size: gtx.Constraints.Min}
 			}),
@@ -145,7 +145,7 @@ func (s *Strip) Layout(
 	onSave func(),
 ) layout.Dimensions {
 	return layout.Inset{
-		Top:    unit.Dp(8),
+		Top:    unit.Dp(0),
 		Bottom: unit.Dp(8),
 		Left:   unit.Dp(4),
 		Right:  unit.Dp(4),
@@ -252,7 +252,7 @@ func (s *Strip) Layout(
 
 		thf := float32(tabHeight)
 
-		tabIdxAtXY := func(x, y float32) int {
+		tabIdxAtXY := func(x, y float32, strict bool) int {
 			rowIdx := int(y / thf)
 			if rowIdx < 0 {
 				rowIdx = 0
@@ -274,7 +274,7 @@ func (s *Strip) Layout(
 				}
 				acc += w
 			}
-			if len(row) > 0 {
+			if !strict && len(row) > 0 {
 				last := row[len(row)-1]
 				if last == -1 && len(row) > 1 {
 					last = row[len(row)-2]
@@ -324,7 +324,7 @@ func (s *Strip) Layout(
 				switch pe.Kind {
 				case pointer.Press:
 					if pe.Buttons.Contain(pointer.ButtonPrimary) {
-						hit := tabIdxAtXY(pe.Position.X, pe.Position.Y)
+						hit := tabIdxAtXY(pe.Position.X, pe.Position.Y, true)
 						if hit >= 0 {
 							hitRow, xOff := tabPosInRow(hit)
 							s.TabDragIdx = hit
@@ -338,7 +338,7 @@ func (s *Strip) Layout(
 							s.TabDragPressTime = gtx.Now
 						}
 					} else if pe.Buttons.Contain(pointer.ButtonSecondary) {
-						hit := tabIdxAtXY(pe.Position.X, pe.Position.Y)
+						hit := tabIdxAtXY(pe.Position.X, pe.Position.Y, true)
 						if hit >= 0 {
 							s.TabCtxMenuOpen = true
 							s.TabCtxMenuIdx = hit
@@ -358,7 +358,7 @@ func (s *Strip) Layout(
 						}
 					}
 					if s.TabDragging && s.TabDragIdx >= 0 && s.TabDragIdx < len(*tabs) {
-						target := tabIdxAtXY(pe.Position.X, pe.Position.Y)
+						target := tabIdxAtXY(pe.Position.X, pe.Position.Y, false)
 						if target >= 0 && target != s.TabDragIdx {
 							old := s.TabDragIdx
 							if target > old {
@@ -414,13 +414,13 @@ func (s *Strip) Layout(
 								dragTabW = finalW
 								paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: image.Pt(finalW, tabHeight)}.Op())
 								t := max(gtx.Dp(1), 1)
-								paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, tabHeight-t), Max: image.Pt(finalW, tabHeight)}.Op())
-								paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(finalW-t, 0), Max: image.Pt(finalW, tabHeight)}.Op())
+								paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(0, tabHeight-t), Max: image.Pt(finalW, tabHeight)}.Op())
+								paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(finalW-t, 0), Max: image.Pt(finalW, tabHeight)}.Op())
 								if rIdx == 0 {
-									paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(finalW, t)}.Op())
+									paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(finalW, t)}.Op())
 								}
 								if j == 0 {
-									paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, tabHeight)}.Op())
+									paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, tabHeight)}.Op())
 								}
 								return layout.Dimensions{Size: image.Pt(finalW, tabHeight)}
 							}
@@ -499,13 +499,13 @@ func (s *Strip) Layout(
 									maxX := gtx.Constraints.Min.X
 									maxY := gtx.Constraints.Min.Y
 									t := max(gtx.Dp(1), 1)
-									paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, maxY-t), Max: image.Pt(maxX, maxY)}.Op())
-									paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(maxX-t, 0), Max: image.Pt(maxX, maxY)}.Op())
+									paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(0, maxY-t), Max: image.Pt(maxX, maxY)}.Op())
+									paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(maxX-t, 0), Max: image.Pt(maxX, maxY)}.Op())
 									if rIdx == 0 {
-										paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(maxX, t)}.Op())
+										paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(maxX, t)}.Op())
 									}
 									if j == 0 {
-										paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, maxY)}.Op())
+										paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, maxY)}.Op())
 									}
 									return layout.Dimensions{Size: gtx.Constraints.Min}
 								}),

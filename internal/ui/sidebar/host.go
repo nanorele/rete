@@ -62,8 +62,12 @@ type Host struct {
 	EnvsExpanded    *bool
 	ImportBtn       *widget.Clickable
 	AddColBtn       *widget.Clickable
+	ColsMenuBtn     *widget.Clickable
+	ColsMenuOpen    *bool
 	ImportEnvBtn    *widget.Clickable
 	AddEnvBtn       *widget.Clickable
+	EnvsMenuBtn     *widget.Clickable
+	EnvsMenuOpen    *bool
 	SidebarDropTag  *bool
 
 	EnvColorPicker *colorpicker.State
@@ -85,5 +89,10 @@ type Host struct {
 	LayoutToggleBtn       func(gtx layout.Context) layout.Dimensions
 	LayoutSectionRequests func(gtx layout.Context) layout.Dimensions
 	LayoutSectionMITM     func(gtx layout.Context) layout.Dimensions
+	LayoutMITMRules       func(gtx layout.Context) layout.Dimensions
 	SidebarSection        *string
+}
+
+func (h *Host) HideSidebar() bool {
+	return h.Settings != nil && h.Settings.HideSidebar
 }

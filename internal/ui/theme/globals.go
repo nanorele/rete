@@ -15,6 +15,7 @@ var (
 	BgDragGhost    = color.NRGBA{R: 31, G: 31, B: 31, A: 240}
 	Border         = color.NRGBA{R: 43, G: 45, B: 49, A: 255}
 	BorderLight    = color.NRGBA{R: 60, G: 60, B: 60, A: 255}
+	BorderSubtle   = color.NRGBA{R: 40, G: 40, B: 40, A: 255}
 	Fg             = color.NRGBA{R: 204, G: 204, B: 204, A: 255}
 	FgMuted        = color.NRGBA{R: 150, G: 150, B: 150, A: 255}
 	FgDim          = color.NRGBA{R: 140, G: 140, B: 140, A: 255}
@@ -30,7 +31,7 @@ var (
 	Danger         = color.NRGBA{R: 194, G: 64, B: 56, A: 255}
 	Cancel         = color.NRGBA{R: 180, G: 40, B: 40, A: 255}
 	CloseHover     = color.NRGBA{R: 232, G: 17, B: 35, A: 255}
-	ScrollThumb    = color.NRGBA{R: 75, G: 75, B: 75, A: 255}
+	ScrollThumb    = color.NRGBA{R: 75, G: 75, B: 75, A: 128}
 	EditorScroll   = color.NRGBA{R: 170, G: 170, B: 170, A: 255}
 	VarFound       = color.NRGBA{R: 40, G: 110, B: 160, A: 100}
 	VarMissing     = color.NRGBA{R: 130, G: 60, B: 60, A: 100}
@@ -121,6 +122,7 @@ func Apply(p Palette) {
 	BgDragGhost = p.BgDragGhost
 	Border = p.Border
 	BorderLight = p.BorderLight
+	BorderSubtle = Mix(p.Bg, p.Fg, 0.12)
 	Fg = p.Fg
 	FgMuted = p.FgMuted
 	FgDim = p.FgDim
