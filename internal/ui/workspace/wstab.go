@@ -78,6 +78,8 @@ type WSSession struct {
 
 	Subprotocols       []*WSSubprotoItem
 	SubprotosList      widget.List
+	SubprotosAbsHeight int
+	FitSubprotos       bool
 	AddSubprotoBtn     widget.Clickable
 	OptionsExpanded    bool
 	OptionsBtn         widget.Clickable

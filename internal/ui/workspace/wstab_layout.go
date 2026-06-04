@@ -205,6 +205,8 @@ func (t *RequestTab) handleWSButtons(gtx layout.Context) {
 	}
 	for s.AddSubprotoBtn.Clicked(gtx) {
 		s.AddSubprotocol("")
+		s.OptionsExpanded = true
+		s.FitSubprotos = true
 	}
 	for s.OfferDeflateBtn.Clicked(gtx) {
 		s.OfferDeflate = !s.OfferDeflate
@@ -369,7 +371,18 @@ func (t *RequestTab) layoutWSComposerPane(gtx layout.Context, th *material.Theme
 				layout.Rigid(wsHLine),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					minH := gtx.Dp(unit.Dp(60))
-					h := gtx.Dp(unit.Dp(120))
+					if s.SubprotosAbsHeight <= 0 {
+						s.SubprotosAbsHeight = 120
+					}
+					if s.FitSubprotos {
+						fit := len(s.Subprotocols)*28 + 11
+						if fit > s.SubprotosAbsHeight {
+							s.SubprotosAbsHeight = fit
+						}
+						s.FitSubprotos = false
+					}
+					h := gtx.Dp(unit.Dp(s.SubprotosAbsHeight))
+					origPx := h
 					available := gtx.Constraints.Max.Y - gtx.Dp(unit.Dp(80))
 					if available < minH {
 						available = minH
@@ -379,6 +392,9 @@ func (t *RequestTab) layoutWSComposerPane(gtx layout.Context, th *material.Theme
 					}
 					if h < minH {
 						h = minH
+					}
+					if h != origPx {
+						s.SubprotosAbsHeight = int(float32(h) / gtx.Metric.PxPerDp)
 					}
 					gtx.Constraints.Min.Y = h
 					gtx.Constraints.Max.Y = h

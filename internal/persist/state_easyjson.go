@@ -60,6 +60,18 @@ func easyjsonBd887cf1DecodeTractoInternalPersist(in *jlexer.Lexer, out *WSTabSta
 				}
 				in.Delim(']')
 			}
+		case "options_expanded":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.OptionsExpanded = bool(in.Bool())
+			}
+		case "subprotos_abs_height":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SubprotosAbsHeight = int(in.Int())
+			}
 		case "offer_deflate":
 			if in.IsNull() {
 				in.Skip()
@@ -145,6 +157,18 @@ func easyjsonBd887cf1DecodeTractoInternalPersist(in *jlexer.Lexer, out *WSTabSta
 						in.WantComma()
 					}
 					in.Delim(']')
+				}
+			case "options_expanded":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.OptionsExpanded = bool(in.Bool())
+				}
+			case "subprotos_abs_height":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.SubprotosAbsHeight = int(in.Int())
 				}
 			case "offer_deflate":
 				if in.IsNull() {
@@ -232,6 +256,26 @@ func easyjsonBd887cf1EncodeTractoInternalPersist(out *jwriter.Writer, in WSTabSt
 			}
 			out.RawByte(']')
 		}
+	}
+	if in.OptionsExpanded {
+		const prefix string = ",\"options_expanded\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Bool(bool(in.OptionsExpanded))
+	}
+	if in.SubprotosAbsHeight != 0 {
+		const prefix string = ",\"subprotos_abs_height\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Int(int(in.SubprotosAbsHeight))
 	}
 	if in.OfferDeflate {
 		const prefix string = ",\"offer_deflate\":"
@@ -518,6 +562,18 @@ func easyjsonBd887cf1DecodeTractoInternalPersist2(in *jlexer.Lexer, out *TabStat
 				}
 				in.Delim(']')
 			}
+		case "headers_expanded":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.HeadersExpanded = bool(in.Bool())
+			}
+		case "headers_abs_height":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.HeadersAbsHeight = int(in.Int())
+			}
 		case "split_ratio":
 			if in.IsNull() {
 				in.Skip()
@@ -727,6 +783,18 @@ func easyjsonBd887cf1DecodeTractoInternalPersist2(in *jlexer.Lexer, out *TabStat
 						in.WantComma()
 					}
 					in.Delim(']')
+				}
+			case "headers_expanded":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.HeadersExpanded = bool(in.Bool())
+				}
+			case "headers_abs_height":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.HeadersAbsHeight = int(in.Int())
 				}
 			case "split_ratio":
 				if in.IsNull() {
@@ -940,6 +1008,16 @@ func easyjsonBd887cf1EncodeTractoInternalPersist2(out *jwriter.Writer, in TabSta
 			}
 			out.RawByte(']')
 		}
+	}
+	if in.HeadersExpanded {
+		const prefix string = ",\"headers_expanded\":"
+		out.RawString(prefix)
+		out.Bool(bool(in.HeadersExpanded))
+	}
+	if in.HeadersAbsHeight != 0 {
+		const prefix string = ",\"headers_abs_height\":"
+		out.RawString(prefix)
+		out.Int(int(in.HeadersAbsHeight))
 	}
 	{
 		const prefix string = ",\"split_ratio\":"

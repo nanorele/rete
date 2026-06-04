@@ -94,9 +94,9 @@ type previewResult struct {
 }
 
 type RequestTab struct {
-	Title            string
-	TabBtn           widget.Clickable
-	CloseBtn         widget.Clickable
+	Title              string
+	TabBtn             widget.Clickable
+	CloseBtn           widget.Clickable
 	Method             string
 	MethodBtn          widget.Clickable
 	MethodListOpen     bool
@@ -108,36 +108,37 @@ type RequestTab struct {
 	URLInput           widget.Editor
 	urlClick           gesture.Click
 	SendBtn            widget.Clickable
-	Headers          []*HeaderItem
-	HeadersExpanded  bool
-	AddHeaderBtn     widget.Clickable
-	ViewGeneratedBtn widget.Clickable
-	HeadersList      widget.List
-	ReqEditor        RequestEditor
-	RespListH        widget.List
-	WrapBtn          widget.Clickable
-	WrapEnabled      bool
-	CopyBtn          widget.Clickable
-	Status           string
-	RespEditor       *ResponseViewer
-	SplitRatio       float32
-	VStackRatio      float32
-	HeadersAbsHeight int
-	LayoutMode       int
-	LayoutHorizBtn   widget.Clickable
-	LayoutVertBtn    widget.Clickable
-	SplitDrag        gesture.Drag
-	SplitDragX       float32
-	HeadersBodyDrag  gesture.Drag
-	HeadersBodyDragX float32
-	ScrollDrag       gesture.Drag
-	ScrollDragY      float32
-	ReqScrollDrag    gesture.Drag
-	ReqScrollDragY   float32
-	HScrollDrag      gesture.Drag
-	HScrollDragX     float32
-	ReqHScrollDrag   gesture.Drag
-	ReqHScrollDragX  float32
+	Headers            []*HeaderItem
+	HeadersExpanded    bool
+	AddHeaderBtn       widget.Clickable
+	ViewGeneratedBtn   widget.Clickable
+	HeadersList        widget.List
+	ReqEditor          RequestEditor
+	RespListH          widget.List
+	WrapBtn            widget.Clickable
+	WrapEnabled        bool
+	CopyBtn            widget.Clickable
+	Status             string
+	RespEditor         *ResponseViewer
+	SplitRatio         float32
+	VStackRatio        float32
+	HeadersAbsHeight   int
+	FitHeaders         bool
+	LayoutMode         int
+	LayoutHorizBtn     widget.Clickable
+	LayoutVertBtn      widget.Clickable
+	SplitDrag          gesture.Drag
+	SplitDragX         float32
+	HeadersBodyDrag    gesture.Drag
+	HeadersBodyDragX   float32
+	ScrollDrag         gesture.Drag
+	ScrollDragY        float32
+	ReqScrollDrag      gesture.Drag
+	ReqScrollDragY     float32
+	HScrollDrag        gesture.Drag
+	HScrollDragX       float32
+	ReqHScrollDrag     gesture.Drag
+	ReqHScrollDragX    float32
 
 	LoadFromFileBtn    widget.Clickable
 	DismissOversizeBtn widget.Clickable
@@ -1288,6 +1289,8 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 
 	for t.AddHeaderBtn.Clicked(gtx) {
 		t.AddHeader("", "")
+		t.HeadersExpanded = true
+		t.FitHeaders = true
 		t.dirtyCheckNeeded = true
 	}
 
@@ -1545,13 +1548,13 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 	hbMinPx := float32(gtx.Dp(unit.Dp(60)))
 	if hbMoved {
 		delta := hbFinalPos - t.HeadersBodyDragX
-		oldH := float32(t.HeadersAbsHeight)
+		oldH := float32(gtx.Dp(unit.Dp(t.HeadersAbsHeight)))
 		newH := oldH + delta
 		if newH < hbMinPx {
 			newH = hbMinPx
 		}
 		t.HeadersBodyDragX = hbFinalPos - (newH - oldH)
-		t.HeadersAbsHeight = int(newH)
+		t.HeadersAbsHeight = int(newH / gtx.Metric.PxPerDp)
 		win.Invalidate()
 	}
 	if hbReleased {
@@ -2073,9 +2076,17 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 												minH := gtx.Dp(unit.Dp(60))
 												if t.HeadersAbsHeight <= 0 {
-													t.HeadersAbsHeight = gtx.Dp(unit.Dp(120))
+													t.HeadersAbsHeight = 120
 												}
-												h := t.HeadersAbsHeight
+												if t.FitHeaders {
+													fit := len(visibleHeaders)*28 + 44
+													if fit > t.HeadersAbsHeight {
+														t.HeadersAbsHeight = fit
+													}
+													t.FitHeaders = false
+												}
+												h := gtx.Dp(unit.Dp(t.HeadersAbsHeight))
+												origPx := h
 												available := gtx.Constraints.Max.Y - gtx.Dp(unit.Dp(64))
 												if available < minH {
 													available = minH
@@ -2086,7 +2097,9 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 												if h < minH {
 													h = minH
 												}
-												t.HeadersAbsHeight = h
+												if h != origPx {
+													t.HeadersAbsHeight = int(float32(h) / gtx.Metric.PxPerDp)
+												}
 												gtx.Constraints.Min.Y = h
 												gtx.Constraints.Max.Y = h
 												return headersFullPanel(gtx)

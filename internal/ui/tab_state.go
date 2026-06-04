@@ -28,6 +28,8 @@ func (ui *AppUI) loadTabFromState(ts persist.TabState) *workspace.RequestTab {
 	for _, hs := range ts.Headers {
 		rt.AddHeader(hs.Key, hs.Value)
 	}
+	rt.HeadersExpanded = ts.HeadersExpanded
+	rt.HeadersAbsHeight = ts.HeadersAbsHeight
 	if ts.SplitRatio > 0 {
 		rt.SplitRatio = ts.SplitRatio
 	}
@@ -72,6 +74,8 @@ func (ui *AppUI) loadTabFromState(ts persist.TabState) *workspace.RequestTab {
 		for _, sp := range ts.WS.Subprotocols {
 			ws.AddSubprotocol(sp)
 		}
+		ws.OptionsExpanded = ts.WS.OptionsExpanded
+		ws.SubprotosAbsHeight = ts.WS.SubprotosAbsHeight
 		ws.OfferDeflate = ts.WS.OfferDeflate
 		ws.InsecureSkipVerify = ts.WS.InsecureSkipVerify
 		ws.UseTractoCA = ts.WS.UseTractoCA
@@ -105,6 +109,8 @@ func (ui *AppUI) tabStateFromTab(rt *workspace.RequestTab) persist.TabState {
 		VStackRatio:      rt.VStackRatio,
 		LayoutMode:       rt.LayoutMode,
 		HeaderSplitRatio: rt.HeaderSplitRatio,
+		HeadersExpanded:  rt.HeadersExpanded,
+		HeadersAbsHeight: rt.HeadersAbsHeight,
 		ReqWrapEnabled:   &reqWrap,
 		BodyType:         rt.BodyType.PostmanMode(),
 		BinaryPath:       rt.BinaryFilePath,
@@ -143,6 +149,8 @@ func (ui *AppUI) tabStateFromTab(rt *workspace.RequestTab) persist.TabState {
 	if rt.WS != nil {
 		wsState := &persist.WSTabState{
 			Subprotocols:       rt.WS.SubprotocolList(),
+			OptionsExpanded:    rt.WS.OptionsExpanded,
+			SubprotosAbsHeight: rt.WS.SubprotosAbsHeight,
 			OfferDeflate:       rt.WS.OfferDeflate,
 			InsecureSkipVerify: rt.WS.InsecureSkipVerify,
 			UseTractoCA:        rt.WS.UseTractoCA,

@@ -25,6 +25,8 @@ type TabState struct {
 	URL              string          `json:"url"`
 	Body             string          `json:"body"`
 	Headers          []HeaderState   `json:"headers"`
+	HeadersExpanded  bool            `json:"headers_expanded,omitempty"`
+	HeadersAbsHeight int             `json:"headers_abs_height,omitempty"`
 	SplitRatio       float32         `json:"split_ratio"`
 	VStackRatio      float32         `json:"vstack_ratio,omitempty"`
 	LayoutMode       int             `json:"layout_mode,omitempty"`
@@ -42,6 +44,8 @@ type TabState struct {
 //easyjson:json
 type WSTabState struct {
 	Subprotocols       []string        `json:"subprotocols,omitempty"`
+	OptionsExpanded    bool            `json:"options_expanded,omitempty"`
+	SubprotosAbsHeight int             `json:"subprotos_abs_height,omitempty"`
 	OfferDeflate       bool            `json:"offer_deflate,omitempty"`
 	InsecureSkipVerify bool            `json:"insecure_skip_verify,omitempty"`
 	UseTractoCA        bool            `json:"use_tracto_ca,omitempty"`
