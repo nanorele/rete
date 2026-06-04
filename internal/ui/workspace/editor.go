@@ -941,10 +941,17 @@ func (v *RequestEditor) appendLineStartsFrom(startIdx int) {
 	v.scanChunks(v.lineStarts[len(v.lineStarts)-1])
 }
 
+func (v *RequestEditor) ensureLineStarts() {
+	if len(v.lineStarts) == 0 {
+		v.lineStarts = append(v.lineStarts, 0)
+	}
+}
+
 func (v *RequestEditor) lineStartsInsert(pos, length int) {
 	if length <= 0 {
 		return
 	}
+	v.ensureLineStarts()
 	idx := sort.SearchInts(v.lineStarts, pos+1)
 	for i := idx; i < len(v.lineStarts); i++ {
 		v.lineStarts[i] += length
@@ -1008,6 +1015,7 @@ type RequestEditorStyle struct {
 
 func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 	v := s.Viewer
+	v.ensureLineStarts()
 
 	size := gtx.Constraints.Max
 	if size.X <= 0 || size.Y <= 0 {

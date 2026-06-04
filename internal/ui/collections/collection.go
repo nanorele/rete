@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 	"tracto/internal/model"
+	"tracto/internal/ui/widgets"
 	"tracto/internal/utils"
 
 	"github.com/nanorele/gio/gesture"
@@ -46,7 +47,7 @@ type CollectionNode struct {
 	RowHeightPx int
 
 	Drag  gesture.Drag
-	Hover gesture.Hover
+	Hover widgets.Hover
 }
 
 type ParsedCollection struct {
@@ -252,7 +253,7 @@ func CollectSubtree(node *CollectionNode) map[*CollectionNode]struct{} {
 
 func (n *CollectionNode) ResetSubtreeHover() {
 	for _, c := range n.Children {
-		c.Hover = gesture.Hover{}
+		c.Hover = widgets.Hover{}
 		c.ResetSubtreeHover()
 	}
 }

@@ -46,7 +46,7 @@ type EnvironmentUI struct {
 	LastClickAt     time.Time
 	NameScroll      widgets.ScrollLabel
 	Drag            gesture.Drag
-	Hover           gesture.Hover
+	Hover           widgets.Hover
 	DragOriginY     float32
 }
 

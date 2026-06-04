@@ -421,6 +421,15 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		for _, n := range colsSnapshot {
 			n.Hover.Update(gtx.Source)
 		}
+		if hoverDebug {
+			labels := make([]string, len(colsSnapshot))
+			hovers := make([]*widgets.Hover, len(colsSnapshot))
+			for i, n := range colsSnapshot {
+				labels[i] = n.Name
+				hovers[i] = &n.Hover
+			}
+			logHoverStates("col", labels, hovers, host.ColList.Position.First, host.ColList.Position.Count)
+		}
 
 		listFirst := host.ColList.Position.First
 		trackY := -host.ColList.Position.Offset
@@ -1168,6 +1177,15 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 		for _, e := range envSnapshot {
 			e.Hover.Update(gtx.Source)
+		}
+		if hoverDebug {
+			labels := make([]string, len(envSnapshot))
+			hovers := make([]*widgets.Hover, len(envSnapshot))
+			for i, e := range envSnapshot {
+				labels[i] = e.Data.Name
+				hovers[i] = &e.Hover
+			}
+			logHoverStates("env", labels, hovers, host.EnvList.Position.First, host.EnvList.Position.Count)
 		}
 
 		var draggingEnv bool

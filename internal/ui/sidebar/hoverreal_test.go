@@ -3,15 +3,13 @@ package sidebar
 import (
 	"fmt"
 	"image"
-	"reflect"
 	"testing"
-	"unsafe"
 
 	"tracto/internal/model"
 	"tracto/internal/ui/environments"
+	"tracto/internal/ui/widgets"
 
 	"github.com/nanorele/gio/f32"
-	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/io/input"
 	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
@@ -20,13 +18,8 @@ import (
 	"github.com/nanorele/gio/widget"
 )
 
-func peekHover(h *gesture.Hover) (entered bool, count int) {
-	v := reflect.ValueOf(h).Elem()
-	e := v.FieldByName("entered")
-	c := v.FieldByName("count")
-	entered = *(*bool)(unsafe.Pointer(e.UnsafeAddr()))
-	count = *(*int)(unsafe.Pointer(c.UnsafeAddr()))
-	return
+func peekHover(h *widgets.Hover) (entered bool, count int) {
+	return h.Hovered(), 0
 }
 
 func TestRealLayoutEnvHoverScroll(t *testing.T) {
