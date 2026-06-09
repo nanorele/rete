@@ -33,6 +33,7 @@ var (
 	IconUAC        *widget.Icon
 	IconPlay       *widget.Icon
 	IconStop       *widget.Icon
+	IconBatch      *widget.Icon
 )
 
 func mustIcon(data []byte) *widget.Icon {
@@ -70,4 +71,5 @@ func init() {
 	IconShield = mustIcon(icons.ActionVerifiedUser)
 	IconPlay = mustIcon(icons.AVPlayArrow)
 	IconStop = mustIcon(icons.AVStop)
+	IconBatch = mustIcon(icons.AVPlaylistPlay)
 }

@@ -480,6 +480,7 @@ func (ui *AppUI) relinkTabs() {
 				node := collections.NodeAtPath(col.Data.Root, tab.PendingNodePath)
 				if node != nil && node.Request != nil {
 					tab.LinkedNode = node
+					tab.Examples = node.Request.Examples
 					tab.PendingColID = ""
 					tab.PendingNodePath = nil
 				}
@@ -894,6 +895,8 @@ func (ui *AppUI) openRequestInTab(node *collections.CollectionNode) {
 			rt.BinaryFileSize = fi.Size()
 		}
 	}
+	rt.Examples = req.Examples
+	rt.ExampleSel = -1
 
 	rt.UpdateSystemHeaders()
 
@@ -988,7 +991,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 	if ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
 		activeTab = ui.Tabs[ui.ActiveIdx]
 	}
-	tabMenuOpen := activeTab != nil && (activeTab.SendMenuOpen || activeTab.MethodListOpen || activeTab.ProtocolListOpen || activeTab.BodyTypeOpen)
+	tabMenuOpen := activeTab != nil && (activeTab.SendMenuOpen || activeTab.MethodListOpen || activeTab.ProtocolListOpen || activeTab.BodyTypeOpen || activeTab.ExampleListOpen)
 
 	closeAllPopups := func() {
 		ui.TabBar.TabCtxMenuOpen = false
@@ -998,6 +1001,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 			activeTab.MethodListOpen = false
 			activeTab.ProtocolListOpen = false
 			activeTab.BodyTypeOpen = false
+			activeTab.ExampleListOpen = false
 		}
 	}
 
@@ -1464,6 +1468,10 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 
 								for rt.SendBtn.Clicked(gtx) {
 									rt.SendMenuOpen = false
+									if rt.RunOpen {
+										rt.RunnerAction(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
+										continue
+									}
 									if rt.Method == workspace.MethodWS {
 										ui.triggerWSAction(rt)
 									} else {
@@ -1474,12 +1482,16 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 								if rt.URLSubmitted {
 									rt.URLSubmitted = false
 									rt.SendMenuOpen = false
-									if rt.Method == workspace.MethodWS {
-										ui.triggerWSAction(rt)
+									if rt.RunOpen {
+										rt.RunnerAction(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
 									} else {
-										rt.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
+										if rt.Method == workspace.MethodWS {
+											ui.triggerWSAction(rt)
+										} else {
+											rt.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
+										}
+										ui.saveState()
 									}
-									ui.saveState()
 								}
 								for rt.CancelBtn.Clicked(gtx) {
 									rt.CancelRequest()

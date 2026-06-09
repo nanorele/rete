@@ -3,6 +3,7 @@ package collections
 import (
 	"encoding/json"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 	"tracto/internal/model"
@@ -405,7 +406,89 @@ func parseItemRaw(raw json.RawMessage, depth int) *CollectionNode {
 			node.IsFolder = true
 		}
 	}
+	if node.Request != nil {
+		node.Request.Examples = parseExamples(fields)
+	}
 	return node
+}
+
+func parseExamples(fields map[string]json.RawMessage) []model.ParsedExample {
+	var raws []json.RawMessage
+	if v, ok := fields["response"]; ok {
+		var arr []json.RawMessage
+		if json.Unmarshal(v, &arr) == nil {
+			raws = append(raws, arr...)
+		}
+	}
+	if v, ok := fields["item"]; ok {
+		var arr []json.RawMessage
+		if json.Unmarshal(v, &arr) == nil {
+			for _, c := range arr {
+				if isExampleItem(c) {
+					raws = append(raws, c)
+				}
+			}
+		}
+	}
+	if len(raws) == 0 {
+		return nil
+	}
+	out := make([]model.ParsedExample, 0, len(raws))
+	for _, raw := range raws {
+		if ex := parseExampleRaw(raw); ex != nil {
+			out = append(out, *ex)
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+func parseExampleRaw(raw json.RawMessage) *model.ParsedExample {
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return nil
+	}
+	ex := &model.ParsedExample{Headers: map[string]string{}}
+	if v, ok := fields["name"]; ok {
+		var s string
+		_ = json.Unmarshal(v, &s)
+		ex.Name = utils.SanitizeText(s)
+	}
+	if v, ok := fields["originalRequest"]; ok && len(v) > 0 && string(v) != "null" {
+		if req := parseRequestRaw(v, ex.Name); req != nil {
+			ex.Method = req.Method
+			ex.URL = req.URL
+			ex.Body = req.Body
+			ex.Headers = req.Headers
+			ex.BodyType = req.BodyType
+			ex.FormParts = req.FormParts
+			ex.URLEncoded = req.URLEncoded
+			ex.BinaryPath = req.BinaryPath
+		}
+	}
+	if v, ok := fields["status"]; ok {
+		var s string
+		_ = json.Unmarshal(v, &s)
+		ex.Status = utils.SanitizeText(s)
+	}
+	if v, ok := fields["code"]; ok {
+		_ = json.Unmarshal(v, &ex.Code)
+	}
+	if v, ok := fields["body"]; ok {
+		var s string
+		_ = json.Unmarshal(v, &s)
+		ex.RespBody = utils.SanitizeText(s)
+	}
+	if ex.Name == "" {
+		if ex.Code != 0 {
+			ex.Name = "Example " + strconv.Itoa(ex.Code)
+		} else {
+			ex.Name = "Example"
+		}
+	}
+	return ex
 }
 
 func parseRequestRaw(raw json.RawMessage, name string) *model.ParsedRequest {

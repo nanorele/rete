@@ -240,6 +240,18 @@ type RequestTab struct {
 
 	WS     *WSSession
 	WSHost WSHostFuncs
+
+	Run         *RequestRunner
+	RunOpen     bool
+	SingleBtn   widget.Clickable
+	MultipleBtn widget.Clickable
+
+	Examples        []model.ParsedExample
+	ExampleSel      int
+	ExampleBtn      widget.Clickable
+	ExampleListOpen bool
+	ExampleChoices  []widget.Clickable
+	BaseState       exampleBaseState
 }
 
 func NewRequestTab(title string) *RequestTab {
@@ -273,6 +285,7 @@ func NewRequestTab(title string) *RequestTab {
 		BodyType:         model.BodyRaw,
 		formPartFileChan: make(chan formPartFileResult, 64),
 		binaryFileChan:   make(chan binaryFileResult, 8),
+		ExampleSel:       -1,
 	}
 	t.URLInput.Submit = true
 	t.HeadersList.Axis = layout.Vertical
@@ -476,6 +489,30 @@ func (t *RequestTab) layoutModeBar(gtx layout.Context, th *material.Theme, hBtn,
 				return t.layoutModeBtn(gtx, vBtn, true, stacked)
 			}),
 			layout.Flexed(1, layout.Spacer{}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if t.Method == MethodWS {
+					return layout.Dimensions{}
+				}
+				return t.layoutExampleSelector(gtx, th)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if t.Method == MethodWS {
+					return layout.Dimensions{}
+				}
+				return layout.Spacer{Width: unit.Dp(100)}.Layout(gtx)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if t.Method == MethodWS {
+					return layout.Dimensions{}
+				}
+				return t.layoutRunModeTabs(gtx, th)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if t.Method == MethodWS {
+					return layout.Dimensions{}
+				}
+				return layout.Spacer{Width: unit.Dp(100)}.Layout(gtx)
+			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				if t.LinkedNode == nil {
 					return layout.Dimensions{}
@@ -1407,6 +1444,42 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		win.Invalidate()
 	}
 
+	if t.Method != MethodWS {
+		r := t.EnsureRun()
+		for t.SingleBtn.Clicked(gtx) {
+			t.RunOpen = false
+			win.Invalidate()
+		}
+		for t.MultipleBtn.Clicked(gtx) {
+			t.RunOpen = true
+			win.Invalidate()
+		}
+		for r.AddVarBtn.Clicked(gtx) {
+			r.addVar()
+		}
+		for i := len(r.Variables) - 1; i >= 0; i-- {
+			if r.Variables[i].DelBtn.Clicked(gtx) {
+				r.Variables = append(r.Variables[:i], r.Variables[i+1:]...)
+			}
+		}
+		for r.ModeIterBtn.Clicked(gtx) {
+			r.Mode = runByIterations
+		}
+		for r.ModeTimeBtn.Clicked(gtx) {
+			r.Mode = runByDuration
+		}
+		for i := range r.SortBtns {
+			if r.SortBtns[i].Clicked(gtx) {
+				if r.SortCol == i {
+					r.SortAsc = !r.SortAsc
+				} else {
+					r.SortCol = i
+					r.SortAsc = false
+				}
+			}
+		}
+	}
+
 	defaultMin := t.defaultPaneMinWidth(gtx, th)
 
 	overflow := false
@@ -1746,22 +1819,57 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 						gtx.Constraints.Min.Y = btnH
 						gtx.Constraints.Max.Y = btnH
 						btnMinW := gtx.Dp(unit.Dp(90))
+						sendLabelW := widgets.MeasureTextWidthCached(gtx, th, unit.Sp(12), font.Font{Typeface: th.Face}, "RERUN")
+						actionBtnW := gtx.Dp(unit.Dp(16)) + sendLabelW + gtx.Dp(unit.Dp(12)) + gtx.Dp(unit.Dp(1)) + gtx.Dp(unit.Dp(24))
+						if actionBtnW < btnMinW {
+							actionBtnW = btnMinW
+						}
 						if t.isRequesting {
-							gtx.Constraints.Min.X = btnMinW
-							return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								gtx.Constraints.Min.Y = 0
-								btn := widgets.MonoButton(th, &t.CancelBtn, "CANCEL")
-								btn.Background = theme.Cancel
-								btn.Color = theme.DangerFg
-								btn.TextSize = unit.Sp(12)
-								btn.Inset = layout.Inset{Top: unit.Dp(7), Bottom: unit.Dp(6), Left: unit.Dp(16), Right: unit.Dp(16)}
-								return btn.Layout(gtx)
+							gtx.Constraints.Min.X = actionBtnW
+							gtx.Constraints.Max.X = actionBtnW
+							return t.CancelBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+								pointer.CursorPointer.Add(gtx.Ops)
+								macro := op.Record(gtx.Ops)
+								dims := layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									lbl := material.Label(th, unit.Sp(12), "CANCEL")
+									lbl.Color = theme.DangerFg
+									return lbl.Layout(gtx)
+								})
+								call := macro.Stop()
+								rr := clip.UniformRRect(image.Rectangle{Max: dims.Size}, gtx.Dp(unit.Dp(4)))
+								paint.FillShape(gtx.Ops, theme.Cancel, rr.Op(gtx.Ops))
+								call.Add(gtx.Ops)
+								return dims
 							})
 						}
 
 						bgColor := theme.VarFound
+						sendFg := th.Fg
+						sendLabel := "SEND"
+						if t.RunOpen {
+							sendLabel, bgColor = t.runnerSendLabel()
+						}
 						cornerR := gtx.Dp(unit.Dp(4))
-						gtx.Constraints.Min.X = btnMinW
+						gtx.Constraints.Min.X = actionBtnW
+
+						if t.RunOpen {
+							runnerBtnW := sendLabelW + 2*gtx.Dp(unit.Dp(14))
+							gtx.Constraints.Min.X = runnerBtnW
+							gtx.Constraints.Max.X = runnerBtnW
+							return t.SendBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+								pointer.CursorPointer.Add(gtx.Ops)
+								sz := image.Pt(runnerBtnW, btnH)
+								paint.FillShape(gtx.Ops, bgColor, clip.UniformRRect(image.Rectangle{Max: sz}, cornerR).Op(gtx.Ops))
+								layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									lbl := material.Label(th, unit.Sp(12), sendLabel)
+									lbl.Color = sendFg
+									lbl.Alignment = text.Middle
+									lbl.MaxLines = 1
+									return lbl.Layout(gtx)
+								})
+								return layout.Dimensions{Size: sz}
+							})
+						}
 
 						sendMacro := op.Record(gtx.Ops)
 						sendDims := layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
@@ -1769,8 +1877,11 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 								return material.Clickable(gtx, &t.SendBtn, func(gtx layout.Context) layout.Dimensions {
 									pointer.CursorPointer.Add(gtx.Ops)
 									return layout.Inset{Top: unit.Dp(7), Bottom: unit.Dp(6), Left: unit.Dp(16), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										lbl := material.Label(th, unit.Sp(12), "SEND")
-										lbl.Color = th.Fg
+										gtx.Constraints.Min.X = sendLabelW
+										gtx.Constraints.Max.X = sendLabelW
+										lbl := material.Label(th, unit.Sp(12), sendLabel)
+										lbl.Color = sendFg
+										lbl.Alignment = text.Middle
 										return lbl.Layout(gtx)
 									})
 								})
@@ -1788,7 +1899,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 										is := gtx.Dp(unit.Dp(20))
 										gtx.Constraints.Min = image.Point{X: is, Y: is}
 										gtx.Constraints.Max = gtx.Constraints.Min
-										return widgets.IconDropDown.Layout(gtx, th.Fg)
+										return widgets.IconDropDown.Layout(gtx, sendFg)
 									})
 								})
 							}),
@@ -2149,22 +2260,33 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 										paint.FillShape(gtx.Ops, theme.Bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2).Op(gtx.Ops))
 										return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+												return t.layoutExampleNameRow(gtx, th)
+											}),
+											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 												return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+													gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(28))
 													return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 														layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+															gtx.Constraints.Min.Y = 0
 															return layout.Inset{Left: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 																statusText := t.Status
-																if t.isRequesting {
+																if t.RunOpen {
+																	statusText = t.runnerStatusText()
+																} else if t.isRequesting {
 																	dl := t.downloadedBytes.Load()
 																	if dl > 0 {
 																		statusText = "Downloading... " + formatSize(dl)
 																	}
 																}
 																lbl := widgets.MonoLabel(th, unit.Sp(12), statusText)
+																lbl.Font.Weight = font.Bold
 																return lbl.Layout(gtx)
 															})
 														}),
 														layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+															if t.RunOpen {
+																return layout.Dimensions{}
+															}
 															if t.SaveToFilePath != "" && !t.PreviewEnabled {
 																return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 																	layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -2285,6 +2407,9 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 }
 
 func (t *RequestTab) layoutResponseBody(gtx layout.Context, th *material.Theme, win *app.Window, isDragging bool) layout.Dimensions {
+	if t.RunOpen {
+		return t.layoutRunner(gtx, th, win)
+	}
 	if !t.PreviewEnabled && !t.isRequesting && t.respSize > 0 {
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,

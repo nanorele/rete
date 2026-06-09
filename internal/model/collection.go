@@ -94,4 +94,21 @@ type ParsedRequest struct {
 	Extras map[string]json.RawMessage
 
 	BodyExtras map[string]json.RawMessage
+
+	Examples []ParsedExample
+}
+
+type ParsedExample struct {
+	Name       string
+	Method     string
+	URL        string
+	Body       string
+	Headers    map[string]string
+	BodyType   BodyType
+	FormParts  []ParsedFormPart
+	URLEncoded []ParsedKV
+	BinaryPath string
+	Status     string
+	Code       int
+	RespBody   string
 }

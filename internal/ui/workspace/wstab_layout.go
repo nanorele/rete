@@ -664,6 +664,7 @@ func (t *RequestTab) layoutWSStatusRow(gtx layout.Context, th *material.Theme) l
 					}
 					lbl := widgets.MonoLabel(th, unit.Sp(12), msg)
 					lbl.Color = col
+					lbl.Font.Weight = font.Bold
 					lbl.MaxLines = 1
 					lbl.Truncator = "…"
 					return lbl.Layout(gtx)

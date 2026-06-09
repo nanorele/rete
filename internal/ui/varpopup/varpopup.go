@@ -12,6 +12,7 @@ import (
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/io/event"
+	"github.com/nanorele/gio/io/key"
 	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
@@ -71,6 +72,23 @@ func (s *State) Layout(gtx layout.Context, host *Host) {
 	if s == nil || !s.Open {
 		return
 	}
+	for {
+		ev, ok := s.Editor.Update(gtx)
+		if !ok {
+			break
+		}
+		if _, ok := ev.(widget.SubmitEvent); ok {
+			if host.OnDismiss != nil {
+				host.OnDismiss()
+			}
+			s.Open = false
+			s.EnvMenuOpen = false
+			if host.Window != nil {
+				host.Window.Invalidate()
+			}
+			return
+		}
+	}
 	popupW := gtx.Dp(unit.Dp(360))
 	popupH := gtx.Dp(unit.Dp(180))
 	if s.EnvMenuOpen {
@@ -102,26 +120,42 @@ func (s *State) Layout(gtx layout.Context, host *Host) {
 			defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 
 			for {
-				ev, ok := gtx.Event(pointer.Filter{
-					Target: &s.tag,
-					Kinds:  pointer.Press,
-				})
+				ev, ok := gtx.Event(
+					pointer.Filter{Target: &s.tag, Kinds: pointer.Press},
+					key.Filter{Name: key.NameEscape},
+					key.Filter{Name: key.NameReturn},
+					key.Filter{Name: key.NameEnter},
+				)
 				if !ok {
 					break
 				}
-				pe, ok := ev.(pointer.Event)
-				if !ok {
-					continue
+				switch e := ev.(type) {
+				case pointer.Event:
+					if e.Kind != pointer.Press {
+						continue
+					}
+					p := image.Pt(int(e.Position.X), int(e.Position.Y))
+					if p.In(popupRect) {
+						continue
+					}
+					if host.OnDismiss != nil {
+						host.OnDismiss()
+					}
+					s.Open = false
+					s.EnvMenuOpen = false
+				case key.Event:
+					if e.State != key.Press {
+						continue
+					}
+					switch e.Name {
+					case key.NameEscape, key.NameReturn, key.NameEnter:
+						if host.OnDismiss != nil {
+							host.OnDismiss()
+						}
+						s.Open = false
+						s.EnvMenuOpen = false
+					}
 				}
-				p := image.Pt(int(pe.Position.X), int(pe.Position.Y))
-				if p.In(popupRect) {
-					continue
-				}
-				if host.OnDismiss != nil {
-					host.OnDismiss()
-				}
-				s.Open = false
-				s.EnvMenuOpen = false
 			}
 			event.Op(gtx.Ops, &s.tag)
 			pointer.CursorDefault.Add(gtx.Ops)

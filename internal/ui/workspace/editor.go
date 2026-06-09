@@ -100,6 +100,8 @@ type RequestEditor struct {
 
 const requestEditorTokenizeMaxBytes = 1 * 1024 * 1024
 
+const requestEditorSyncTokenizeMaxBytes = 256 * 1024
+
 type editOp struct {
 	pos       int
 	deleted   []byte
@@ -1025,35 +1027,6 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		return layout.Dimensions{Size: size}
 	}
 
-	tokenizing := s.Lang != syntax.LangPlain && len(v.text) <= requestEditorTokenizeMaxBytes
-	if tokenizing {
-		langChanged := s.Lang != v.tokensLang
-		sizeChanged := len(v.text) != v.tokensTxt
-		needsTokens := v.tokens == nil
-		if langChanged || needsTokens {
-			v.tokens = syntax.Tokenize(s.Lang, v.text)
-			v.tokensLang = s.Lang
-			v.tokensTxt = len(v.text)
-			v.tokensDirty = false
-		} else if v.tokensDirty || sizeChanged {
-			if !v.tokensDirty {
-				v.tokensDirty = true
-				v.tokensChanged = time.Now()
-			}
-			if time.Since(v.tokensChanged) >= tokenizeDebounce {
-				v.tokens = syntax.Tokenize(s.Lang, v.text)
-				v.tokensTxt = len(v.text)
-				v.tokensDirty = false
-			} else {
-				gtx.Execute(op.InvalidateCmd{At: v.tokensChanged.Add(tokenizeDebounce)})
-			}
-		}
-	} else if v.tokens != nil {
-		v.tokens = nil
-		v.tokensLang = syntax.LangPlain
-		v.tokensTxt = 0
-	}
-
 	pad := 0
 	if s.Padding > 0 {
 		pad = gtx.Dp(s.Padding)
@@ -1548,6 +1521,36 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 			next := v.blinkStart.Add(blinkSolid + (phase+1)*blinkPeriod)
 			gtx.Execute(op.InvalidateCmd{At: next})
 		}
+	}
+
+	tokenizing := s.Lang != syntax.LangPlain && len(v.text) <= requestEditorTokenizeMaxBytes
+	if tokenizing {
+		langChanged := s.Lang != v.tokensLang
+		sizeChanged := len(v.text) != v.tokensTxt
+		needsTokens := v.tokens == nil
+		switch {
+		case langChanged || needsTokens:
+			v.tokens = syntax.Tokenize(s.Lang, v.text)
+			v.tokensLang = s.Lang
+			v.tokensTxt = len(v.text)
+			v.tokensDirty = false
+		case v.tokensDirty || sizeChanged:
+			if !v.tokensDirty {
+				v.tokensDirty = true
+				v.tokensChanged = time.Now()
+			}
+			if len(v.text) <= requestEditorSyncTokenizeMaxBytes || time.Since(v.tokensChanged) >= tokenizeDebounce {
+				v.tokens = syntax.Tokenize(s.Lang, v.text)
+				v.tokensTxt = len(v.text)
+				v.tokensDirty = false
+			} else {
+				gtx.Execute(op.InvalidateCmd{At: v.tokensChanged.Add(tokenizeDebounce)})
+			}
+		}
+	} else if v.tokens != nil {
+		v.tokens = nil
+		v.tokensLang = syntax.LangPlain
+		v.tokensTxt = 0
 	}
 
 	yOff := accumY - v.scrollY
