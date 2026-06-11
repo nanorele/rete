@@ -163,8 +163,16 @@ func NodeAtPath(root *CollectionNode, path []int) *CollectionNode {
 }
 
 func CloneNode(node *CollectionNode, parent *CollectionNode) *CollectionNode {
+	return cloneNode(node, parent, true)
+}
+
+func cloneNode(node *CollectionNode, parent *CollectionNode, addSuffix bool) *CollectionNode {
+	name := node.Name
+	if addSuffix {
+		name += " Copy"
+	}
 	dup := &CollectionNode{
-		Name:       node.Name + " Copy",
+		Name:       name,
 		IsFolder:   node.IsFolder,
 		Expanded:   node.Expanded,
 		Depth:      node.Depth,
@@ -225,10 +233,13 @@ func CloneNode(node *CollectionNode, parent *CollectionNode) *CollectionNode {
 				dup.Request.BodyExtras[k] = append(json.RawMessage(nil), v...)
 			}
 		}
+		if len(node.Request.Examples) > 0 {
+			dup.Request.Examples = append([]model.ParsedExample(nil), node.Request.Examples...)
+		}
 	}
 
 	for _, child := range node.Children {
-		dup.Children = append(dup.Children, CloneNode(child, dup))
+		dup.Children = append(dup.Children, cloneNode(child, dup, false))
 	}
 	return dup
 }

@@ -6,6 +6,7 @@ import (
 	_ "embed"
 	"image"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"sync"
@@ -144,8 +145,15 @@ type AppUI struct {
 	activeEnvVars           map[string]string
 	activeEnvDirty          bool
 	saveNeeded              bool
+	saveMarkedAt            time.Time
+	saveFlushTimerSet       bool
 	stateSaveMu             sync.Mutex
 	stateSaveWG             sync.WaitGroup
+	collectionSaveMu        sync.Mutex
+	collectionSaveWG        sync.WaitGroup
+	envSaveMu               sync.Mutex
+	envSaveWG               sync.WaitGroup
+	envColorSaveDirty       *model.ParsedEnvironment
 	dirtyCollections        map[string]*dirtyCollection
 	deletedCollections      map[string]struct{}
 	collectionFlushTimerSet bool
@@ -564,9 +572,13 @@ func (ui *AppUI) Run() error {
 		ui.Explorer.ListenEvents(e)
 		switch e := e.(type) {
 		case transfer.DataEvent:
-			if data, err := io.ReadAll(e.Open()); err == nil {
-				ui.importDroppedData(data)
-			}
+			rc := e.Open()
+			go func() {
+				data, err := io.ReadAll(rc)
+				if err == nil {
+					ui.importDroppedData(data)
+				}
+			}()
 		case app.DestroyEvent:
 			if ui.rootCancel != nil {
 				ui.rootCancel()
@@ -575,7 +587,16 @@ func (ui *AppUI) Run() error {
 				tab.CancelRequest()
 				tab.MarkClosed()
 			}
+			if ui.EditingEnv != nil {
+				ui.commitEditingEnv()
+			}
+			if ui.envColorSaveDirty != nil {
+				ui.saveEnvironmentAsync(ui.envColorSaveDirty)
+				ui.envColorSaveDirty = nil
+			}
 			ui.stateSaveWG.Wait()
+			ui.collectionSaveWG.Wait()
+			ui.envSaveWG.Wait()
 			ui.flushCollectionSavesSync()
 			ui.saveStateSync()
 			return e.Err
@@ -744,18 +765,36 @@ func (ui *AppUI) saveStateSync() {
 	_ = persist.AtomicWriteFile(persist.StateFilePath(), data)
 }
 
+const stateSaveDebounce = 400 * time.Millisecond
+
 func (ui *AppUI) saveState() {
-	ui.saveNeeded = true
+	if !ui.saveNeeded {
+		ui.saveNeeded = true
+		ui.saveMarkedAt = time.Now()
+	}
 }
 
+// flushSaveState coalesces rapid saveState() calls (e.g. a burst of keystrokes
+// in settings) so the full state snapshot — which copies every tab's request
+// body — is marshalled at most once per debounce window instead of every frame.
 func (ui *AppUI) flushSaveState() {
 	if !ui.saveNeeded {
 		return
 	}
+	if time.Since(ui.saveMarkedAt) < stateSaveDebounce {
+		if ui.Window != nil && !ui.saveFlushTimerSet {
+			ui.saveFlushTimerSet = true
+			win := ui.Window
+			time.AfterFunc(stateSaveDebounce, func() { win.Invalidate() })
+		}
+		return
+	}
 	ui.saveNeeded = false
+	ui.saveFlushTimerSet = false
 	state := ui.buildStateSnapshot()
 	data, err := persist.MarshalIndentEasy(&state, "  ")
 	if err != nil {
+		log.Printf("marshal app state: %v", err)
 		return
 	}
 	ui.stateSaveWG.Add(1)
@@ -763,7 +802,9 @@ func (ui *AppUI) flushSaveState() {
 		defer ui.stateSaveWG.Done()
 		ui.stateSaveMu.Lock()
 		defer ui.stateSaveMu.Unlock()
-		_ = persist.AtomicWriteFile(persist.StateFilePath(), data)
+		if werr := persist.AtomicWriteFile(persist.StateFilePath(), data); werr != nil {
+			log.Printf("save app state: %v", werr)
+		}
 	}()
 }
 
@@ -833,9 +874,41 @@ func (ui *AppUI) flushCollectionSaves() {
 	if len(snaps) == 0 {
 		return
 	}
+	ui.collectionSaveWG.Add(1)
 	go func() {
+		defer ui.collectionSaveWG.Done()
+		ui.collectionSaveMu.Lock()
+		defer ui.collectionSaveMu.Unlock()
 		for _, s := range snaps {
-			_ = persist.WriteCollectionFile(s.id, s.data)
+			if _, ok := ui.deletedCollections[s.id]; ok {
+				continue
+			}
+			if err := persist.WriteCollectionFile(s.id, s.data); err != nil {
+				log.Printf("save collection %s: %v", s.id, err)
+			}
+		}
+	}()
+}
+
+// saveEnvironmentAsync serializes env on the calling (UI) goroutine and writes
+// it to disk in the background, so a slow fsync never stalls a frame. Writes
+// for the same file are serialized via envSaveMu.
+func (ui *AppUI) saveEnvironmentAsync(env *model.ParsedEnvironment) {
+	if env == nil {
+		return
+	}
+	path, data, err := persist.EnvironmentBytes(env)
+	if err != nil {
+		log.Printf("marshal environment %s: %v", env.ID, err)
+		return
+	}
+	ui.envSaveWG.Add(1)
+	go func() {
+		defer ui.envSaveWG.Done()
+		ui.envSaveMu.Lock()
+		defer ui.envSaveMu.Unlock()
+		if werr := persist.AtomicWriteFile(path, data); werr != nil {
+			log.Printf("save environment %s: %v", env.ID, werr)
 		}
 	}()
 }
@@ -1137,6 +1210,10 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 			ui.EnvColorPicker.Close()
 		}
 	}
+	if !ui.EnvColorPicker.IsOpen() && ui.envColorSaveDirty != nil {
+		ui.saveEnvironmentAsync(ui.envColorSaveDirty)
+		ui.envColorSaveDirty = nil
+	}
 	if ui.EnvColorPicker.IsOpen() && !ui.SettingsOpen {
 		cur := [3]float32{ui.EnvColorPicker.H, ui.EnvColorPicker.S, ui.EnvColorPicker.V}
 		if cur != ui.EnvColorPicker.LastHSV {
@@ -1147,7 +1224,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 					if ui.EditingEnv == e && e.ColorEditor.Text() != hex {
 						e.ColorEditor.SetText(hex)
 					}
-					_ = persist.SaveEnvironment(e.Data)
+					ui.envColorSaveDirty = e.Data
 					break
 				}
 			}

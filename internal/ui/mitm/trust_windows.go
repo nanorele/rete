@@ -15,14 +15,27 @@ import (
 const trustInstalledTTL = 30 * time.Second
 
 var (
-	trustMu      sync.Mutex
-	trustChecked time.Time
-	trustCached  bool
+	trustMu       sync.Mutex
+	trustChecked  time.Time
+	trustCached   bool
+	trustKnown    bool
+	trustInFlight bool
+	trustNotify   func()
 )
+
+// SetTrustRefreshNotify registers a callback invoked (from a background
+// goroutine) whenever an async trust-store check finishes, so the UI can
+// repaint with the refreshed value.
+func SetTrustRefreshNotify(fn func()) {
+	trustMu.Lock()
+	trustNotify = fn
+	trustMu.Unlock()
+}
 
 func InvalidateTrustCache() {
 	trustMu.Lock()
 	trustChecked = time.Time{}
+	trustKnown = false
 	trustMu.Unlock()
 }
 
@@ -54,22 +67,35 @@ func UninstallTrust() error {
 	return nil
 }
 
+// TrustInstalled never blocks the caller. It returns the last cached value
+// immediately and, when the cache is stale or missing, kicks off a single
+// background certutil probe whose result is published via trustNotify.
 func TrustInstalled() bool {
 	trustMu.Lock()
-	if !trustChecked.IsZero() && time.Since(trustChecked) < trustInstalledTTL {
+	fresh := trustKnown && time.Since(trustChecked) < trustInstalledTTL
+	if fresh || trustInFlight {
 		v := trustCached
 		trustMu.Unlock()
 		return v
 	}
+	trustInFlight = true
+	cached := trustCached
 	trustMu.Unlock()
 
-	v := trustInstalledLive()
-
-	trustMu.Lock()
-	trustCached = v
-	trustChecked = time.Now()
-	trustMu.Unlock()
-	return v
+	go func() {
+		v := trustInstalledLive()
+		trustMu.Lock()
+		trustCached = v
+		trustChecked = time.Now()
+		trustKnown = true
+		trustInFlight = false
+		notify := trustNotify
+		trustMu.Unlock()
+		if notify != nil {
+			notify()
+		}
+	}()
+	return cached
 }
 
 func trustInstalledLive() bool {

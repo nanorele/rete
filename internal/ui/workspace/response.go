@@ -30,6 +30,8 @@ import (
 	"golang.org/x/image/math/fixed"
 )
 
+const responseViewerTokenizeMaxBytes = 2 * 1024 * 1024
+
 func byteToRuneIdx(text []byte, byteIdx int) int {
 	if byteIdx > len(text) {
 		byteIdx = len(text)
@@ -465,7 +467,14 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		return layout.Dimensions{Size: size}
 	}
 
-	if s.Lang != syntax.LangPlain {
+	if s.Lang != syntax.LangPlain && len(v.text) > responseViewerTokenizeMaxBytes {
+		if v.tokens != nil {
+			v.tokens = nil
+			v.tokensLang = syntax.LangPlain
+			v.tokensTxt = 0
+			v.tokensDirty = false
+		}
+	} else if s.Lang != syntax.LangPlain {
 		langChanged := s.Lang != v.tokensLang
 		sizeChanged := len(v.text) != v.tokensTxt
 		if langChanged || v.tokens == nil {

@@ -280,7 +280,7 @@ func TestStreamResponse_Cancellation(t *testing.T) {
 		_ = pw.Close()
 	}()
 	var dest bytes.Buffer
-	_, err := tab.streamResponse(ctx, pr, &dest, new(app.Window), true, "")
+	_, err := tab.streamResponse(ctx, 0, pr, &dest, new(app.Window), true, "")
 	if err != context.Canceled {
 		t.Errorf("expected context.Canceled, got %v", err)
 	}
@@ -388,7 +388,7 @@ func TestStreamResponse_SniffHTMLMeta(t *testing.T) {
 
 	tab := NewRequestTab("test")
 	var dest bytes.Buffer
-	_, err := tab.streamResponse(context.Background(), bytes.NewReader(body), &dest, new(app.Window), true, "text/html")
+	_, err := tab.streamResponse(context.Background(), 0, bytes.NewReader(body), &dest, new(app.Window), true, "text/html")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -397,7 +397,7 @@ func TestStreamResponse_SniffHTMLMeta(t *testing.T) {
 	for {
 		select {
 		case chunk := <-tab.appendChan:
-			got.WriteString(chunk)
+			got.WriteString(chunk.text)
 		default:
 			if !strings.Contains(got.String(), "Привет") {
 				t.Errorf("sniffed preview missing cyrillic; got %q", got.String())
@@ -415,7 +415,7 @@ func TestStreamResponse_SniffBOM_UTF16LE(t *testing.T) {
 
 	tab := NewRequestTab("test")
 	var dest bytes.Buffer
-	_, err := tab.streamResponse(context.Background(), bytes.NewReader(body), &dest, new(app.Window), true, "text/plain")
+	_, err := tab.streamResponse(context.Background(), 0, bytes.NewReader(body), &dest, new(app.Window), true, "text/plain")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -424,7 +424,7 @@ func TestStreamResponse_SniffBOM_UTF16LE(t *testing.T) {
 	for {
 		select {
 		case chunk := <-tab.appendChan:
-			got.WriteString(chunk)
+			got.WriteString(chunk.text)
 		default:
 			if got.String() != "hello" {
 				t.Errorf("got %q, want %q", got.String(), "hello")
@@ -438,7 +438,7 @@ func TestStreamResponse_PlainUTF8NoSniff(t *testing.T) {
 	body := []byte("plain utf-8 — ok")
 	tab := NewRequestTab("test")
 	var dest bytes.Buffer
-	_, err := tab.streamResponse(context.Background(), bytes.NewReader(body), &dest, new(app.Window), true, "text/plain")
+	_, err := tab.streamResponse(context.Background(), 0, bytes.NewReader(body), &dest, new(app.Window), true, "text/plain")
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}
@@ -446,7 +446,7 @@ func TestStreamResponse_PlainUTF8NoSniff(t *testing.T) {
 	for {
 		select {
 		case chunk := <-tab.appendChan:
-			got.WriteString(chunk)
+			got.WriteString(chunk.text)
 		default:
 			if got.String() != string(body) {
 				t.Errorf("got %q, want %q", got.String(), string(body))

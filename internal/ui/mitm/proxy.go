@@ -254,11 +254,11 @@ func (p *Proxy) handleConnect(c net.Conn, req *http.Request) {
 		flow.Ended = now
 	})
 
-	if p.intercept.Load() && p.ca != nil {
+	if ca := p.CA(); p.intercept.Load() && ca != nil {
 
 		_ = dst.Close()
 		p.untrackConn(dst)
-		p.interceptHTTPS(c, host, port, flow)
+		p.interceptHTTPS(c, host, port, flow, ca)
 		return
 	}
 
@@ -270,7 +270,7 @@ func (p *Proxy) handleConnect(c net.Conn, req *http.Request) {
 	})
 }
 
-func (p *Proxy) interceptHTTPS(client net.Conn, host, port string, parent *Flow) {
+func (p *Proxy) interceptHTTPS(client net.Conn, host, port string, parent *Flow, ca *CA) {
 	cfg := &tls.Config{
 		MinVersion: tls.VersionTLS12,
 		NextProtos: []string{"http/1.1"},
@@ -279,7 +279,7 @@ func (p *Proxy) interceptHTTPS(client net.Conn, host, port string, parent *Flow)
 			if sni == "" {
 				sni = host
 			}
-			return p.ca.LeafFor(sni)
+			return ca.LeafFor(sni)
 		},
 	}
 	tlsConn := tls.Server(client, cfg)
@@ -444,7 +444,7 @@ func (p *Proxy) handleHTTP(c net.Conn, br *bufio.Reader, req *http.Request) {
 		p.serveDirectInfo(c)
 		return
 	}
-	if sameHost(req.URL.Host, p.addr) {
+	if sameHost(req.URL.Host, p.Addr()) {
 		p.serveDirectInfo(c)
 		return
 	}
@@ -551,7 +551,7 @@ func (p *Proxy) markEnded(flow *Flow) {
 func (p *Proxy) serveDirectInfo(c net.Conn) {
 	body := "Tracto MITM Proxy\n\n" +
 		"This endpoint is an HTTP proxy, not a website.\n" +
-		"Configure your client to use http://" + p.addr + " as the HTTP/HTTPS proxy.\n"
+		"Configure your client to use http://" + p.Addr() + " as the HTTP/HTTPS proxy.\n"
 	_, _ = fmt.Fprintf(c,
 		"HTTP/1.1 421 Misdirected Request\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s",
 		len(body), body)

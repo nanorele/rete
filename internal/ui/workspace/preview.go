@@ -13,8 +13,8 @@ import (
 	"tracto/internal/utils"
 )
 
-const previewBatchSize = 100 * 1024 * 1024
-const jsonPreviewBatchSize = 100 * 1024 * 1024
+const previewBatchSize = 8 * 1024 * 1024
+const jsonPreviewBatchSize = 8 * 1024 * 1024
 
 var previewBufPool = sync.Pool{
 	New: func() any {
@@ -231,6 +231,7 @@ func (t *RequestTab) loadMorePreview() {
 	win := t.window
 	isJSON := t.respIsJSON
 	contentType := t.respContentType
+	reqID := t.requestID.Load()
 
 	go func() {
 		defer t.previewLoading.Store(false)
@@ -257,7 +258,7 @@ func (t *RequestTab) loadMorePreview() {
 		}
 		release()
 		t.previewLoaded.Add(int64(n))
-		t.streamToEditor(extra, win)
+		t.streamToEditor(reqID, extra, win)
 	}()
 }
 

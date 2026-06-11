@@ -90,11 +90,13 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 		CloseTab:            ui.closeTab,
 		DeleteCollection: func(colID string) {
 			delete(ui.dirtyCollections, colID)
+			ui.collectionSaveMu.Lock()
 			if ui.deletedCollections == nil {
 				ui.deletedCollections = make(map[string]struct{})
 			}
 			ui.deletedCollections[colID] = struct{}{}
 			_ = os.Remove(filepath.Join(persist.CollectionsDir(), colID+".json"))
+			ui.collectionSaveMu.Unlock()
 		},
 		LayoutToggleBtn:       ui.layoutSidebarToggleBtn,
 		LayoutSectionRequests: ui.layoutSidebarSectionRequestsBtn,

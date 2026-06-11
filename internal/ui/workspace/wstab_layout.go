@@ -654,12 +654,13 @@ func (t *RequestTab) layoutWSStatusRow(gtx layout.Context, th *material.Theme) l
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.Y = 0
 				return layout.Inset{Left: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					msg := s.statusText + s.formatNegotiated()
+					statusText, statusErr := s.statusSnapshot()
+					msg := statusText + s.formatNegotiated()
 					if msg == "" {
 						msg = "Idle"
 					}
 					col := theme.Fg
-					if s.statusErr {
+					if statusErr {
 						col = theme.Danger
 					}
 					lbl := widgets.MonoLabel(th, unit.Sp(12), msg)
@@ -955,7 +956,11 @@ func previewPayload(p []byte, op ws.Opcode) string {
 	}
 	s := string(p)
 	if len(s) > 256 {
-		s = s[:256] + "…"
+		cut := 256
+		for cut > 0 && !utf8.RuneStart(s[cut]) {
+			cut--
+		}
+		s = s[:cut] + "…"
 	}
 	return s
 }
@@ -1103,12 +1108,16 @@ func (s *WSSession) formatNegotiated() string {
 	if s.State() != WSStateOpen {
 		return ""
 	}
+	s.sessionMu.Lock()
+	sub := s.subprotocol
+	ext := s.negotiatedExt
+	s.sessionMu.Unlock()
 	var b strings.Builder
-	if s.subprotocol != "" {
+	if sub != "" {
 		b.WriteString("  •  subprotocol=")
-		b.WriteString(s.subprotocol)
+		b.WriteString(sub)
 	}
-	if s.negotiatedExt.Negotiated {
+	if ext.Negotiated {
 		b.WriteString("  •  deflate")
 	}
 	return b.String()

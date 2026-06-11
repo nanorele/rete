@@ -65,7 +65,7 @@ func SaveEnvironmentRaw(data []byte) (string, error) {
 	return id, nil
 }
 
-func SaveEnvironment(env *model.ParsedEnvironment) error {
+func EnvironmentBytes(env *model.ParsedEnvironment) (string, []byte, error) {
 	ext := model.ExtEnvironment{
 		Name:           env.Name,
 		HighlightColor: env.HighlightColor,
@@ -78,9 +78,16 @@ func SaveEnvironment(env *model.ParsedEnvironment) error {
 	}
 	data, err := MarshalIndentEasy(ext, "  ")
 	if err != nil {
+		return "", nil, err
+	}
+	return filepath.Join(EnvironmentsDir(), env.ID+".json"), data, nil
+}
+
+func SaveEnvironment(env *model.ParsedEnvironment) error {
+	path, data, err := EnvironmentBytes(env)
+	if err != nil {
 		return err
 	}
-	path := filepath.Join(EnvironmentsDir(), env.ID+".json")
 	return AtomicWriteFile(path, data)
 }
 

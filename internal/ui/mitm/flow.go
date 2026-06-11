@@ -46,6 +46,8 @@ type Flow struct {
 	TunnelClosed bool
 }
 
+const MaxFlows = 2000
+
 type Store struct {
 	mu     sync.RWMutex
 	flows  []*Flow
@@ -81,6 +83,10 @@ func (s *Store) Add(f *Flow) *Flow {
 		f.Started = time.Now()
 	}
 	s.flows = append(s.flows, f)
+	if len(s.flows) > MaxFlows {
+		drop := len(s.flows) - MaxFlows
+		s.flows = append(s.flows[:0], s.flows[drop:]...)
+	}
 	s.mu.Unlock()
 	s.emit()
 	return f
@@ -129,6 +135,32 @@ func (s *Store) Snapshot() []*Flow {
 		out[i] = cloneFlow(f)
 	}
 	return out
+}
+
+func (s *Store) SnapshotMeta() []*Flow {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]*Flow, len(s.flows))
+	for i, f := range s.flows {
+		c := *f
+		c.ReqBody = nil
+		c.RespBody = nil
+		c.ReqHeaders = nil
+		c.RespHeaders = nil
+		out[i] = &c
+	}
+	return out
+}
+
+func (s *Store) FindByID(id uint64) *Flow {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, f := range s.flows {
+		if f.ID == id {
+			return cloneFlow(f)
+		}
+	}
+	return nil
 }
 
 func cloneFlow(f *Flow) *Flow {

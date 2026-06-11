@@ -192,18 +192,57 @@ func (s *WSSession) markClosed() {
 	if s.closed.Swap(true) {
 		return
 	}
-	if s.cancel != nil {
-		s.cancel()
+	s.sessionMu.Lock()
+	cancel := s.cancel
+	conn := s.conn
+	s.sessionMu.Unlock()
+	if cancel != nil {
+		cancel()
 	}
-	if s.conn != nil {
-		_ = s.conn.Close()
+	if conn != nil {
+		_ = conn.Close()
 	}
 }
 
-func (s *WSSession) StatusText() string             { return s.statusText }
-func (s *WSSession) StatusIsError() bool            { return s.statusErr }
-func (s *WSSession) Subprotocol() string            { return s.subprotocol }
-func (s *WSSession) NegotiatedExtensions() ws.ExtParams { return s.negotiatedExt }
+func (s *WSSession) setStatus(text string, isErr bool) {
+	s.sessionMu.Lock()
+	s.statusText = text
+	s.statusErr = isErr
+	s.sessionMu.Unlock()
+}
+
+func (s *WSSession) statusSnapshot() (string, bool) {
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	return s.statusText, s.statusErr
+}
+
+func (s *WSSession) setConnInfo(conn *ws.Conn, sub string, ext ws.ExtParams) {
+	s.sessionMu.Lock()
+	s.conn = conn
+	s.subprotocol = sub
+	s.negotiatedExt = ext
+	s.sessionMu.Unlock()
+}
+
+func (s *WSSession) getConn() *ws.Conn {
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	return s.conn
+}
+
+func (s *WSSession) StatusText() string  { t, _ := s.statusSnapshot(); return t }
+func (s *WSSession) StatusIsError() bool { _, e := s.statusSnapshot(); return e }
+func (s *WSSession) Subprotocol() string {
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	return s.subprotocol
+}
+func (s *WSSession) NegotiatedExtensions() ws.ExtParams {
+	s.sessionMu.Lock()
+	defer s.sessionMu.Unlock()
+	return s.negotiatedExt
+}
 
 func trimSpaceLocal(s string) string {
 	start, end := 0, len(s)

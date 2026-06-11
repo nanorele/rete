@@ -233,6 +233,12 @@ func (t *RequestTab) MarkClosed() {
 	t.Closed.Store(true)
 	t.FileSaveMu.Unlock()
 	t.cleanupRespFile()
+	if t.WS != nil {
+		t.WS.markClosed()
+	}
+	if t.Run != nil {
+		t.Run.stop()
+	}
 }
 
 func (t *RequestTab) buildBody(ctx context.Context, env map[string]string) (io.Reader, string, error) {
@@ -448,8 +454,8 @@ func (t *RequestTab) drainAppendChan() {
 	}
 }
 
-func (t *RequestTab) streamToEditor(text string, win *app.Window) {
-	t.appendChan <- text
+func (t *RequestTab) streamToEditor(reqID uint64, text string, win *app.Window) {
+	t.appendChan <- appendChunk{requestID: reqID, text: text}
 	win.Invalidate()
 }
 
@@ -458,7 +464,10 @@ func (t *RequestTab) beginRequest() {
 	t.requestID.Add(1)
 	t.drainAppendChan()
 	select {
-	case <-t.responseChan:
+	case prev := <-t.responseChan:
+		if prev.respFile != "" {
+			_ = os.Remove(prev.respFile)
+		}
 	default:
 	}
 	select {
@@ -509,7 +518,7 @@ const maxStreamPreview = 512 * 1024
 
 const charsetSniffWindow = 4096
 
-func (t *RequestTab) streamResponse(ctx context.Context, body io.Reader, dest io.Writer, win *app.Window, livePreview bool, contentType string) (int64, error) {
+func (t *RequestTab) streamResponse(ctx context.Context, reqID uint64, body io.Reader, dest io.Writer, win *app.Window, livePreview bool, contentType string) (int64, error) {
 	bufp := streamBufPool.Get().(*[]byte)
 	buf := *bufp
 	defer streamBufPool.Put(bufp)
@@ -552,7 +561,7 @@ func (t *RequestTab) streamResponse(ctx context.Context, body io.Reader, dest io
 		}
 		chunk := utils.SanitizeBytes(data[:end])
 		select {
-		case t.appendChan <- chunk:
+		case t.appendChan <- appendChunk{requestID: reqID, text: chunk}:
 		default:
 		}
 	}
@@ -632,7 +641,7 @@ func (t *RequestTab) streamResponse(ctx context.Context, body io.Reader, dest io
 		decoded, _ := decoder.Bytes(decodeBuf)
 		chunk := utils.SanitizeBytes(decoded)
 		select {
-		case t.appendChan <- chunk:
+		case t.appendChan <- appendChunk{requestID: reqID, text: chunk}:
 		default:
 		}
 	}
@@ -654,6 +663,7 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 	req = req.WithContext(attachTrace(req.Context(), &timings, &firstByteAt))
 	t.cancelFn = cancel
 	reqID := t.requestID.Load()
+	fmtState := t.jsonFmtState
 
 	go func() {
 		var tmpPath string
@@ -689,7 +699,7 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 		tmpPath = tmpFile.Name()
 
 		contentType := resp.Header.Get("Content-Type")
-		total, sErr := t.streamResponse(ctx, body, tmpFile, win, true, contentType)
+		total, sErr := t.streamResponse(ctx, reqID, body, tmpFile, win, true, contentType)
 		_ = tmpFile.Close()
 		if !firstByteAt.IsZero() {
 			timings.Transfer = time.Since(firstByteAt)
@@ -705,7 +715,7 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 		}
 
 		duration := time.Since(start)
-		display, loaded, isJSON := loadPreviewFromFile(tmpPath, total, t.jsonFmtState, contentType)
+		display, loaded, isJSON := loadPreviewFromFile(tmpPath, total, fmtState, contentType)
 		statusText := resp.Status + "  " + duration.Round(time.Millisecond).String() + "  " + formatSize(total)
 		filename := utils.ParseContentDispositionFilename(resp.Header.Get("Content-Disposition"))
 
@@ -777,7 +787,7 @@ func (t *RequestTab) ExecuteRequestToFile(parent context.Context, win *app.Windo
 			writer = io.MultiWriter(dest, tmpFile)
 		}
 
-		total, sErr := t.streamResponse(ctx, body, writer, win, false, resp.Header.Get("Content-Type"))
+		total, sErr := t.streamResponse(ctx, reqID, body, writer, win, false, resp.Header.Get("Content-Type"))
 		if !firstByteAt.IsZero() {
 			timings.Transfer = time.Since(firstByteAt)
 		}
@@ -831,6 +841,7 @@ func (t *RequestTab) loadPreviewForSavedFile() {
 	state := t.jsonFmtState
 	win := t.window
 	contentType := t.respContentType
+	reqID := t.requestID.Load()
 
 	go func() {
 		display, loaded, isJSON := loadPreviewFromFile(filePath, totalSize, state, contentType)
@@ -838,7 +849,7 @@ func (t *RequestTab) loadPreviewForSavedFile() {
 		case <-t.previewChan:
 		default:
 		}
-		t.previewChan <- previewResult{body: display, previewLoaded: loaded, isJSON: isJSON}
+		t.previewChan <- previewResult{requestID: reqID, body: display, previewLoaded: loaded, isJSON: isJSON}
 		if win != nil {
 			win.Invalidate()
 		}

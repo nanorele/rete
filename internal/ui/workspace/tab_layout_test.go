@@ -74,7 +74,7 @@ func TestTabLayout(t *testing.T) {
 	tab.responseChan <- tabResponse{status: "200 OK", respSize: 1000, body: "ok", requestID: tab.requestID.Load()}
 	tab.Layout(gtx, th, win, nil, nil, false, func() {}, func(*collections.ParsedCollection) {})
 
-	tab.appendChan <- "more"
+	tab.appendChan <- appendChunk{requestID: tab.requestID.Load(), text: "more"}
 	tab.Layout(gtx, th, win, nil, nil, false, func() {}, func(*collections.ParsedCollection) {})
 
 	tab.FileSaveChan <- &failingWriteCloser{}

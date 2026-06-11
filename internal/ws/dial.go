@@ -90,6 +90,10 @@ func Dial(ctx context.Context, target string, opts DialOptions) (*DialResult, er
 		netConn = tc
 	}
 
+	stopWatch := context.AfterFunc(ctx, func() { _ = netConn.Close() })
+	defer stopWatch()
+	_ = netConn.SetDeadline(time.Now().Add(timeout))
+
 	key, err := generateSecKey()
 	if err != nil {
 		_ = netConn.Close()
@@ -161,6 +165,11 @@ func Dial(ctx context.Context, target string, opts DialOptions) (*DialResult, er
 		_ = netConn.Close()
 		return nil, err
 	}
+	if ctx.Err() != nil {
+		_ = netConn.Close()
+		return nil, ctx.Err()
+	}
+	_ = netConn.SetDeadline(time.Time{})
 	return &DialResult{
 		Conn:        c,
 		Response:    resp,

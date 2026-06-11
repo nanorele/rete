@@ -43,6 +43,8 @@ const (
 	runByDuration
 )
 
+const runnerMaxDrainBytes = 32 << 20
+
 type RunVariable struct {
 	Name   widget.Editor
 	Values widget.Editor
@@ -179,14 +181,13 @@ func atoiDefault(s string, def, min int) int {
 	return n
 }
 
-func (r *RequestRunner) envForIteration(base map[string]string, idx int) map[string]string {
-	if len(r.Variables) == 0 {
-		return base
-	}
-	env := make(map[string]string, len(base)+len(r.Variables))
-	for k, v := range base {
-		env[k] = v
-	}
+type runVarSnapshot struct {
+	name string
+	vals []string
+}
+
+func (r *RequestRunner) snapshotVariables() []runVarSnapshot {
+	out := make([]runVarSnapshot, 0, len(r.Variables))
 	for _, rv := range r.Variables {
 		name := strings.TrimSpace(rv.Name.Text())
 		if name == "" {
@@ -196,7 +197,21 @@ func (r *RequestRunner) envForIteration(base map[string]string, idx int) map[str
 		if len(vals) == 0 {
 			continue
 		}
-		env[name] = vals[idx%len(vals)]
+		out = append(out, runVarSnapshot{name: name, vals: vals})
+	}
+	return out
+}
+
+func envForIteration(base map[string]string, vars []runVarSnapshot, idx int) map[string]string {
+	if len(vars) == 0 {
+		return base
+	}
+	env := make(map[string]string, len(base)+len(vars))
+	for k, v := range base {
+		env[k] = v
+	}
+	for _, rv := range vars {
+		env[rv.name] = rv.vals[idx%len(rv.vals)]
 	}
 	return env
 }
@@ -309,7 +324,7 @@ func runOnceSpec(ctx context.Context, s *runSpec, env map[string]string) (int, t
 	if err != nil {
 		return 0, time.Since(start), false
 	}
-	_, _ = io.Copy(io.Discard, resp.Body)
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, runnerMaxDrainBytes))
 	_ = resp.Body.Close()
 	lat := time.Since(start)
 	return resp.StatusCode, lat, resp.StatusCode >= 200 && resp.StatusCode < 400
@@ -408,6 +423,8 @@ func (t *RequestTab) StartRun(parent context.Context, win *app.Window, baseEnv m
 	durSec := atoiDefault(r.DurEditor.Text(), 10, 1)
 	mode := r.Mode
 
+	vars := r.snapshotVariables()
+
 	r.resetCounters()
 	r.started = true
 	if mode == runByIterations {
@@ -416,9 +433,12 @@ func (t *RequestTab) StartRun(parent context.Context, win *app.Window, baseEnv m
 		r.plannedN = 0
 	}
 
-	ctx, cancel := context.WithCancel(parent)
+	var ctx context.Context
+	var cancel context.CancelFunc
 	if mode == runByDuration {
 		ctx, cancel = context.WithTimeout(parent, time.Duration(durSec)*time.Second)
+	} else {
+		ctx, cancel = context.WithCancel(parent)
 	}
 	r.cancel = cancel
 	r.mu.Lock()
@@ -457,7 +477,7 @@ func (t *RequestTab) StartRun(parent context.Context, win *app.Window, baseEnv m
 					if ctx.Err() != nil {
 						return
 					}
-					env := r.envForIteration(baseEnv, idx)
+					env := envForIteration(baseEnv, vars, idx)
 					r.sent.Add(1)
 					r.inFlight.Add(1)
 					code, lat, ok := runOnceSpec(ctx, spec, env)

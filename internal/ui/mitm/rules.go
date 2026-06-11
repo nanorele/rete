@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
 
@@ -88,21 +89,27 @@ func normalizeRuleHost(h string) string {
 
 type delayConn struct {
 	net.Conn
-	rules *Rules
-	host  string
+	rules   *Rules
+	host    string
+	delayed atomic.Bool
 }
 
-func (c *delayConn) Read(b []byte) (int, error) {
+func (c *delayConn) applyDelayOnce() {
+	if c.delayed.Swap(true) {
+		return
+	}
 	if rule, ok := c.rules.Get(c.host); ok && rule.Delay > 0 {
 		time.Sleep(rule.Delay)
 	}
+}
+
+func (c *delayConn) Read(b []byte) (int, error) {
+	c.applyDelayOnce()
 	return c.Conn.Read(b)
 }
 
 func (c *delayConn) Write(b []byte) (int, error) {
-	if rule, ok := c.rules.Get(c.host); ok && rule.Delay > 0 {
-		time.Sleep(rule.Delay)
-	}
+	c.applyDelayOnce()
 	return c.Conn.Write(b)
 }
 

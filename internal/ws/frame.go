@@ -12,7 +12,10 @@ var (
 	ErrInvalidOpcode        = errors.New("ws: invalid opcode in current state")
 	ErrUnmaskedFromClient   = errors.New("ws: client frame must be masked")
 	ErrMaskedFromServer     = errors.New("ws: server frame must not be masked")
+	ErrMessageTooLarge      = errors.New("ws: message exceeds size limit")
 )
+
+const MaxMessageSize = 64 << 20
 
 type Header struct {
 	FIN     bool
@@ -61,6 +64,9 @@ func ReadFrame(r io.Reader) (Header, []byte, error) {
 		if hdr.Length > 125 {
 			return hdr, nil, ErrControlFrameTooLong
 		}
+	}
+	if hdr.Length > MaxMessageSize {
+		return hdr, nil, ErrMessageTooLarge
 	}
 	if hdr.Masked {
 		if _, err := io.ReadFull(r, hdr.MaskKey[:]); err != nil {

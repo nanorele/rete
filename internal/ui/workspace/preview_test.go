@@ -236,7 +236,7 @@ func TestLoadMorePreview(t *testing.T) {
 
 		select {
 		case text := <-tab.appendChan:
-			tab.RespEditor.Insert(text)
+			tab.RespEditor.Insert(text.text)
 		default:
 		}
 

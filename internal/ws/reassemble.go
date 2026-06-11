@@ -37,6 +37,10 @@ func (r *Reassembler) Step(hdr Header, payload []byte) (Assembled, bool, error) 
 		if hdr.RSV1 {
 			return Assembled{}, false, ErrUnexpectedRSV1
 		}
+		if uint64(r.buf.Len())+uint64(len(payload)) > MaxMessageSize {
+			r.reset()
+			return Assembled{}, false, ErrMessageTooLarge
+		}
 		r.buf.Write(payload)
 		if !hdr.FIN {
 			return Assembled{}, false, nil

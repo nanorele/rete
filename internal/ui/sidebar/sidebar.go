@@ -1510,7 +1510,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			if rowW <= 0 {
 				rowW = gtx.Constraints.Max.X
 			}
-			srcOverlayY := draggedSrcIdx * *host.EnvRowH
+			srcOverlayY := (draggedSrcIdx-host.EnvList.Position.First)**host.EnvRowH - host.EnvList.Position.Offset
 			hitMacro := op.Record(gtx.Ops)
 			hitOff := op.Offset(image.Pt(0, srcOverlayY)).Push(gtx.Ops)
 			hitClip := clip.Rect{Max: image.Pt(rowW, *host.EnvRowH)}.Push(gtx.Ops)

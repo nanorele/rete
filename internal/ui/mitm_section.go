@@ -40,6 +40,14 @@ func (ui *AppUI) layoutMITMSection(gtx layout.Context) layout.Dimensions {
 			}
 		})
 	}
+	if !st.TrustNotifySet {
+		st.TrustNotifySet = true
+		mitm.SetTrustRefreshNotify(func() {
+			if ui.Window != nil {
+				ui.Window.Invalidate()
+			}
+		})
+	}
 	ui.consumeStartupFlags()
 
 	paint.FillShape(gtx.Ops, ui.Theme.Bg, clip.Rect{Max: gtx.Constraints.Max}.Op())
@@ -690,7 +698,7 @@ func (ui *AppUI) mitmFlowTable(gtx layout.Context) layout.Dimensions {
 		layout.Rigid(mitmTableHeader(ui.Theme)),
 		layout.Rigid(mitmHLine),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			flows := st.Store.Snapshot()
+			flows := st.Store.SnapshotMeta()
 			if len(flows) == 0 {
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(ui.Theme, unit.Sp(12), "No traffic captured yet")
@@ -1153,12 +1161,7 @@ func (ui *AppUI) mitmStatusBar(gtx layout.Context) layout.Dimensions {
 }
 
 func mitmFindByID(s *mitm.Store, id uint64) *mitm.Flow {
-	for _, f := range s.Snapshot() {
-		if f.ID == id {
-			return f
-		}
-	}
-	return nil
+	return s.FindByID(id)
 }
 
 func mitmStatusLine(f *mitm.Flow) string {

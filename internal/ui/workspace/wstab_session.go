@@ -72,14 +72,15 @@ func (t *RequestTab) WSConnect(ctx context.Context, tlsCfg *tls.Config, env map[
 	s.sessionMu.Unlock()
 
 	s.setState(WSStateConnecting)
-	s.statusText = "Connecting to " + url + "…"
-	s.statusErr = false
+	s.setStatus("Connecting to "+url+"…", false)
 	if s.notify != nil {
 		s.notify.trigger()
 	}
 
 	dialCtx, cancel := context.WithCancel(ctx)
+	s.sessionMu.Lock()
 	s.cancel = cancel
+	s.sessionMu.Unlock()
 
 	go func() {
 		opts := ws.DialOptions{
@@ -93,20 +94,25 @@ func (t *RequestTab) WSConnect(ctx context.Context, tlsCfg *tls.Config, env map[
 		if err != nil {
 			s.appendError(formatDialError(err, res))
 			s.setState(WSStateClosed)
-			s.statusText = "Connection failed"
-			s.statusErr = true
+			s.setStatus("Connection failed", true)
 			cancel()
 			if s.notify != nil {
 				s.notify.trigger()
 			}
 			return
 		}
-		s.conn = res.Conn
-		s.subprotocol = res.Subprotocol
-		s.negotiatedExt = res.Extensions
+		if dialCtx.Err() != nil {
+			_ = res.Conn.Close()
+			s.setState(WSStateClosed)
+			s.setStatus("Disconnected", false)
+			if s.notify != nil {
+				s.notify.trigger()
+			}
+			return
+		}
+		s.setConnInfo(res.Conn, res.Subprotocol, res.Extensions)
 		s.setState(WSStateOpen)
-		s.statusText = "Connected"
-		s.statusErr = false
+		s.setStatus("Connected", false)
 		s.appendNote(session, "Connected • status="+res.Response.Status+suffixFromExt(res))
 		if s.notify != nil {
 			s.notify.trigger()
@@ -169,16 +175,19 @@ func (t *RequestTab) WSDisconnect() {
 		return
 	}
 	s.setState(WSStateClosing)
-	s.statusText = "Disconnecting…"
-	s.statusErr = false
-	if s.conn != nil {
-		_ = s.conn.WriteClose(ws.CloseNormal, "client closing")
+	s.setStatus("Disconnecting…", false)
+	s.sessionMu.Lock()
+	conn := s.conn
+	cancel := s.cancel
+	s.sessionMu.Unlock()
+	if conn != nil {
+		_ = conn.WriteClose(ws.CloseNormal, "client closing")
 	}
-	if s.cancel != nil {
-		s.cancel()
+	if cancel != nil {
+		cancel()
 	}
-	if s.conn != nil {
-		_ = s.conn.Close()
+	if conn != nil {
+		_ = conn.Close()
 	}
 }
 
@@ -192,15 +201,15 @@ func (t *RequestTab) WSSendPing() {
 
 func (t *RequestTab) wsSend(op ws.Opcode, payload []byte) {
 	s := t.EnsureWS()
-	if s.State() != WSStateOpen || s.conn == nil {
+	conn := s.getConn()
+	if s.State() != WSStateOpen || conn == nil {
 		s.appendError("Not connected")
 		return
 	}
-	if err := s.conn.WriteMessage(op, payload); err != nil {
+	if err := conn.WriteMessage(op, payload); err != nil {
 		if isNormalCloseErr(context.Background(), err) {
 			s.appendNote(s.sessionCount, "Connection closed")
-			s.statusText = "Disconnected"
-			s.statusErr = false
+			s.setStatus("Disconnected", false)
 			return
 		}
 		s.appendError("Write failed: " + err.Error())
@@ -216,29 +225,35 @@ func (t *RequestTab) wsSend(op ws.Opcode, payload []byte) {
 }
 
 func (s *WSSession) readLoop(ctx context.Context, session int) {
+	conn := s.getConn()
 	defer func() {
 		s.setState(WSStateClosed)
-		if s.statusText == "" || !s.statusErr {
-			s.statusText = "Disconnected"
+		if conn != nil {
+			_ = conn.Close()
+		}
+		if text, isErr := s.statusSnapshot(); text == "" || !isErr {
+			s.setStatus("Disconnected", false)
 		}
 		if s.notify != nil {
 			s.notify.trigger()
 		}
 	}()
+	if conn == nil {
+		return
+	}
 	for {
 		if ctx.Err() != nil {
 			return
 		}
-		op, payload, err := s.conn.ReadMessage()
+		op, payload, err := conn.ReadMessage()
 		if err != nil {
 			if isNormalCloseErr(ctx, err) {
 				s.appendNote(session, "Connection closed")
-				s.statusText = "Disconnected"
-				s.statusErr = false
+				s.setStatus("Disconnected", false)
 				return
 			}
 			s.appendError("Read: " + err.Error())
-			s.statusErr = true
+			s.setStatus("Disconnected", true)
 			return
 		}
 		s.appendMessage(WSDisplayMessage{
@@ -251,16 +266,15 @@ func (s *WSSession) readLoop(ctx context.Context, session int) {
 		if op == ws.OpClose {
 			code, reason := ws.ParseClosePayload(payload)
 			s.appendNote(session, formatPeerClose(code, reason))
-			s.statusErr = isAbnormalCloseCode(code)
-			s.statusText = "Closed by peer"
-			if s.conn != nil {
-				_ = s.conn.WriteClose(ws.CloseNormal, "")
+			s.setStatus("Closed by peer", isAbnormalCloseCode(code))
+			if conn != nil {
+				_ = conn.WriteClose(ws.CloseNormal, "")
 			}
 			return
 		}
 		if op == ws.OpPing {
-			if s.conn != nil {
-				_ = s.conn.WriteMessage(ws.OpPong, payload)
+			if conn != nil {
+				_ = conn.WriteMessage(ws.OpPong, payload)
 				s.appendMessage(WSDisplayMessage{
 					Time:    time.Now(),
 					Dir:     ws.DirOut,

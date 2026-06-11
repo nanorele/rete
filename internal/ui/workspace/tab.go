@@ -88,9 +88,15 @@ type tabResponse struct {
 }
 
 type previewResult struct {
+	requestID     uint64
 	body          string
 	previewLoaded int64
 	isJSON        bool
+}
+
+type appendChunk struct {
+	requestID uint64
+	text      string
 }
 
 type RequestTab struct {
@@ -209,7 +215,7 @@ type RequestTab struct {
 	dirtyCheckNeeded  bool
 	visibleHeadersBuf []*HeaderItem
 
-	appendChan       chan string
+	appendChan       chan appendChunk
 	window           *app.Window
 	pendingRespWidth int
 	pendingReqWidth  int
@@ -273,7 +279,7 @@ func NewRequestTab(title string) *RequestTab {
 		responseChan:     make(chan tabResponse, 1),
 		previewChan:      make(chan previewResult, 1),
 		FileSaveChan:     make(chan io.WriteCloser, 1),
-		appendChan:       make(chan string, 1024),
+		appendChan:       make(chan appendChunk, 1024),
 		SplitRatio:       splitRatio,
 		VStackRatio:      0.5,
 		HeadersAbsHeight: 0,
@@ -603,11 +609,19 @@ func (t *RequestTab) checkDirty() {
 		t.IsDirty = true
 		return
 	}
-	if t.URLInput.Len() != utf8.RuneCountInString(req.URL) {
+	if t.URLInput.Text() != req.URL {
 		t.IsDirty = true
 		return
 	}
-	if t.ReqEditor.Len() != utf8.RuneCountInString(req.Body) {
+	if t.ReqEditor.Text() != req.Body {
+		t.IsDirty = true
+		return
+	}
+	if t.BodyType != req.BodyType {
+		t.IsDirty = true
+		return
+	}
+	if t.BinaryFilePath != req.BinaryPath {
 		t.IsDirty = true
 		return
 	}
@@ -621,10 +635,6 @@ func (t *RequestTab) checkDirty() {
 		t.IsDirty = true
 		return
 	}
-	if t.URLInput.Text() != req.URL {
-		t.IsDirty = true
-		return
-	}
 	for _, h := range t.Headers {
 		if !h.IsGenerated && h.Key.Len() > 0 {
 			k := h.Key.Text()
@@ -634,7 +644,52 @@ func (t *RequestTab) checkDirty() {
 			}
 		}
 	}
+	if t.formPartsDirty(req) || t.urlEncodedDirty(req) {
+		t.IsDirty = true
+		return
+	}
 	t.IsDirty = false
+}
+
+func (t *RequestTab) formPartsDirty(req *model.ParsedRequest) bool {
+	var parts []model.ParsedFormPart
+	for _, p := range t.FormParts {
+		if p.Key.Text() == "" {
+			continue
+		}
+		parts = append(parts, model.ParsedFormPart{
+			Key: p.Key.Text(), Value: p.Value.Text(), Kind: p.Kind,
+			FilePath: p.FilePath, Disabled: p.Disabled,
+		})
+	}
+	if len(parts) != len(req.FormParts) {
+		return true
+	}
+	for i, p := range parts {
+		if p != req.FormParts[i] {
+			return true
+		}
+	}
+	return false
+}
+
+func (t *RequestTab) urlEncodedDirty(req *model.ParsedRequest) bool {
+	var parts []model.ParsedKV
+	for _, p := range t.URLEncoded {
+		if p.Key.Text() == "" {
+			continue
+		}
+		parts = append(parts, model.ParsedKV{Key: p.Key.Text(), Value: p.Value.Text(), Disabled: p.Disabled})
+	}
+	if len(parts) != len(req.URLEncoded) {
+		return true
+	}
+	for i, p := range parts {
+		if p != req.URLEncoded[i] {
+			return true
+		}
+	}
+	return false
 }
 
 func (t *RequestTab) SaveToCollection() *collections.ParsedCollection {
@@ -1147,20 +1202,26 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 
 	select {
 	case chunk := <-t.appendChan:
+		curID := t.requestID.Load()
 		var buf strings.Builder
-		buf.WriteString(chunk)
+		if chunk.requestID == curID {
+			buf.WriteString(chunk.text)
+		}
 	drainLoop:
 		for {
 			select {
 			case more := <-t.appendChan:
-				buf.WriteString(more)
+				if more.requestID == curID {
+					buf.WriteString(more.text)
+				}
 			default:
 				break drainLoop
 			}
 		}
-		appended := buf.String()
-		t.RespEditor.Append(appended)
-		t.invalidateSearchCache()
+		if appended := buf.String(); appended != "" {
+			t.RespEditor.Append(appended)
+			t.invalidateSearchCache()
+		}
 	default:
 	}
 
@@ -1201,7 +1262,10 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 			}
 			t.LastTimings = res.timings
 			t.isRequesting = false
-			t.cancelFn = nil
+			if t.cancelFn != nil {
+				t.cancelFn()
+				t.cancelFn = nil
+			}
 			t.invalidateSearchCache()
 			if t.PreviewEnabled && res.body != "" {
 				if t.RespEditor.Len() != len(res.body) || !bytes.Equal(t.RespEditor.Bytes(), []byte(res.body)) {
@@ -1218,11 +1282,13 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 	select {
 	case pr := <-t.previewChan:
 		t.previewLoading.Store(false)
-		t.previewLoaded.Store(pr.previewLoaded)
-		t.respIsJSON = pr.isJSON
-		t.RespEditor.SetText(pr.body)
-		t.invalidateSearchCache()
-		th.Shaper.ResetLayoutCache()
+		if pr.requestID == t.requestID.Load() {
+			t.previewLoaded.Store(pr.previewLoaded)
+			t.respIsJSON = pr.isJSON
+			t.RespEditor.SetText(pr.body)
+			t.invalidateSearchCache()
+			th.Shaper.ResetLayoutCache()
+		}
 	default:
 	}
 
@@ -1355,11 +1421,21 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		if t.respFile != "" {
 			if fi, err := os.Stat(t.respFile); err == nil && fi.Size() > 0 {
 				if t.respIsJSON {
-					if data, rerr := os.ReadFile(t.respFile); rerr == nil {
-						decoded := utils.DecodeBody(data, t.respContentType)
+					pr, pw := io.Pipe()
+					respFile := t.respFile
+					contentType := t.respContentType
+					go func() {
+						data, rerr := os.ReadFile(respFile)
+						if rerr != nil {
+							_ = pw.CloseWithError(rerr)
+							return
+						}
+						decoded := utils.DecodeBody(data, contentType)
 						formatted := formatJSON(decoded, &JSONFormatterState{})
-						reader = io.NopCloser(strings.NewReader(formatted))
-					}
+						_, _ = io.WriteString(pw, formatted)
+						_ = pw.Close()
+					}()
+					reader = pr
 				} else if f, ferr := os.Open(t.respFile); ferr == nil {
 					reader = f
 				}

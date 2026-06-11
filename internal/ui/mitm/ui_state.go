@@ -47,6 +47,7 @@ type UIState struct {
 	CABanner        string
 	HelpOpen        bool
 	caLoadAttempted bool
+	TrustNotifySet  bool
 
 	RulesOpen        bool
 	RulesBtn         widget.Clickable
