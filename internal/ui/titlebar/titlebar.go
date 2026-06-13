@@ -29,6 +29,13 @@ type Bar struct {
 	SettingsBtn  widget.Clickable
 	BugReportBtn widget.Clickable
 
+	NetActive    bool
+	NetPaused    bool
+	BtnNetToggle widget.Clickable
+	BtnNetCancel widget.Clickable
+	OnNetToggle  func()
+	OnNetCancel  func()
+
 	titleTag  struct{}
 	lastClick time.Time
 	Maximized bool
@@ -234,6 +241,13 @@ func (b *Bar) Layout(gtx layout.Context, th *material.Theme, win *app.Window, ti
 		}
 	}
 
+	if b.BtnNetToggle.Clicked(gtx) && b.OnNetToggle != nil {
+		b.OnNetToggle()
+	}
+	if b.BtnNetCancel.Clicked(gtx) && b.OnNetCancel != nil {
+		b.OnNetCancel()
+	}
+
 	btnW := gtx.Dp(unit.Dp(46))
 	const numBtns = 3
 	rowW := btnW * numBtns
@@ -312,13 +326,25 @@ func (b *Bar) Layout(gtx layout.Context, th *material.Theme, win *app.Window, ti
 		settingsOff.Pop()
 
 		if leftMaxW > settingsEndX {
-			midDragW := leftMaxW - settingsEndX
-			dragSize := image.Point{X: midDragW, Y: height}
-			dragOff := op.Offset(image.Pt(settingsEndX, 0)).Push(gtx.Ops)
-			area := clip.Rect{Max: dragSize}.Push(gtx.Ops)
-			event.Op(gtx.Ops, &b.titleTag)
-			area.Pop()
-			dragOff.Pop()
+			midStart := settingsEndX
+			midEnd := leftMaxW
+
+			var badgeCall op.CallOp
+			badgeW := 0
+			if b.NetActive || b.NetPaused {
+				badgeCall, badgeW = b.recordNetBadge(gtx, th, height)
+			}
+
+			if badgeW > 0 && midEnd-midStart > badgeW {
+				badgeX := midStart + (midEnd-midStart-badgeW)/2
+				b.dragZone(gtx, midStart, badgeX-midStart, height)
+				bo := op.Offset(image.Pt(badgeX, 0)).Push(gtx.Ops)
+				badgeCall.Add(gtx.Ops)
+				bo.Pop()
+				b.dragZone(gtx, badgeX+badgeW, midEnd-(badgeX+badgeW), height)
+			} else {
+				b.dragZone(gtx, midStart, midEnd-midStart, height)
+			}
 		}
 	}
 
@@ -347,4 +373,93 @@ func (b *Bar) Layout(gtx layout.Context, th *material.Theme, win *app.Window, ti
 	}
 
 	return layout.Dimensions{Size: image.Point{X: totalW, Y: height}}
+}
+
+func (b *Bar) dragZone(gtx layout.Context, x, w, h int) {
+	if w <= 0 {
+		return
+	}
+	dragOff := op.Offset(image.Pt(x, 0)).Push(gtx.Ops)
+	area := clip.Rect{Max: image.Point{X: w, Y: h}}.Push(gtx.Ops)
+	event.Op(gtx.Ops, &b.titleTag)
+	area.Pop()
+	dragOff.Pop()
+}
+
+func (b *Bar) recordNetBadge(gtx layout.Context, th *material.Theme, height int) (op.CallOp, int) {
+	macro := op.Record(gtx.Ops)
+	g := gtx
+	g.Constraints.Min = image.Pt(0, height)
+	g.Constraints.Max = image.Pt(1<<20, height)
+	dim := b.layoutNetBadge(g, th)
+	return macro.Stop(), dim.Size.X
+}
+
+func (b *Bar) layoutNetBadge(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	dotCol := theme.Accent
+	label := "network limit: active"
+	toggleIcon := widgets.IconPause
+	if b.NetPaused {
+		dotCol = theme.FgMuted
+		label = "network limit: paused"
+		toggleIcon = widgets.IconPlay
+	}
+
+	return layout.Stack{Alignment: layout.W}.Layout(gtx,
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Left: unit.Dp(8), Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						d := gtx.Dp(unit.Dp(8))
+						sz := image.Pt(d, d)
+						paint.FillShape(gtx.Ops, dotCol, clip.Ellipse{Max: sz}.Op(gtx.Ops))
+						return layout.Dimensions{Size: sz}
+					}),
+					layout.Rigid(layout.Spacer{Width: unit.Dp(7)}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						lbl := material.Label(th, unit.Sp(12), label)
+						lbl.MaxLines = 1
+						lbl.Color = theme.Fg
+						return lbl.Layout(gtx)
+					}),
+					layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return b.netIconBtn(gtx, &b.BtnNetToggle, toggleIcon, false)
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return b.netIconBtn(gtx, &b.BtnNetCancel, widgets.IconClose, true)
+					}),
+				)
+			})
+		}),
+	)
+}
+
+func (b *Bar) netIconBtn(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, danger bool) layout.Dimensions {
+	sz := image.Pt(gtx.Dp(unit.Dp(22)), gtx.Dp(unit.Dp(22)))
+	gtx.Constraints.Min = sz
+	gtx.Constraints.Max = sz
+	return clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		if clk.Hovered() {
+			bg := theme.BgHover
+			if danger {
+				bg = theme.CloseHover
+			}
+			paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: sz}, gtx.Dp(unit.Dp(3))).Op(gtx.Ops))
+		}
+		pointer.CursorPointer.Add(gtx.Ops)
+		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			d := gtx.Dp(unit.Dp(14))
+			gtx.Constraints.Min = image.Pt(d, d)
+			gtx.Constraints.Max = gtx.Constraints.Min
+			col := theme.FgMuted
+			if clk.Hovered() {
+				col = theme.Fg
+				if danger {
+					col = theme.White
+				}
+			}
+			return ic.Layout(gtx, col)
+		})
+	})
 }

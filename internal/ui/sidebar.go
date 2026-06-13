@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 
 	"tracto/internal/persist"
+	"tracto/internal/ui/flow"
 	"tracto/internal/ui/sidebar"
 
 	"github.com/nanorele/gio/layout"
@@ -35,6 +36,8 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 		DragNodeOriginX:  &ui.DragNodeOriginX,
 		DragNodeCurrentX: &ui.DragNodeCurrentX,
 		DragNodeActive:   &ui.DragNodeActive,
+		DragNodeWinOrig:  &ui.DragNodeWinOrig,
+		DragNodeWinPos:   &ui.DragNodeWinPos,
 
 		DragEnvOriginY:  &ui.DragEnvOriginY,
 		DragEnvCurrentY: &ui.DragEnvCurrentY,
@@ -65,6 +68,66 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 		EnvsMenuBtn:     &ui.EnvsMenuBtn,
 		EnvsMenuOpen:    &ui.EnvsMenuOpen,
 		SidebarDropTag:  &ui.SidebarDropTag,
+
+		Scripts:            &ui.ScriptRows,
+		ScriptList:         &ui.ScriptList,
+		ScriptsHeaderClick: &ui.ScriptsHeaderClick,
+		ScriptsExpanded:    &ui.ScriptsExpanded,
+		AddScriptBtn:       &ui.AddScriptBtn,
+		ScriptsMenuBtn:     &ui.ScriptsMenuBtn,
+		ScriptsMenuOpen:    &ui.ScriptsMenuOpen,
+		ImportScriptBtn:    &ui.ImportScriptBtn,
+		ScriptRowH:         &ui.scriptRowH,
+		ScriptsHeight:      &ui.SidebarScriptsHeight,
+		ScriptsDrag:        &ui.SidebarScriptsDrag,
+		ScriptsDragY:       &ui.SidebarScriptsDragY,
+
+		ActiveScriptID: func() string {
+			if ui.Flow != nil && ui.Flow.Scenario != nil {
+				return ui.Flow.Scenario.ID
+			}
+			return ""
+		},
+		OpenScript: func(id string) {
+			if ui.Flow == nil {
+				ui.Flow = flow.NewEditor()
+			}
+			if ui.Flow.OpenScenario(id) {
+				ui.SetSidebarSection("flows")
+				ui.saveState()
+			}
+			ui.Window.Invalidate()
+		},
+		NewScript: func() {
+			if ui.Flow == nil {
+				ui.Flow = flow.NewEditor()
+			}
+			ui.Flow.CreateNew()
+			ui.SetSidebarSection("flows")
+			ui.saveState()
+			ui.Window.Invalidate()
+		},
+		RenameScript: func(id, name string) {
+			if err := flow.RenameScenario(id, name); err == nil {
+				if ui.Flow != nil && ui.Flow.Scenario != nil && ui.Flow.Scenario.ID == id {
+					ui.Flow.Scenario.NameEd.SetText(name)
+				}
+				ui.Window.Invalidate()
+			}
+		},
+		DuplicateScript: func(id string) {
+			_, _ = flow.DuplicateScenario(id)
+			ui.Window.Invalidate()
+		},
+		DeleteScript: func(id string) {
+			_ = flow.DeleteScenario(id)
+			ui.Window.Invalidate()
+		},
+		ImportScript: func(data []byte) {
+			if _, err := flow.ImportScenario(data); err == nil {
+				ui.Window.Invalidate()
+			}
+		},
 
 		EnvColorPicker: &ui.EnvColorPicker,
 		EnvColorEnvID:  &ui.EnvColorEnvID,
@@ -98,15 +161,49 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 			_ = os.Remove(filepath.Join(persist.CollectionsDir(), colID+".json"))
 			ui.collectionSaveMu.Unlock()
 		},
+		DropNodeExternal:      ui.dropNodeOnFlowCanvas,
 		LayoutToggleBtn:       ui.layoutSidebarToggleBtn,
 		LayoutSectionRequests: ui.layoutSidebarSectionRequestsBtn,
+		LayoutSectionFlows:    ui.layoutSidebarSectionFlowsBtn,
+		LayoutSectionNetlimit: ui.layoutSidebarSectionNetlimitBtn,
+		LayoutNetlimitBody:    ui.layoutNetlimitBody,
 		LayoutSectionMITM:     ui.layoutSidebarSectionMITMBtn,
 		LayoutMITMRules:       ui.layoutMITMSidebar,
 		SidebarSection:        &ui.SidebarSection,
 	}
 }
 
+func (ui *AppUI) refreshScriptRows() {
+	seq := flow.ChangeSeq()
+	if ui.scriptSeq == seq && ui.ScriptRows != nil {
+		return
+	}
+	ui.scriptSeq = seq
+	infos := flow.ListScenarios()
+	old := make(map[string]*sidebar.ScriptRow, len(ui.ScriptRows))
+	for _, r := range ui.ScriptRows {
+		old[r.ID] = r
+	}
+	rows := make([]*sidebar.ScriptRow, 0, len(infos))
+	for _, inf := range infos {
+		name := inf.Name
+		if name == "" {
+			name = "Untitled"
+		}
+		if r, ok := old[inf.ID]; ok {
+			if !r.IsRenaming {
+				r.Name = name
+			}
+			rows = append(rows, r)
+		} else {
+			rows = append(rows, &sidebar.ScriptRow{ID: inf.ID, Name: name})
+		}
+	}
+	ui.ScriptRows = rows
+}
+
 func (ui *AppUI) layoutSidebar(gtx layout.Context) layout.Dimensions {
+	ui.refreshScriptRows()
 	dims := sidebar.Layout(gtx, ui.sidebarHost())
 	if ui.ColList.Position.First != ui.prevColFirst || ui.ColList.Position.Offset != ui.prevColOffset ||
 		ui.EnvList.Position.First != ui.prevEnvFirst || ui.EnvList.Position.Offset != ui.prevEnvOffset {

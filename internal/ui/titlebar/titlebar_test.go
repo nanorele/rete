@@ -168,3 +168,30 @@ func TestBar_Layout_RepeatedFrames(t *testing.T) {
 		b.Layout(gtx, th, nil, "Frame", "https://x", i%2 == 0, func() {})
 	}
 }
+
+func TestBar_Layout_NetBadge(t *testing.T) {
+	th := newTheme()
+	toggled, canceled := false, false
+	b := &Bar{
+		NetActive:   true,
+		OnNetToggle: func() { toggled = true },
+		OnNetCancel: func() { canceled = true },
+	}
+
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("net badge layout panicked: %v", r)
+		}
+	}()
+
+	gtx := makeGtx(900, 30)
+	b.Layout(gtx, th, nil, "App", "https://x", false, nil)
+
+	b.NetActive = false
+	b.NetPaused = true
+	gtx2 := makeGtx(900, 30)
+	b.Layout(gtx2, th, nil, "App", "https://x", false, nil)
+
+	_ = toggled
+	_ = canceled
+}

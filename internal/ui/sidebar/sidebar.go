@@ -31,7 +31,37 @@ import (
 	"github.com/nanorele/gio/widget/material"
 )
 
-var alignMethods = []string{"GET", "POST", "PUT", "DELETE", "HEAD", "PATCH", "OPTIONS"}
+func abbrevMethod(m string) string {
+	m = strings.ToUpper(strings.TrimSpace(m))
+	switch m {
+	case "DELETE":
+		return "DEL"
+	case "OPTIONS":
+		return "OPT"
+	case "PATCH":
+		return "PAT"
+	case "TRACE":
+		return "TRC"
+	case "CONNECT":
+		return "CONN"
+	}
+	if len(m) > 4 {
+		return m[:4]
+	}
+	return m
+}
+
+func collectionMethodSet(n *collections.CollectionNode, set map[string]bool) {
+	if n == nil {
+		return
+	}
+	if !n.IsFolder && n.Request != nil {
+		set[abbrevMethod(n.Request.Method)] = true
+	}
+	for _, c := range n.Children {
+		collectionMethodSet(c, set)
+	}
+}
 
 func recalcDepth(node *collections.CollectionNode, depth int) {
 	if node == nil {
@@ -44,6 +74,7 @@ func recalcDepth(node *collections.CollectionNode, depth int) {
 }
 
 func Layout(gtx layout.Context, host *Host) layout.Dimensions {
+	host.ensureScripts()
 	size := gtx.Constraints.Max
 	paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: size}.Op())
 	gtx.Constraints.Min = size
@@ -65,58 +96,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		if _, ok := ev.(pointer.Event); ok && *host.RenamingNode != nil {
 			gtx.Execute(key.FocusCmd{Tag: nil})
 		}
-	}
-
-	var moved bool
-	var finalY float32
-	var released bool
-
-	for {
-		e, ok := host.SidebarEnvDrag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
-		if !ok {
-			break
-		}
-		switch e.Kind {
-		case pointer.Press:
-			*host.SidebarEnvDragY = e.Position.Y
-		case pointer.Drag:
-			finalY = e.Position.Y
-			moved = true
-		case pointer.Cancel, pointer.Release:
-			released = true
-		}
-	}
-
-	if moved {
-		delta := finalY - *host.SidebarEnvDragY
-		oldHeight := *host.SidebarEnvHeight
-		*host.SidebarEnvHeight -= int(delta)
-		minEnvHeight := gtx.Dp(unit.Dp(80))
-		maxEnvHeight := gtx.Constraints.Max.Y - gtx.Dp(unit.Dp(80))
-		if *host.SidebarEnvHeight < minEnvHeight {
-			*host.SidebarEnvHeight = minEnvHeight
-		}
-		if *host.SidebarEnvHeight > maxEnvHeight && maxEnvHeight > minEnvHeight {
-			*host.SidebarEnvHeight = maxEnvHeight
-		}
-		actualDelta := oldHeight - *host.SidebarEnvHeight
-		*host.SidebarEnvDragY = finalY - float32(actualDelta)
-		host.Window.Invalidate()
-	}
-	if released {
-		if *host.EnvRowH > 0 {
-			snapped := ((*host.SidebarEnvHeight + *host.EnvRowH/2) / *host.EnvRowH) * *host.EnvRowH
-			minEnvHeight := gtx.Dp(unit.Dp(80))
-			maxEnvHeight := gtx.Constraints.Max.Y - gtx.Dp(unit.Dp(80))
-			if snapped < minEnvHeight {
-				snapped = minEnvHeight
-			}
-			if snapped > maxEnvHeight && maxEnvHeight > minEnvHeight {
-				snapped = maxEnvHeight
-			}
-			*host.SidebarEnvHeight = snapped
-		}
-		host.SaveState()
 	}
 
 	borderLine := func(gtx layout.Context) layout.Dimensions {
@@ -153,7 +132,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			*host.ColsMenuOpen = !*host.ColsMenuOpen
 		}
 
-		headerDims := layout.Inset{Top: unit.Dp(0), Bottom: unit.Dp(4), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		headerDims := layout.Inset{Top: unit.Dp(0), Bottom: unit.Dp(0), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Stack{}.Layout(gtx,
 				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 					if host.ColsHeaderClick.Hovered() {
@@ -165,7 +144,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 					return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 							return host.ColsHeaderClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(28))
+								gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(26))
 								pointer.CursorPointer.Add(gtx.Ops)
 								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -189,10 +168,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 							})
 						}),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return widgets.SquareBtn(gtx, host.AddColBtn, widgets.IconAdd, host.Theme)
+							return widgets.SquareBtnSized(gtx, host.AddColBtn, widgets.IconAdd, host.Theme, 26, 16)
 						}),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return widgets.SquareBtn(gtx, host.ColsMenuBtn, widgets.IconMore, host.Theme)
+							return widgets.SquareBtnSized(gtx, host.ColsMenuBtn, widgets.IconMore, host.Theme, 26, 16)
 						}),
 					)
 				}),
@@ -275,6 +254,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		}
 
 		var updateCols bool
+		flowsMode := host.SidebarSection != nil && *host.SidebarSection == "flows"
 
 		nodeClickFn := func(n *collections.CollectionNode, inTextZone bool) {
 			if *host.RenamingNode != nil && *host.RenamingNode != n {
@@ -301,7 +281,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 					n.ResetSubtreeHover()
 				}
 				updateCols = true
-			} else if n.Request != nil {
+			} else if n.Request != nil && !flowsMode {
 				host.OpenRequestInTab(n)
 			}
 		}
@@ -332,6 +312,22 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			return x >= float32(n.NameLeftPx) && x <= float32(n.NameLeftPx+n.NameWidthPx)+rightPad
 		}
 
+		colMethodW := make(map[*collections.ParsedCollection]int, len(*host.Collections))
+		for _, cu := range *host.Collections {
+			if cu == nil || cu.Data == nil || cu.Data.Root == nil {
+				continue
+			}
+			set := make(map[string]bool, 4)
+			collectionMethodSet(cu.Data.Root, set)
+			w := 0
+			for m := range set {
+				if mw := measureLabelWidth(gtx, host.Theme, m, false, unit.Sp(10)); mw > w {
+					w = mw
+				}
+			}
+			colMethodW[cu.Data] = w
+		}
+
 		renameFieldSized := func(gtx layout.Context, th *material.Theme, ed *widget.Editor, bold bool, sz unit.Sp) layout.Dimensions {
 			txt := ed.Text()
 			if txt == "" {
@@ -360,7 +356,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		preDragSlop := float32(gtx.Dp(unit.Dp(4)))
 		if dragged := *host.DraggedNode; dragged != nil {
 			for {
-				e, ok := dragged.Drag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
+				e, ok := dragged.Drag.Update(gtx.Metric, gtx.Source, gesture.Both)
 				if !ok {
 					break
 				}
@@ -371,11 +367,18 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 					}
 					*host.DragNodeCurrentY = e.Position.Y
 					*host.DragNodeCurrentX = e.Position.X
+					if host.DragNodeWinOrig != nil {
+						*host.DragNodeWinPos = host.DragNodeWinOrig.Add(e.Position)
+					}
 					dy := *host.DragNodeCurrentY - *host.DragNodeOriginY
 					if dy < 0 {
 						dy = -dy
 					}
-					if !*host.DragNodeActive && dy > preDragSlop {
+					dx := *host.DragNodeCurrentX - *host.DragNodeOriginX
+					if dx < 0 {
+						dx = -dx
+					}
+					if !*host.DragNodeActive && (dy > preDragSlop || dx > preDragSlop) {
 						*host.DragNodeActive = true
 						*host.DragNodeOriginY = *host.DragNodeCurrentY
 						*host.DragNodeOriginX = *host.DragNodeCurrentX
@@ -385,7 +388,12 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						if *host.DragNodeActive {
 							*host.DragNodeCurrentY = e.Position.Y
 							*host.DragNodeCurrentX = e.Position.X
-							commitNodeDrop(host, dragged, gtx.Metric)
+							if host.DragNodeWinOrig != nil {
+								*host.DragNodeWinPos = host.DragNodeWinOrig.Add(e.Position)
+							}
+							if (host.DropNodeExternal == nil || !host.DropNodeExternal(dragged)) && !flowsMode {
+								commitNodeDrop(host, dragged, gtx.Metric)
+							}
 							updateCols = true
 						} else {
 							nodeClickFn(dragged, isTextHit(dragged, e.Position.X))
@@ -445,7 +453,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 			dragSlop := float32(gtx.Dp(unit.Dp(4)))
 			for {
-				e, ok := node.Drag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
+				e, ok := node.Drag.Update(gtx.Metric, gtx.Source, gesture.Both)
 				if !ok {
 					break
 				}
@@ -457,15 +465,26 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 					*host.DragNodeOriginX = e.Position.X
 					*host.DragNodeCurrentX = e.Position.X
 					*host.DragNodeActive = false
+					if host.DragNodeWinOrig != nil {
+						*host.DragNodeWinOrig = widgets.GlobalPointerPos.Sub(e.Position)
+						*host.DragNodeWinPos = widgets.GlobalPointerPos
+					}
 				case pointer.Drag:
 					if *host.DraggedNode == node {
 						*host.DragNodeCurrentY = e.Position.Y
 						*host.DragNodeCurrentX = e.Position.X
+						if host.DragNodeWinOrig != nil {
+							*host.DragNodeWinPos = host.DragNodeWinOrig.Add(e.Position)
+						}
 						dy := *host.DragNodeCurrentY - *host.DragNodeOriginY
 						if dy < 0 {
 							dy = -dy
 						}
-						if !*host.DragNodeActive && dy > dragSlop {
+						dx := *host.DragNodeCurrentX - *host.DragNodeOriginX
+						if dx < 0 {
+							dx = -dx
+						}
+						if !*host.DragNodeActive && (dy > dragSlop || dx > dragSlop) {
 							*host.DragNodeActive = true
 							*host.DragNodeOriginY = *host.DragNodeCurrentY
 							*host.DragNodeOriginX = *host.DragNodeCurrentX
@@ -474,7 +493,12 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				case pointer.Release:
 					if *host.DraggedNode == node {
 						if *host.DragNodeActive {
-							commitNodeDrop(host, node, gtx.Metric)
+							if host.DragNodeWinOrig != nil {
+								*host.DragNodeWinPos = host.DragNodeWinOrig.Add(e.Position)
+							}
+							if (host.DropNodeExternal == nil || !host.DropNodeExternal(node)) && !flowsMode {
+								commitNodeDrop(host, node, gtx.Metric)
+							}
 							updateCols = true
 						} else {
 							nodeClick(e.Position.X)
@@ -677,7 +701,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				Left: unit.Dp(0), Right: unit.Dp(0),
 			}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				isActiveNode := false
-				if len((*host.Tabs)) > 0 && *host.ActiveIdx >= 0 && *host.ActiveIdx < len((*host.Tabs)) {
+				if !flowsMode && len((*host.Tabs)) > 0 && *host.ActiveIdx >= 0 && *host.ActiveIdx < len((*host.Tabs)) {
 					isActiveNode = (*host.Tabs)[*host.ActiveIdx].LinkedNode == node
 				}
 
@@ -706,9 +730,16 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						contentDim := layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 								gtx.Constraints.Min.X = gtx.Constraints.Max.X
+								leftDp := float32(node.Depth * 12)
+								if !node.IsFolder && node.Request != nil {
+									leftDp -= 4
+									if leftDp < 0 {
+										leftDp = 0
+									}
+								}
 								return layout.Inset{
-									Top: unit.Dp(1), Bottom: unit.Dp(1),
-									Left:  unit.Dp(float32(node.Depth * 12)),
+									Top: unit.Dp(4), Bottom: unit.Dp(4),
+									Left:  unit.Dp(leftDp),
 									Right: unit.Dp(4),
 								}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 									methodColW := 0
@@ -716,13 +747,11 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 										node.NameLeftPx = gtx.Dp(unit.Dp(float32(node.Depth*12 + 18 + 4)))
 										node.NameWidthPx = measureLabelWidth(gtx, host.Theme, node.Name, node.Depth == 0, unit.Sp(12))
 									} else if node.Request != nil {
-										methodColW = measureLabelWidth(gtx, host.Theme, node.Request.Method, false, unit.Sp(10))
-										for _, m := range alignMethods {
-											if mw := measureLabelWidth(gtx, host.Theme, m, false, unit.Sp(10)); mw > methodColW {
-												methodColW = mw
-											}
+										methodColW = colMethodW[node.Collection]
+										if methodColW <= 0 {
+											methodColW = measureLabelWidth(gtx, host.Theme, abbrevMethod(node.Request.Method), false, unit.Sp(10))
 										}
-										node.NameLeftPx = gtx.Dp(unit.Dp(float32(node.Depth*12))) + methodColW + gtx.Dp(unit.Dp(4))
+										node.NameLeftPx = gtx.Dp(unit.Dp(leftDp)) + methodColW + gtx.Dp(unit.Dp(6))
 										node.NameWidthPx = measureLabelWidth(gtx, host.Theme, node.Name, false, unit.Sp(12))
 									}
 									children := make([]layout.FlexChild, 0, 3)
@@ -754,7 +783,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 										}))
 									} else if node.Request != nil {
 										children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-											lbl := material.Label(host.Theme, unit.Sp(10), node.Request.Method)
+											lbl := material.Label(host.Theme, unit.Sp(10), abbrevMethod(node.Request.Method))
 											lbl.Color = theme.MethodColor(node.Request.Method)
 											lbl.Alignment = text.Start
 											lbl.MaxLines = 1
@@ -763,7 +792,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 											gtx.Constraints.Max.X = methodColW
 											return lbl.Layout(gtx)
 										}))
-										children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout))
+										children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout))
 										children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 											if node.IsRenaming {
 												return renameFieldSized(gtx, host.Theme, &node.NameEditor, false, unit.Sp(12))
@@ -780,12 +809,22 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 								})
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								btn := material.Button(host.Theme, &node.MenuBtn, "⋮")
-								btn.Background = theme.Transparent
-								btn.Color = host.Theme.Fg
-								btn.Inset = layout.UniformInset(unit.Dp(2))
-								btn.TextSize = unit.Sp(14)
-								dims := btn.Layout(gtx)
+								dims := material.Clickable(gtx, &node.MenuBtn, func(gtx layout.Context) layout.Dimensions {
+									w := gtx.Dp(unit.Dp(18))
+									h := gtx.Dp(unit.Dp(16))
+									gtx.Constraints.Min = image.Pt(w, h)
+									gtx.Constraints.Max = gtx.Constraints.Min
+									iconCol := theme.FgMuted
+									if node.MenuBtn.Hovered() {
+										iconCol = host.Theme.Fg
+									}
+									return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+										isz := gtx.Dp(unit.Dp(14))
+										gtx.Constraints.Min = image.Pt(isz, isz)
+										gtx.Constraints.Max = gtx.Constraints.Min
+										return widgets.IconMore.Layout(gtx, iconCol)
+									})
+								})
 								node.MenuBtnWidth = dims.Size.X
 								return dims
 							}),
@@ -928,7 +967,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			ghostOff.Pop()
 			op.Defer(gtx.Ops, ghostMacro.Stop())
 
-			if drop, ok := dragNodeDrop(host, gtx.Metric); ok {
+			if drop, ok := dragNodeDrop(host, gtx.Metric); ok && !flowsMode {
 				if drop.intoNode != nil {
 					targetIdx := -1
 					for i, n := range colsSnapshot {
@@ -1017,7 +1056,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			*host.EnvsMenuOpen = !*host.EnvsMenuOpen
 		}
 
-		headerDims := layout.Inset{Top: unit.Dp(0), Bottom: unit.Dp(4), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		headerDims := layout.Inset{Top: unit.Dp(0), Bottom: unit.Dp(0), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Stack{}.Layout(gtx,
 				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 					if host.EnvsHeaderClick.Hovered() {
@@ -1029,7 +1068,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 					return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 							return host.EnvsHeaderClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(28))
+								gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(26))
 								pointer.CursorPointer.Add(gtx.Ops)
 								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1053,10 +1092,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 							})
 						}),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return widgets.SquareBtn(gtx, host.AddEnvBtn, widgets.IconAdd, host.Theme)
+							return widgets.SquareBtnSized(gtx, host.AddEnvBtn, widgets.IconAdd, host.Theme, 26, 16)
 						}),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return widgets.SquareBtn(gtx, host.EnvsMenuBtn, widgets.IconMore, host.Theme)
+							return widgets.SquareBtnSized(gtx, host.EnvsMenuBtn, widgets.IconMore, host.Theme, 26, 16)
 						}),
 					)
 				}),
@@ -1257,7 +1296,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 			isEnvPlaceholder := draggingEnv && env == *host.DraggedEnv
 
-			rowDim := layout.Inset{Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			rowDim := layout.Inset{Top: unit.Dp(0), Bottom: unit.Dp(0), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
 
 				commitEnvRename := func(e *environments.EnvironmentUI) {
@@ -1378,10 +1417,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 							}
 							return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, rowH)}
 						}
-						return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 								layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-									return layout.Inset{Left: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									return layout.Inset{Left: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										if env.IsRenaming {
 											return widgets.InlineRenameField(gtx, host.Theme, &env.InlineNameEd)
 										}
@@ -1567,17 +1606,16 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	}
 
 	envDivider := func(gtx layout.Context) layout.Dimensions {
-		hit := gtx.Dp(unit.Dp(6))
-		size := image.Point{X: gtx.Constraints.Max.X, Y: hit}
+		vis := gtx.Dp(unit.Dp(1))
+		grab := gtx.Dp(unit.Dp(6))
+		w := gtx.Constraints.Max.X
 		lineCol := theme.BorderSubtle
 		if host.SidebarEnvDrag.Dragging() {
 			lineCol = theme.Accent
 		}
-		vis := gtx.Dp(unit.Dp(1))
-		lineY := hit - vis
-		paint.FillShape(gtx.Ops, lineCol, clip.Rect{Min: image.Pt(0, lineY), Max: image.Pt(size.X, lineY+vis)}.Op())
+		paint.FillShape(gtx.Ops, lineCol, clip.Rect{Max: image.Pt(w, vis)}.Op())
 
-		defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+		hitArea := clip.Rect{Min: image.Pt(0, vis-grab), Max: image.Pt(w, vis)}.Push(gtx.Ops)
 		pointer.CursorRowResize.Add(gtx.Ops)
 		host.SidebarEnvDrag.Add(gtx.Ops)
 		event.Op(gtx.Ops, host.SidebarEnvDrag)
@@ -1587,58 +1625,279 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				break
 			}
 		}
-		return layout.Dimensions{Size: size}
+		hitArea.Pop()
+		return layout.Dimensions{Size: image.Pt(w, vis)}
 	}
+
+	scriptRowH := *host.ScriptRowH
+	if scriptRowH <= 0 {
+		scriptRowH = gtx.Dp(unit.Dp(24))
+	}
+	envRowH := *host.EnvRowH
+	if envRowH <= 0 {
+		envRowH = gtx.Dp(unit.Dp(30))
+	}
+	colRowH := *host.ColRowH
+	if colRowH <= 0 {
+		colRowH = gtx.Dp(unit.Dp(24))
+	}
+
+	// `avail` is the space below the Collections header shared by the
+	// Collections, Scripts and Environments bodies. Collections fills whatever
+	// the two sized sections leave behind.
+	avail := gtx.Constraints.Max.Y - gtx.Dp(unit.Dp(81))
+	if avail < scriptRowH+envRowH {
+		avail = scriptRowH + envRowH
+	}
+
+	scriptsContent := len(*host.Scripts) * scriptRowH
+	if scriptsContent < scriptRowH {
+		scriptsContent = scriptRowH
+	}
+	envContent := len(*host.Environments) * envRowH
+	if envContent < envRowH {
+		envContent = envRowH
+	}
+
+	// Minimum body height of an expanded section: one row stays visible and the
+	// rest scrolls, so a section can always be dragged past its content instead
+	// of bottoming out once its nodes fill the space (VS Code behaviour).
+	scriptsMin, envMin := 0, 0
+	if *host.ScriptsExpanded {
+		scriptsMin = min(scriptRowH, scriptsContent)
+	}
+	if *host.EnvsExpanded {
+		envMin = min(envRowH, envContent)
+	}
+
+	// Expanded Collections always keeps at least one node row visible, so the
+	// Scripts and Environments bodies together may claim only `budget` of the
+	// shared space. On a very short window Collections yields this last.
+	colsMin := 0
+	if *host.ColsExpanded {
+		colsMin = colRowH
+	}
+	budget := avail - colsMin
+	if budget < scriptsMin+envMin {
+		budget = min(avail, scriptsMin+envMin)
+	}
+
+	// Each section defaults to hugging its content; a stored value (set by
+	// dragging a divider) overrides it.
+	scriptsPx := 0
+	if *host.ScriptsExpanded {
+		scriptsPx = scriptsContent
+		if *host.ScriptsHeight > 0 {
+			scriptsPx = *host.ScriptsHeight
+		}
+	}
+	envPx := 0
+	if *host.EnvsExpanded {
+		envPx = envContent
+		if *host.SidebarEnvHeight > 0 {
+			envPx = *host.SidebarEnvHeight
+		}
+	}
+
+	// Keep both sections within the shared budget (so Collections keeps its
+	// min). On overflow Scripts yields first, then Environments, down to min.
+	fit := func() {
+		scriptsPx = max(scriptsPx, scriptsMin)
+		envPx = max(envPx, envMin)
+		if over := scriptsPx + envPx - budget; over > 0 {
+			ds := min(over, scriptsPx-scriptsMin)
+			scriptsPx -= ds
+			over -= ds
+			envPx -= min(over, envPx-envMin)
+		}
+	}
+	fit()
+
+	readDrag := func(d *gesture.Drag, startY *float32) (moved, released bool, finalY float32) {
+		for {
+			e, ok := d.Update(gtx.Metric, gtx.Source, gesture.Vertical)
+			if !ok {
+				break
+			}
+			switch e.Kind {
+			case pointer.Press:
+				*startY = e.Position.Y
+			case pointer.Drag:
+				finalY = e.Position.Y
+				moved = true
+			case pointer.Cancel, pointer.Release:
+				released = true
+			}
+		}
+		return
+	}
+	// Collections|Scripts divider. Dragging down grows Collections: Scripts
+	// shrinks to its min first, then the pressure propagates and Environments
+	// shrinks too. Dragging up grows Scripts, reclaiming height from Collections
+	// until Collections is gone. Returns the pixels the boundary actually moved
+	// (signed, down positive) so the drag can re-anchor against clamping.
+	resizeScripts := func(delta int) int {
+		if delta > 0 { // down: shrink Scripts, then Environments
+			delta = min(delta, (scriptsPx-scriptsMin)+(envPx-envMin))
+			ds := min(delta, scriptsPx-scriptsMin)
+			scriptsPx -= ds
+			envPx -= delta - ds
+			return delta
+		}
+		up := min(-delta, budget-scriptsPx-envPx) // up: grow from Collections' slack
+		scriptsPx += up
+		return -up
+	}
+
+	// Scripts|Environments divider. An Environments resize never hides or
+	// reveals Scripts nodes — it only consumes Scripts' empty space (the gap
+	// under its last node). Dragging up eats that gap first; once it is gone, or
+	// Scripts is already scrolled, Collections gives up the rest so the whole
+	// Scripts section slides up. Dragging down mirrors it, sliding Scripts back
+	// down as Collections grows.
+	resizeEnv := func(delta int) int {
+		if delta < 0 { // up: grow Environments
+			slack := max(0, scriptsPx-scriptsContent) // Scripts' empty space
+			up := min(-delta, slack+(budget-scriptsPx-envPx))
+			scriptsPx -= min(up, slack)
+			envPx += up
+			return -up
+		}
+		down := min(delta, envPx-envMin) // down: shrink Environments, slide Scripts down
+		envPx -= down
+		return down
+	}
+
+	storeHeights := func() {
+		if *host.ScriptsExpanded {
+			*host.ScriptsHeight = scriptsPx
+		}
+		if *host.EnvsExpanded {
+			*host.SidebarEnvHeight = envPx
+		}
+	}
+
+	if *host.ScriptsExpanded {
+		moved, released, finalY := readDrag(host.ScriptsDrag, host.ScriptsDragY)
+		if moved {
+			*host.ScriptsDragY = finalY - float32(resizeScripts(int(finalY-*host.ScriptsDragY)))
+			storeHeights()
+			host.Window.Invalidate()
+		}
+		if released {
+			storeHeights()
+			host.SaveState()
+		}
+	}
+
+	if *host.EnvsExpanded {
+		moved, released, finalY := readDrag(host.SidebarEnvDrag, host.SidebarEnvDragY)
+		if moved {
+			*host.SidebarEnvDragY = finalY - float32(resizeEnv(int(finalY-*host.SidebarEnvDragY)))
+			storeHeights()
+			host.Window.Invalidate()
+		}
+		if released {
+			storeHeights()
+			host.SaveState()
+		}
+	}
+	fit()
+	scriptsDivider := func(gtx layout.Context) layout.Dimensions {
+		vis := gtx.Dp(unit.Dp(1))
+		grab := gtx.Dp(unit.Dp(6))
+		w := gtx.Constraints.Max.X
+		lineCol := theme.BorderSubtle
+		if host.ScriptsDrag.Dragging() {
+			lineCol = theme.Accent
+		}
+		paint.FillShape(gtx.Ops, lineCol, clip.Rect{Max: image.Pt(w, vis)}.Op())
+
+		// Grab area extends upward beyond the 1px layout footprint so the line
+		// stays flush against both sections while remaining easy to grab.
+		hitArea := clip.Rect{Min: image.Pt(0, vis-grab), Max: image.Pt(w, vis)}.Push(gtx.Ops)
+		pointer.CursorRowResize.Add(gtx.Ops)
+		host.ScriptsDrag.Add(gtx.Ops)
+		event.Op(gtx.Ops, host.ScriptsDrag)
+		for {
+			_, ok := gtx.Event(pointer.Filter{Target: host.ScriptsDrag, Kinds: pointer.Move | pointer.Enter | pointer.Leave})
+			if !ok {
+				break
+			}
+		}
+		hitArea.Pop()
+		return layout.Dimensions{Size: image.Pt(w, vis)}
+	}
+	scriptsChildren := func() []layout.FlexChild {
+		var out []layout.FlexChild
+		if *host.ColsExpanded && *host.ScriptsExpanded {
+			out = append(out, layout.Rigid(scriptsDivider))
+		} else {
+			out = append(out, layout.Rigid(borderLine))
+		}
+		out = append(out, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return scriptsHeader(gtx, host)
+		}))
+		if *host.ScriptsExpanded {
+			out = append(out, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min.Y = scriptsPx
+				gtx.Constraints.Max.Y = scriptsPx
+				return scriptsBody(gtx, host)
+			}))
+		}
+		return out
+	}
+
+	spacer := layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Constraints.Min.Y)}
+	})
+	envBody := layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min.Y = envPx
+		gtx.Constraints.Max.Y = envPx
+		return envsBody(gtx)
+	})
+
+	netlimitMode := host.SidebarSection != nil && *host.SidebarSection == "netlimit"
 
 	children := []layout.FlexChild{
 		layout.Rigid(borderLine),
 		layout.Rigid(colsHeader),
 	}
 
+	// Environments always sits directly under Scripts. When Collections is
+	// expanded it fills the slack above (pushing Scripts/Environments down);
+	// when Collections is collapsed a spacer at the very bottom takes the slack,
+	// so Environments does not dock to the bottom edge.
 	switch {
 	case *host.ColsExpanded && *host.EnvsExpanded:
-		remaining := gtx.Constraints.Max.Y - gtx.Dp(unit.Dp(62))
-		if remaining < 2 {
-			remaining = 2
-		}
-		envPx := *host.SidebarEnvHeight
-		minPx := gtx.Dp(unit.Dp(80))
-		if envPx < minPx {
-			envPx = minPx
-		}
-		if envPx > remaining-minPx {
-			envPx = remaining - minPx
-		}
-		if envPx < 1 {
-			envPx = 1
-		}
-		colsWeight := float32(remaining - envPx)
-		envsWeight := float32(envPx)
+		children = append(children, layout.Flexed(1, colsBody))
+		children = append(children, scriptsChildren()...)
 		children = append(children,
-			layout.Flexed(colsWeight, colsBody),
 			layout.Rigid(envDivider),
 			layout.Rigid(envsHeader),
-			layout.Flexed(envsWeight, envsBody),
+			envBody,
 		)
 	case *host.ColsExpanded:
+		children = append(children, layout.Flexed(1, colsBody))
+		children = append(children, scriptsChildren()...)
 		children = append(children,
-			layout.Flexed(1, colsBody),
 			layout.Rigid(borderLine),
 			layout.Rigid(envsHeader),
 		)
 	case *host.EnvsExpanded:
+		children = append(children, scriptsChildren()...)
 		children = append(children,
-			layout.Rigid(borderLine),
+			layout.Rigid(envDivider),
 			layout.Rigid(envsHeader),
-			layout.Flexed(1, envsBody),
+			envBody,
+			spacer,
 		)
 	default:
+		children = append(children, scriptsChildren()...)
 		children = append(children,
 			layout.Rigid(borderLine),
 			layout.Rigid(envsHeader),
-			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Constraints.Min.Y)}
-			}),
+			spacer,
 		)
 	}
 
@@ -1673,12 +1932,28 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				return host.LayoutSectionRequests(gtx)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if host.LayoutSectionFlows == nil {
+					return layout.Dimensions{}
+				}
+				gtx.Constraints.Min = image.Pt(innerW, secBtnH)
+				gtx.Constraints.Max = image.Pt(innerW, secBtnH)
+				return host.LayoutSectionFlows(gtx)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				if host.LayoutSectionMITM == nil {
 					return layout.Dimensions{}
 				}
 				gtx.Constraints.Min = image.Pt(innerW, secBtnH)
 				gtx.Constraints.Max = image.Pt(innerW, secBtnH)
 				return host.LayoutSectionMITM(gtx)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if host.LayoutSectionNetlimit == nil {
+					return layout.Dimensions{}
+				}
+				gtx.Constraints.Min = image.Pt(innerW, secBtnH)
+				gtx.Constraints.Max = image.Pt(innerW, secBtnH)
+				return host.LayoutSectionNetlimit(gtx)
 			}),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Constraints.Max.Y)}
@@ -1695,16 +1970,19 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		return gutter(gtx)
 	}
 
-	if host.SidebarSection != nil && *host.SidebarSection == "mitm" {
-		return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-			layout.Rigid(gutter),
-			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				if host.LayoutMITMRules != nil {
-					return host.LayoutMITMRules(gtx)
-				}
-				return layout.Dimensions{Size: gtx.Constraints.Max}
-			}),
-		)
+	if netlimitMode && host.LayoutNetlimitBody != nil {
+		children = []layout.FlexChild{
+			layout.Rigid(borderLine),
+			layout.Flexed(1, host.LayoutNetlimitBody),
+		}
+	}
+
+	mitmMode := host.SidebarSection != nil && *host.SidebarSection == "mitm"
+	if mitmMode && host.LayoutMITMRules != nil {
+		children = []layout.FlexChild{
+			layout.Rigid(borderLine),
+			layout.Flexed(1, host.LayoutMITMRules),
+		}
 	}
 
 	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
@@ -1730,9 +2008,16 @@ func renderNodeGhost(gtx layout.Context, th *material.Theme, node *collections.C
 	widgets.PaintBorder1px(gtx, size, theme.Accent)
 	gtx.Constraints.Min = size
 	gtx.Constraints.Max = size
+	leftDp := float32(node.Depth * 12)
+	if !node.IsFolder && node.Request != nil {
+		leftDp -= 4
+		if leftDp < 0 {
+			leftDp = 0
+		}
+	}
 	return layout.Inset{
-		Top: unit.Dp(1), Bottom: unit.Dp(1),
-		Left:  unit.Dp(float32(node.Depth * 12)),
+		Top: unit.Dp(4), Bottom: unit.Dp(4),
+		Left:  unit.Dp(leftDp),
 		Right: unit.Dp(4),
 	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		children := make([]layout.FlexChild, 0, 3)
@@ -1761,12 +2046,12 @@ func renderNodeGhost(gtx layout.Context, th *material.Theme, node *collections.C
 			}))
 		} else if node.Request != nil {
 			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				lbl := material.Label(th, unit.Sp(10), node.Request.Method)
+				lbl := material.Label(th, unit.Sp(10), abbrevMethod(node.Request.Method))
 				lbl.Color = theme.MethodColor(node.Request.Method)
 				lbl.LineHeightScale = 1.0
 				return lbl.Layout(gtx)
 			}))
-			children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout))
+			children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout))
 			children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				lbl := material.Label(th, unit.Sp(12), node.Name)
 				lbl.Alignment = text.Start
@@ -1792,10 +2077,10 @@ func renderEnvGhost(gtx layout.Context, th *material.Theme, env *environments.En
 	widgets.PaintBorder1px(gtx, size, theme.Accent)
 	gtx.Constraints.Min = size
 	gtx.Constraints.Max = size
-	return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				return layout.Inset{Left: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Left: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(th, unit.Sp(12), env.Data.Name)
 					lbl.MaxLines = 1
 					return layout.W.Layout(gtx, lbl.Layout)

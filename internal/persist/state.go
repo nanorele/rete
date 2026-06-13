@@ -43,15 +43,15 @@ type TabState struct {
 
 //easyjson:json
 type WSTabState struct {
-	Subprotocols       []string        `json:"subprotocols,omitempty"`
-	OptionsExpanded    bool            `json:"options_expanded,omitempty"`
-	SubprotosAbsHeight int             `json:"subprotos_abs_height,omitempty"`
-	OfferDeflate       bool            `json:"offer_deflate,omitempty"`
-	InsecureSkipVerify bool            `json:"insecure_skip_verify,omitempty"`
-	UseTractoCA        bool            `json:"use_tracto_ca,omitempty"`
-	SavedSends         []WSSavedSend   `json:"saved_sends,omitempty"`
-	SplitRatio         float32         `json:"split_ratio,omitempty"`
-	ComposerRatio      float32         `json:"composer_ratio,omitempty"`
+	Subprotocols       []string      `json:"subprotocols,omitempty"`
+	OptionsExpanded    bool          `json:"options_expanded,omitempty"`
+	SubprotosAbsHeight int           `json:"subprotos_abs_height,omitempty"`
+	OfferDeflate       bool          `json:"offer_deflate,omitempty"`
+	InsecureSkipVerify bool          `json:"insecure_skip_verify,omitempty"`
+	UseTractoCA        bool          `json:"use_tracto_ca,omitempty"`
+	SavedSends         []WSSavedSend `json:"saved_sends,omitempty"`
+	SplitRatio         float32       `json:"split_ratio,omitempty"`
+	ComposerRatio      float32       `json:"composer_ratio,omitempty"`
 }
 
 //easyjson:json
@@ -71,14 +71,16 @@ type FormPartState struct {
 
 //easyjson:json
 type AppState struct {
-	Tabs               []TabState         `json:"tabs"`
-	ActiveIdx          int                `json:"active_idx"`
-	ActiveEnvID        string             `json:"active_env_id"`
-	SidebarWidthPx     int                `json:"sidebar_width_px"`
-	SidebarEnvHeightPx int                `json:"sidebar_env_height_px"`
-	Settings           *model.AppSettings `json:"settings,omitempty"`
-	EnvIDsOrder        []string           `json:"env_ids_order,omitempty"`
-	CollectionIDsOrder []string           `json:"collection_ids_order,omitempty"`
+	Tabs                   []TabState         `json:"tabs"`
+	ActiveIdx              int                `json:"active_idx"`
+	ActiveEnvID            string             `json:"active_env_id"`
+	SidebarWidthPx         int                `json:"sidebar_width_px"`
+	SidebarEnvHeightPx     int                `json:"sidebar_env_height_px"`
+	Settings               *model.AppSettings `json:"settings,omitempty"`
+	EnvIDsOrder            []string           `json:"env_ids_order,omitempty"`
+	CollectionIDsOrder     []string           `json:"collection_ids_order,omitempty"`
+	SidebarSection         string             `json:"sidebar_section,omitempty"`
+	SidebarScriptsHeightPx int                `json:"sidebar_scripts_height_px,omitempty"`
 }
 
 func Load() AppState {

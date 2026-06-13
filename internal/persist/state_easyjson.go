@@ -1481,6 +1481,18 @@ func easyjsonBd887cf1DecodeTractoInternalPersist5(in *jlexer.Lexer, out *AppStat
 				}
 				in.Delim(']')
 			}
+		case "sidebar_section":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SidebarSection = string(in.String())
+			}
+		case "sidebar_scripts_height_px":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SidebarScriptsHeightPx = int(in.Int())
+			}
 		default:
 			switch strings.ToLower(key) {
 			case "tabs":
@@ -1602,6 +1614,18 @@ func easyjsonBd887cf1DecodeTractoInternalPersist5(in *jlexer.Lexer, out *AppStat
 					}
 					in.Delim(']')
 				}
+			case "sidebar_section":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.SidebarSection = string(in.String())
+				}
+			case "sidebar_scripts_height_px":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.SidebarScriptsHeightPx = int(in.Int())
+				}
 			default:
 				in.SkipRecursive()
 			}
@@ -1685,6 +1709,16 @@ func easyjsonBd887cf1EncodeTractoInternalPersist5(out *jwriter.Writer, in AppSta
 			}
 			out.RawByte(']')
 		}
+	}
+	if in.SidebarSection != "" {
+		const prefix string = ",\"sidebar_section\":"
+		out.RawString(prefix)
+		out.String(string(in.SidebarSection))
+	}
+	if in.SidebarScriptsHeightPx != 0 {
+		const prefix string = ",\"sidebar_scripts_height_px\":"
+		out.RawString(prefix)
+		out.Int(int(in.SidebarScriptsHeightPx))
 	}
 	out.RawByte('}')
 }

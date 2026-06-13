@@ -30,10 +30,21 @@ var (
 	IconRequests   *widget.Icon
 	IconMITM       *widget.Icon
 	IconShield     *widget.Icon
-	IconUAC        *widget.Icon
 	IconPlay       *widget.Icon
 	IconStop       *widget.Icon
 	IconBatch      *widget.Icon
+	IconFlow       *widget.Icon
+	IconSplit      *widget.Icon
+	IconDelay      *widget.Icon
+	IconHistory    *widget.Icon
+	IconTune       *widget.Icon
+	IconFit        *widget.Icon
+	IconFolderOpen *widget.Icon
+	IconPause      *widget.Icon
+	IconNext       *widget.Icon
+	IconNetlimit   *widget.Icon
+	IconDownload   *widget.Icon
+	IconUpload     *widget.Icon
 )
 
 func mustIcon(data []byte) *widget.Icon {
@@ -72,4 +83,16 @@ func init() {
 	IconPlay = mustIcon(icons.AVPlayArrow)
 	IconStop = mustIcon(icons.AVStop)
 	IconBatch = mustIcon(icons.AVPlaylistPlay)
+	IconFlow = mustIcon(icons.EditorLinearScale)
+	IconSplit = mustIcon(icons.CommunicationCallSplit)
+	IconDelay = mustIcon(icons.ActionSchedule)
+	IconHistory = mustIcon(icons.ActionHistory)
+	IconTune = mustIcon(icons.ImageTune)
+	IconFit = mustIcon(icons.ImageCropFree)
+	IconFolderOpen = mustIcon(icons.FileFolderOpen)
+	IconPause = mustIcon(icons.AVPause)
+	IconNext = mustIcon(icons.AVSkipNext)
+	IconNetlimit = mustIcon(icons.NotificationNetworkCheck)
+	IconDownload = mustIcon(icons.FileFileDownload)
+	IconUpload = mustIcon(icons.FileFileUpload)
 }

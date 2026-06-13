@@ -12,13 +12,16 @@ import (
 	"sync"
 	"time"
 	"tracto/internal/model"
+	"tracto/internal/netlimit"
 	"tracto/internal/persist"
 	"tracto/internal/ui/collections"
 	"tracto/internal/ui/colorpicker"
 	"tracto/internal/ui/environments"
+	"tracto/internal/ui/flow"
 	"tracto/internal/ui/fontsubset"
 	"tracto/internal/ui/mitm"
 	"tracto/internal/ui/settings"
+	"tracto/internal/ui/sidebar"
 	"tracto/internal/ui/tabbar"
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/titlebar"
@@ -38,6 +41,7 @@ import (
 	"github.com/nanorele/gio/io/event"
 	"github.com/nanorele/gio/io/key"
 	"github.com/nanorele/gio/io/pointer"
+	"github.com/nanorele/gio/io/system"
 	"github.com/nanorele/gio/io/transfer"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
@@ -69,6 +73,8 @@ type AppUI struct {
 	DragNodeOriginX  float32
 	DragNodeCurrentX float32
 	DragNodeActive   bool
+	DragNodeWinOrig  f32.Point
+	DragNodeWinPos   f32.Point
 	Tabs             []*workspace.RequestTab
 	ActiveIdx        int
 	TabsList         widget.List
@@ -118,9 +124,30 @@ type AppUI struct {
 	EnvsExpanded    bool
 	EnvsHeaderClick widget.Clickable
 
+	ScriptsExpanded    bool
+	ScriptsHeaderClick widget.Clickable
+	AddScriptBtn       widget.Clickable
+	ScriptsMenuBtn     widget.Clickable
+	ScriptsMenuOpen    bool
+	ImportScriptBtn    widget.Clickable
+	ScriptList         widget.List
+	ScriptRows         []*sidebar.ScriptRow
+	scriptSeq          int64
+	scriptRowH         int
+
+	SidebarScriptsHeight int
+	SidebarScriptsDrag   gesture.Drag
+	SidebarScriptsDragY  float32
+
+	BtnSecNetlimit widget.Clickable
+	NetMgr         *netlimit.Manager
+	Net            netLimitState
+
 	SidebarSection string
 	BtnSecRequests widget.Clickable
+	BtnSecFlows    widget.Clickable
 	BtnSecMITM     widget.Clickable
+	Flow           *flow.Editor
 
 	MITM mitm.UIState
 
@@ -137,6 +164,7 @@ type AppUI struct {
 
 	SidebarDropTag bool
 	LastPointerPos f32.Point
+	centeredOnce   bool
 
 	VarPopup varpopup.State
 
@@ -404,13 +432,14 @@ func NewAppUI() *AppUI {
 		Theme:            th,
 		Window:           win,
 		SidebarWidth:     defaultSidebar,
-		SidebarEnvHeight: 300,
+		SidebarEnvHeight: 0,
 		ColLoadedChan:    make(chan *collections.CollectionUI, 64),
 		EnvLoadedChan:    make(chan *environments.EnvironmentUI, 64),
 		TabBar:           tabbar.NewStrip(),
 		activeEnvDirty:   true,
 		ColsExpanded:     true,
 		EnvsExpanded:     true,
+		ScriptsExpanded:  true,
 		SidebarSection:   "requests",
 		dirtyCollections: make(map[string]*dirtyCollection),
 		Settings:         model.DefaultSettings(),
@@ -421,7 +450,9 @@ func NewAppUI() *AppUI {
 	ui.TabsList.Axis = layout.Vertical
 	ui.ColList.Axis = layout.Vertical
 	ui.EnvList.Axis = layout.Vertical
+	ui.ScriptList.Axis = layout.Vertical
 	ui.loadState()
+	ui.initNetlimit()
 	return ui
 }
 
@@ -583,6 +614,7 @@ func (ui *AppUI) Run() error {
 			if ui.rootCancel != nil {
 				ui.rootCancel()
 			}
+			ui.closeNetlimit()
 			for _, tab := range ui.Tabs {
 				tab.CancelRequest()
 				tab.MarkClosed()
@@ -604,6 +636,10 @@ func (ui *AppUI) Run() error {
 			ui.TitleBar.Maximized = e.Config.Mode == app.Maximized || e.Config.Mode == app.Fullscreen
 			ui.Window.Invalidate()
 		case app.FrameEvent:
+			if !ui.centeredOnce {
+				ui.centeredOnce = true
+				ui.Window.Perform(system.ActionCenter)
+			}
 
 			for {
 				select {
@@ -684,6 +720,12 @@ func (ui *AppUI) loadState() {
 	if state.SidebarEnvHeightPx > 0 {
 		ui.SidebarEnvHeight = state.SidebarEnvHeightPx
 	}
+	if state.SidebarSection == "flows" || state.SidebarSection == "requests" {
+		ui.SidebarSection = state.SidebarSection
+	}
+	if state.SidebarScriptsHeightPx > 0 {
+		ui.SidebarScriptsHeight = state.SidebarScriptsHeightPx
+	}
 
 	loadedCols := collections.LoadAll()
 	colByID := make(map[string]*collections.ParsedCollection, len(loadedCols))
@@ -731,12 +773,14 @@ func (ui *AppUI) loadState() {
 func (ui *AppUI) buildStateSnapshot() persist.AppState {
 	settings := ui.Settings
 	state := persist.AppState{
-		Tabs:               make([]persist.TabState, 0, len(ui.Tabs)),
-		ActiveIdx:          ui.ActiveIdx,
-		ActiveEnvID:        ui.ActiveEnvID,
-		SidebarWidthPx:     ui.SidebarWidth,
-		SidebarEnvHeightPx: ui.SidebarEnvHeight,
-		Settings:           &settings,
+		Tabs:                   make([]persist.TabState, 0, len(ui.Tabs)),
+		ActiveIdx:              ui.ActiveIdx,
+		ActiveEnvID:            ui.ActiveEnvID,
+		SidebarWidthPx:         ui.SidebarWidth,
+		SidebarEnvHeightPx:     ui.SidebarEnvHeight,
+		SidebarSection:         ui.SidebarSection,
+		SidebarScriptsHeightPx: ui.SidebarScriptsHeight,
+		Settings:               &settings,
 	}
 	for _, e := range ui.Environments {
 		if e.Data != nil {
@@ -1047,7 +1091,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		}),
 	)
 
-	anySidebarMenuOpen := ui.ColsMenuOpen || ui.EnvsMenuOpen
+	anySidebarMenuOpen := ui.ColsMenuOpen || ui.EnvsMenuOpen || ui.ScriptsMenuOpen
 	for _, n := range ui.VisibleCols {
 		if n.MenuOpen {
 			anySidebarMenuOpen = true
@@ -1060,6 +1104,13 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 			break
 		}
 	}
+	for _, r := range ui.ScriptRows {
+		if r.MenuOpen {
+			anySidebarMenuOpen = true
+			break
+		}
+	}
+	flowDropOpen := ui.SidebarSection == "flows" && ui.Flow != nil && ui.Flow.EnvDropOpen()
 	var activeTab *workspace.RequestTab
 	if ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
 		activeTab = ui.Tabs[ui.ActiveIdx]
@@ -1069,6 +1120,9 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 	closeAllPopups := func() {
 		ui.TabBar.TabCtxMenuOpen = false
 		ui.closeAllSidebarMenus()
+		if ui.Flow != nil {
+			ui.Flow.CloseEnvDrop()
+		}
 		if activeTab != nil {
 			activeTab.SendMenuOpen = false
 			activeTab.MethodListOpen = false
@@ -1078,7 +1132,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
-	if ui.TabBar.TabCtxMenuOpen || anySidebarMenuOpen || tabMenuOpen {
+	if ui.TabBar.TabCtxMenuOpen || anySidebarMenuOpen || tabMenuOpen || flowDropOpen {
 		layout.Stack{}.Layout(gtx,
 			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
@@ -1299,11 +1353,15 @@ func (ui *AppUI) renderColorPickerOverlay(gtx layout.Context, p *colorpicker.Sta
 func (ui *AppUI) closeAllSidebarMenus() {
 	ui.ColsMenuOpen = false
 	ui.EnvsMenuOpen = false
+	ui.ScriptsMenuOpen = false
 	for _, n := range ui.VisibleCols {
 		n.MenuOpen = false
 	}
 	for _, e := range ui.Environments {
 		e.MenuOpen = false
+	}
+	for _, r := range ui.ScriptRows {
+		r.MenuOpen = false
 	}
 }
 
@@ -1313,6 +1371,8 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 			key.Filter{Name: "S", Required: key.ModShortcut},
 			key.Filter{Name: "W", Required: key.ModShortcut},
 			key.Filter{Name: "F", Required: key.ModShortcut},
+			key.Filter{Name: "Z", Required: key.ModShortcut},
+			key.Filter{Name: "Y", Required: key.ModShortcut},
 			key.Filter{Name: key.NameReturn, Required: key.ModShortcut},
 		)
 		if !ok {
@@ -1330,6 +1390,8 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 					ui.saveState()
 				case ui.EditingEnv != nil:
 					ui.commitEditingEnv()
+				case ui.SidebarSection == "flows" && ui.Flow != nil:
+					ui.Flow.SaveScenario()
 				default:
 					if ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
 						if col := ui.Tabs[ui.ActiveIdx].SaveToCollection(); col != nil {
@@ -1345,7 +1407,23 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 				if ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
 					ui.Tabs[ui.ActiveIdx].SearchOpen = !ui.Tabs[ui.ActiveIdx].SearchOpen
 				}
+			case "Z":
+				if ui.SidebarSection == "flows" && ui.Flow != nil {
+					ui.Flow.Undo()
+					ui.Window.Invalidate()
+				}
+			case "Y":
+				if ui.SidebarSection == "flows" && ui.Flow != nil {
+					ui.Flow.Redo()
+					ui.Window.Invalidate()
+				}
 			case key.NameReturn:
+				if ui.SidebarSection == "flows" {
+					if ui.Flow != nil {
+						ui.Flow.ToggleRun(ui.flowHost())
+					}
+					break
+				}
 				if ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
 					tab := ui.Tabs[ui.ActiveIdx]
 					tab.SendMenuOpen = false
@@ -1524,11 +1602,20 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 			}
 			horizChildren = append(horizChildren,
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					if ui.SidebarSection != "requests" {
-						return ui.layoutMITMSection(gtx)
-					}
 					if ui.EditingEnv != nil {
 						return ui.layoutEnvEditor(gtx)
+					}
+
+					if ui.SidebarSection == "flows" {
+						return ui.layoutFlowSection(gtx)
+					}
+
+					if ui.SidebarSection == "netlimit" {
+						return ui.layoutNetlimitSection(gtx)
+					}
+
+					if ui.SidebarSection == "mitm" {
+						return ui.layoutMITMSection(gtx)
 					}
 
 					tabBarChildren := []layout.FlexChild{}
@@ -1800,6 +1887,67 @@ func (ui *AppUI) layoutSidebarSectionRequestsBtn(gtx layout.Context) layout.Dime
 	return ui.layoutSidebarSectionBtn(gtx, &ui.BtnSecRequests, widgets.IconRequests, "requests")
 }
 
+func (ui *AppUI) layoutSidebarSectionFlowsBtn(gtx layout.Context) layout.Dimensions {
+	return ui.layoutSidebarSectionBtn(gtx, &ui.BtnSecFlows, widgets.IconFlow, "flows")
+}
+
 func (ui *AppUI) layoutSidebarSectionMITMBtn(gtx layout.Context) layout.Dimensions {
 	return ui.layoutSidebarSectionBtn(gtx, &ui.BtnSecMITM, widgets.IconMITM, "mitm")
+}
+
+func (ui *AppUI) flowHost() *flow.Host {
+	var dragLabel string
+	extDrag := ui.SidebarSection == "flows" && ui.DragNodeActive && ui.DraggedNode != nil
+	if extDrag {
+		dragLabel = ui.DraggedNode.Name
+	}
+	return &flow.Host{
+		Win:       ui.Window,
+		RootCtx:   ui.rootCtx,
+		ActiveEnv: ui.activeEnvSnapshot,
+		EnvOptions: func() []flow.EnvOption {
+			opts := []flow.EnvOption{{ID: "", Name: "Active environment"}}
+			for _, e := range ui.Environments {
+				if e != nil && e.Data != nil {
+					opts = append(opts, flow.EnvOption{ID: e.Data.ID, Name: e.Data.Name})
+				}
+			}
+			return opts
+		},
+		EnvVars: func(id string) map[string]string {
+			if id == "" {
+				return ui.activeEnvSnapshot()
+			}
+			for _, e := range ui.Environments {
+				if e != nil && e.Data != nil && e.Data.ID == id {
+					m := make(map[string]string, len(e.Data.Vars))
+					for _, v := range e.Data.Vars {
+						if v.Value != "" {
+							m[v.Key] = v.Value
+						}
+					}
+					return m
+				}
+			}
+			return nil
+		},
+		WinSize:           ui.windowSize,
+		ExternalDrag:      extDrag,
+		ExternalDragPos:   ui.DragNodeWinPos,
+		ExternalDragLabel: dragLabel,
+	}
+}
+
+func (ui *AppUI) layoutFlowSection(gtx layout.Context) layout.Dimensions {
+	if ui.Flow == nil {
+		ui.Flow = flow.NewEditor()
+	}
+	return ui.Flow.Layout(gtx, ui.Theme, ui.flowHost())
+}
+
+func (ui *AppUI) dropNodeOnFlowCanvas(node *collections.CollectionNode) bool {
+	if ui.SidebarSection != "flows" || ui.Flow == nil || ui.EditingEnv != nil || ui.SettingsOpen {
+		return false
+	}
+	return ui.Flow.DropCollectionNode(node, ui.DragNodeWinPos)
 }

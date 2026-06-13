@@ -30,6 +30,14 @@ func StateFilePath() string {
 	return filepath.Join(ConfigDir(), "state.json")
 }
 
+func NetlimitConfigPath() string {
+	return filepath.Join(ConfigDir(), "netlimit.json")
+}
+
+func NetlimitMarkerPath() string {
+	return filepath.Join(ConfigDir(), "netlimit.active")
+}
+
 func CollectionsDir() string {
 	colDir := filepath.Join(ConfigDir(), "collections")
 	_ = os.MkdirAll(colDir, 0755)
@@ -46,6 +54,12 @@ func MITMDir() string {
 	dir := filepath.Join(ConfigDir(), "mitm")
 	_ = os.MkdirAll(dir, 0755)
 	return dir
+}
+
+func FlowsDir() string {
+	flowDir := filepath.Join(ConfigDir(), "flows")
+	_ = os.MkdirAll(flowDir, 0755)
+	return flowDir
 }
 
 func AtomicWriteFile(path string, data []byte) error {

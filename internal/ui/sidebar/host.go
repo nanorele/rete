@@ -10,6 +10,7 @@ import (
 	"tracto/internal/ui/workspace"
 
 	"github.com/nanorele/gio/app"
+	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/widget"
@@ -39,6 +40,8 @@ type Host struct {
 	DragNodeOriginX  *float32
 	DragNodeCurrentX *float32
 	DragNodeActive   *bool
+	DragNodeWinOrig  *f32.Point
+	DragNodeWinPos   *f32.Point
 
 	DragEnvOriginY  *float32
 	DragEnvCurrentY *float32
@@ -70,6 +73,27 @@ type Host struct {
 	EnvsMenuOpen    *bool
 	SidebarDropTag  *bool
 
+	Scripts            *[]*ScriptRow
+	ScriptList         *widget.List
+	ScriptsHeaderClick *widget.Clickable
+	ScriptsExpanded    *bool
+	AddScriptBtn       *widget.Clickable
+	ScriptsMenuBtn     *widget.Clickable
+	ScriptsMenuOpen    *bool
+	ImportScriptBtn    *widget.Clickable
+	ScriptRowH         *int
+	ScriptsHeight      *int
+	ScriptsDrag        *gesture.Drag
+	ScriptsDragY       *float32
+
+	ActiveScriptID  func() string
+	OpenScript      func(id string)
+	NewScript       func()
+	RenameScript    func(id, name string)
+	DuplicateScript func(id string)
+	DeleteScript    func(id string)
+	ImportScript    func(data []byte)
+
 	EnvColorPicker *colorpicker.State
 	EnvColorEnvID  *string
 
@@ -86,8 +110,12 @@ type Host struct {
 	CommitEditingEnv      func()
 	CloseTab              func(int)
 	DeleteCollection      func(colID string)
+	DropNodeExternal      func(*collections.CollectionNode) bool
 	LayoutToggleBtn       func(gtx layout.Context) layout.Dimensions
 	LayoutSectionRequests func(gtx layout.Context) layout.Dimensions
+	LayoutSectionFlows    func(gtx layout.Context) layout.Dimensions
+	LayoutSectionNetlimit func(gtx layout.Context) layout.Dimensions
+	LayoutNetlimitBody    func(gtx layout.Context) layout.Dimensions
 	LayoutSectionMITM     func(gtx layout.Context) layout.Dimensions
 	LayoutMITMRules       func(gtx layout.Context) layout.Dimensions
 	SidebarSection        *string
@@ -95,4 +123,43 @@ type Host struct {
 
 func (h *Host) HideSidebar() bool {
 	return h.Settings != nil && h.Settings.HideSidebar
+}
+
+func (h *Host) ensureScripts() {
+	if h.Scripts == nil {
+		h.Scripts = new([]*ScriptRow)
+	}
+	if h.ScriptList == nil {
+		h.ScriptList = &widget.List{List: layout.List{Axis: layout.Vertical}}
+	}
+	if h.ScriptsHeaderClick == nil {
+		h.ScriptsHeaderClick = &widget.Clickable{}
+	}
+	if h.ScriptsExpanded == nil {
+		h.ScriptsExpanded = new(bool)
+	}
+	if h.AddScriptBtn == nil {
+		h.AddScriptBtn = &widget.Clickable{}
+	}
+	if h.ScriptsMenuBtn == nil {
+		h.ScriptsMenuBtn = &widget.Clickable{}
+	}
+	if h.ScriptsMenuOpen == nil {
+		h.ScriptsMenuOpen = new(bool)
+	}
+	if h.ImportScriptBtn == nil {
+		h.ImportScriptBtn = &widget.Clickable{}
+	}
+	if h.ScriptRowH == nil {
+		h.ScriptRowH = new(int)
+	}
+	if h.ScriptsHeight == nil {
+		h.ScriptsHeight = new(int)
+	}
+	if h.ScriptsDrag == nil {
+		h.ScriptsDrag = new(gesture.Drag)
+	}
+	if h.ScriptsDragY == nil {
+		h.ScriptsDragY = new(float32)
+	}
 }

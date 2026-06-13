@@ -8,6 +8,7 @@ import (
 )
 
 func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
+	ui.wireNetTitlebar()
 	return ui.TitleBar.Layout(gtx, ui.Theme, ui.Window, ui.Title, ui.BugReportURL, ui.SettingsOpen, func() {
 		ui.SettingsOpen = !ui.SettingsOpen
 		if ui.SettingsOpen && ui.SettingsState == nil {
