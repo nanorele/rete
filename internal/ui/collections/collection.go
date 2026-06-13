@@ -47,8 +47,10 @@ type CollectionNode struct {
 	NameWidthPx int
 	RowHeightPx int
 
-	Drag  gesture.Drag
-	Hover widgets.Hover
+	Drag          gesture.Drag
+	Hover         widgets.Hover
+	StickyClick   widget.Clickable
+	StickyMenuBtn widget.Clickable
 }
 
 type ParsedCollection struct {

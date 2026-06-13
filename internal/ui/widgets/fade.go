@@ -12,6 +12,10 @@ type Fade struct {
 	last time.Time
 }
 
+// Value returns the current animation value (0..1) without advancing it, for
+// readers other than the single caller that drives Update each frame.
+func (f *Fade) Value() float32 { return f.val }
+
 func (f *Fade) Update(gtx layout.Context, on bool, dur time.Duration) float32 {
 	target := float32(0)
 	if on {

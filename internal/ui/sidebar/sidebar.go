@@ -1069,93 +1069,163 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		ov.Pop()
 		pass.Pop()
 
-		if len(colsSnapshot) > 0 && !draggingNode {
-			first := host.ColList.Position.First
-			if first < 0 {
-				first = 0
+		return dim
+	}
+
+	// stickyHeaders pins the collection name and the parent folders of the
+	// topmost visible node in a separate region directly above the Collections
+	// list (VS Code behaviour). Living above the list rather than overlaying it
+	// keeps the first list row fully visible and lets the rows be plain opaque
+	// clickables without disturbing list-row hover.
+	stickyHeaders := func(gtx layout.Context) layout.Dimensions {
+		snap := *host.VisibleCols
+		first := host.ColList.Position.First
+		if first < 0 || first >= len(snap) {
+			return layout.Dimensions{}
+		}
+		var anc []*collections.CollectionNode
+		for p := snap[first].Parent; p != nil; p = p.Parent {
+			anc = append(anc, p)
+		}
+		if len(anc) == 0 {
+			return layout.Dimensions{}
+		}
+		for a, b := 0, len(anc)-1; a < b; a, b = a+1, b-1 {
+			anc[a], anc[b] = anc[b], anc[a]
+		}
+		if approxH := gtx.Dp(unit.Dp(24)); approxH > 0 {
+			if maxRows := gtx.Constraints.Max.Y/approxH - 2; maxRows >= 1 && len(anc) > maxRows {
+				anc = anc[:maxRows]
 			}
-			if first < len(colsSnapshot) {
-				var anc []*collections.CollectionNode
-				for p := colsSnapshot[first].Parent; p != nil; p = p.Parent {
-					anc = append(anc, p)
+		}
+		idxOf := make(map[*collections.CollectionNode]int, len(snap))
+		for i, n := range snap {
+			idxOf[n] = i
+		}
+		for _, a := range anc {
+			if a.StickyClick.Clicked(gtx) {
+				if idx, ok := idxOf[a]; ok && idx+1 < len(snap) {
+					host.ColList.Position.First = idx + 1
+					host.ColList.Position.Offset = 0
+					host.Window.Invalidate()
 				}
-				for a, b := 0, len(anc)-1; a < b; a, b = a+1, b-1 {
-					anc[a], anc[b] = anc[b], anc[a]
+			}
+			// Opening a sticky folder's menu scrolls it to the top of the list so
+			// its row (now visible) renders the menu and handles every action via
+			// the normal list path. The folder barely moves: it lands right below
+			// its remaining sticky ancestors, where its sticky row already sat.
+			if a.StickyMenuBtn.Clicked(gtx) {
+				for _, n := range snap {
+					n.MenuOpen = false
 				}
-				approxH := gtx.Dp(unit.Dp(24))
-				if maxRows := (dim.Size.Y / approxH) - 1; maxRows >= 1 && len(anc) > maxRows {
-					anc = anc[:maxRows]
+				a.MenuOpen = true
+				if idx, ok := idxOf[a]; ok {
+					host.ColList.Position.First = idx
+					host.ColList.Position.Offset = 0
 				}
-				if len(anc) > 0 {
-					stickyW := dim.Size.X
-					indent := gtx.Dp(unit.Dp(12))
-					guideW := max(1, gtx.Dp(unit.Dp(1)))
-					goff := gtx.Dp(unit.Dp(7))
-					y := 0
-					for _, node := range anc {
-						if y > dim.Size.Y-approxH {
-							break
-						}
-						node := node
-						rowGtx := gtx
-						rowGtx.Constraints.Min = image.Pt(stickyW, 0)
-						rowGtx.Constraints.Max = image.Pt(stickyW, gtx.Constraints.Max.Y)
-						off := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-						d := func(gtx layout.Context) layout.Dimensions {
-							return layout.Stack{}.Layout(gtx,
-								layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-									size := gtx.Constraints.Min
-									paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: size}.Op())
-									if node.Depth > 0 {
-										for dd := 0; dd < node.Depth; dd++ {
-											x := dd*indent + goff
-											if x+guideW > size.X {
-												break
-											}
-											paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(x, 0), Max: image.Pt(x+guideW, size.Y)}.Op())
-										}
+				host.Window.Invalidate()
+			}
+		}
+		w := gtx.Constraints.Max.X
+		indent := gtx.Dp(unit.Dp(12))
+		guideW := max(1, gtx.Dp(unit.Dp(1)))
+		goff := gtx.Dp(unit.Dp(7))
+		fade := host.ColsBodyFade.Value()
+		children := make([]layout.FlexChild, 0, len(anc)+1)
+		for _, node := range anc {
+			node := node
+			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min.X = w
+				gtx.Constraints.Max.X = w
+				return material.Clickable(gtx, &node.StickyClick, func(gtx layout.Context) layout.Dimensions {
+					return layout.Stack{}.Layout(gtx,
+						layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+							size := gtx.Constraints.Min
+							bg := theme.BgDark
+							if node.StickyClick.Hovered() {
+								bg = theme.BgHover
+							}
+							paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
+							if node.Depth > 0 && fade > 0 {
+								gc := theme.BorderSubtle
+								if node.StickyClick.Hovered() {
+									gc = theme.FgDisabled
+								}
+								gc.A = uint8(float32(gc.A) * fade)
+								for dd := 0; dd < node.Depth; dd++ {
+									x := dd*indent + goff
+									if x+guideW > size.X {
+										break
 									}
-									return layout.Dimensions{Size: size}
-								}),
-								layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-									gtx.Constraints.Min.X = stickyW
-									leftDp := float32(node.Depth * 12)
-									return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(leftDp), Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									paint.FillShape(gtx.Ops, gc, clip.Rect{Min: image.Pt(x, 0), Max: image.Pt(x+guideW, size.Y)}.Op())
+								}
+							}
+							pointer.CursorPointer.Add(gtx.Ops)
+							return layout.Dimensions{Size: size}
+						}),
+						layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+							gtx.Constraints.Min.X = w
+							leftDp := float32(node.Depth * 12)
+							return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(leftDp), Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+										isz := gtx.Dp(unit.Dp(14))
+										gtx.Constraints.Min = image.Pt(isz, isz)
+										gtx.Constraints.Max = gtx.Constraints.Min
+										return widgets.IconChevronD.Layout(gtx, theme.FgMuted)
+									}),
+									layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+										lbl := material.Label(host.Theme, unit.Sp(12), node.Name)
+										lbl.MaxLines = 1
+										lbl.Truncator = "…"
+										lbl.LineHeightScale = 1.0
+										if node.Depth == 0 {
+											lbl.Font.Weight = font.Bold
+										}
+										return lbl.Layout(gtx)
+									}),
+									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+										return material.Clickable(gtx, &node.StickyMenuBtn, func(gtx layout.Context) layout.Dimensions {
+											bw := gtx.Dp(unit.Dp(18))
+											bh := gtx.Dp(unit.Dp(16))
+											gtx.Constraints.Min = image.Pt(bw, bh)
+											gtx.Constraints.Max = gtx.Constraints.Min
+											iconCol := theme.FgMuted
+											if node.StickyMenuBtn.Hovered() {
+												iconCol = host.Theme.Fg
+											}
+											iconCol.A = uint8(float32(iconCol.A) * fade)
+											return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 												isz := gtx.Dp(unit.Dp(14))
 												gtx.Constraints.Min = image.Pt(isz, isz)
 												gtx.Constraints.Max = gtx.Constraints.Min
-												return widgets.IconChevronD.Layout(gtx, theme.FgMuted)
-											}),
-											layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
-											layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-												lbl := material.Label(host.Theme, unit.Sp(12), node.Name)
-												lbl.MaxLines = 1
-												lbl.Truncator = "…"
-												lbl.LineHeightScale = 1.0
-												if node.Depth == 0 {
-													lbl.Font.Weight = font.Bold
-												}
-												return lbl.Layout(gtx)
-											}),
-										)
-									})
-								}),
-							)
-						}(rowGtx)
-						off.Pop()
-						y += d.Size.Y
-					}
-					sep := max(1, gtx.Dp(unit.Dp(1)))
-					sepOff := op.Offset(image.Pt(0, y)).Push(gtx.Ops)
-					paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Max: image.Pt(stickyW, sep)}.Op())
-					sepOff.Pop()
-				}
-			}
+												return widgets.IconMore.Layout(gtx, iconCol)
+											})
+										})
+									}),
+								)
+							})
+						}),
+					)
+				})
+			}))
 		}
-
-		return dim
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			h := max(1, gtx.Dp(unit.Dp(1)))
+			paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Max: image.Pt(w, h)}.Op())
+			return layout.Dimensions{Size: image.Pt(w, h)}
+		}))
+		dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+		// Treat the sticky region as part of the Collections block so the guide
+		// lines, scrollbar and menu buttons stay revealed while the cursor is over
+		// it (pass-through so the clickable rows still receive their events).
+		sp := pointer.PassOp{}.Push(gtx.Ops)
+		hc := clip.Rect{Max: dims.Size}.Push(gtx.Ops)
+		host.ColsBodyHover.Add(gtx.Ops)
+		hc.Pop()
+		sp.Pop()
+		return dims
 	}
 
 	envsHeader := func(gtx layout.Context) layout.Dimensions {
@@ -2027,7 +2097,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	// so Environments does not dock to the bottom edge.
 	switch {
 	case *host.ColsExpanded && *host.EnvsExpanded:
-		children = append(children, layout.Flexed(1, colsBody))
+		children = append(children, layout.Rigid(stickyHeaders), layout.Flexed(1, colsBody))
 		children = append(children, scriptsChildren()...)
 		children = append(children,
 			layout.Rigid(envDivider),
@@ -2035,7 +2105,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			envBody,
 		)
 	case *host.ColsExpanded:
-		children = append(children, layout.Flexed(1, colsBody))
+		children = append(children, layout.Rigid(stickyHeaders), layout.Flexed(1, colsBody))
 		children = append(children, scriptsChildren()...)
 		children = append(children,
 			layout.Rigid(borderLine),
