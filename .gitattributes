@@ -1,0 +1,3 @@
+# Go source is always LF so gofmt (and the gofmt linter) stay stable
+# regardless of core.autocrlf on the checkout machine.
+*.go text eol=lf

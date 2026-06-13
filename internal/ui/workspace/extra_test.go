@@ -112,10 +112,7 @@ func TestTrimTrailingWhitespace(t *testing.T) {
 
 func TestLooksLikeJSON_BOM(t *testing.T) {
 	if looksLikeJSON([]byte("\xEF\xBB\xBF{\"a\":1}")) {
-
 		t.Logf("looksLikeJSON treats BOM as non-JSON (expected)")
-	} else if !looksLikeJSON([]byte("\xEF\xBB\xBF{\"a\":1}")) {
-
 	}
 
 	if !looksLikeJSON([]byte("\n\n\n[")) {
@@ -792,7 +789,7 @@ func TestPrepareRequest_SendConnClose(t *testing.T) {
 func TestPrepareRequest_NilParentContext(t *testing.T) {
 	tab := NewRequestTab("t")
 	tab.URLInput.SetText("http://x")
-	req, ctx, cancel, err := tab.prepareRequest(nil, nil)
+	req, ctx, cancel, err := tab.prepareRequest(nil, nil) //nolint:staticcheck // nil parent context is the case under test
 	if err != nil {
 		t.Fatalf("err: %v", err)
 	}

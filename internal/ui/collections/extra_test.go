@@ -719,7 +719,7 @@ func TestCloneNodeSkippedItemsCopied(t *testing.T) {
 func TestCloneNodeNoExtras(t *testing.T) {
 	node := &CollectionNode{Name: "n", Request: &model.ParsedRequest{Headers: map[string]string{}}}
 	cl := CloneNode(node, nil)
-	if cl.Extras != nil && len(cl.Extras) != 0 {
+	if len(cl.Extras) != 0 {
 		t.Errorf("expected empty extras")
 	}
 }

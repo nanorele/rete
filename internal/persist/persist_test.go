@@ -127,7 +127,7 @@ func TestNewRandomID(t *testing.T) {
 		t.Errorf("NewRandomID not random")
 	}
 	for _, r := range id {
-		if !((r >= '0' && r <= '9') || (r >= 'a' && r <= 'f')) {
+		if (r < '0' || r > '9') && (r < 'a' || r > 'f') {
 			t.Errorf("non-hex char in id: %q", id)
 			break
 		}

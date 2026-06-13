@@ -45,8 +45,8 @@ func TestHSVToRGB_ClampsOutOfRange(t *testing.T) {
 		t.Errorf("alpha = %d", c.A)
 	}
 	c = hsvToRGB(0, -1, -1)
-	if c.R == 0 && c.G == 0 && c.B == 0 {
-
+	if c.A != 255 {
+		t.Errorf("alpha = %d", c.A)
 	}
 }
 

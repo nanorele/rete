@@ -84,7 +84,7 @@ func (m *winMonitor) SystemCounters() (rx, tx uint64, err error) {
 	if r != 0 {
 		return 0, 0, fmt.Errorf("GetIfTable2 failed: %d", r)
 	}
-	defer procFreeMibTable.Call(uintptr(unsafe.Pointer(tbl)))
+	defer procFreeMibTable.Call(uintptr(unsafe.Pointer(tbl))) //nolint:errcheck
 
 	n := tbl.NumEntries
 	base := unsafe.Pointer(&tbl.Table[0])

@@ -53,14 +53,13 @@ func (a *wdAddress) socket() *wdSocketData {
 }
 
 var (
-	wdOnce   sync.Once
-	wdDLL    *windows.LazyDLL
-	wdErr    error
-	wdOpen   *windows.LazyProc
-	wdRecv   *windows.LazyProc
-	wdSend   *windows.LazyProc
-	wdClose  *windows.LazyProc
-	wdSetMin *windows.LazyProc
+	wdOnce  sync.Once
+	wdDLL   *windows.LazyDLL
+	wdErr   error
+	wdOpen  *windows.LazyProc
+	wdRecv  *windows.LazyProc
+	wdSend  *windows.LazyProc
+	wdClose *windows.LazyProc
 )
 
 func winDivertLoad() error {
@@ -79,7 +78,6 @@ func winDivertLoad() error {
 		wdRecv = wdDLL.NewProc("WinDivertRecv")
 		wdSend = wdDLL.NewProc("WinDivertSend")
 		wdClose = wdDLL.NewProc("WinDivertClose")
-		wdSetMin = wdDLL.NewProc("WinDivertSetParam")
 	})
 	return wdErr
 }
@@ -189,7 +187,7 @@ func (w *wdHandle) close() error {
 	if w == nil || w.h == 0 {
 		return nil
 	}
-	wdClose.Call(uintptr(w.h))
+	wdClose.Call(uintptr(w.h)) //nolint:errcheck
 	w.h = 0
 	return nil
 }
@@ -223,7 +221,7 @@ func newWinDivertSniffer() (*winDivertSniffer, error) {
 	}
 	netH, err := winDivertOpen("ip or ipv6", wdLayerNetwork, -1000, wdFlagSniff)
 	if err != nil {
-		sockH.close()
+		sockH.close() //nolint:errcheck
 		return nil, err
 	}
 	s := &winDivertSniffer{
@@ -341,8 +339,8 @@ func (s *winDivertSniffer) counters(pid int32) (rx, tx uint64, err error) {
 
 func (s *winDivertSniffer) close() error {
 	close(s.stop)
-	s.netH.close()
-	s.sockH.close()
+	s.netH.close()  //nolint:errcheck
+	s.sockH.close() //nolint:errcheck
 	s.wg.Wait()
 	return nil
 }

@@ -82,6 +82,13 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 		ScriptsDrag:        &ui.SidebarScriptsDrag,
 		ScriptsDragY:       &ui.SidebarScriptsDragY,
 
+		ColsBodyHover:    &ui.ColsBodyHover,
+		ScriptsBodyHover: &ui.ScriptsBodyHover,
+		EnvsBodyHover:    &ui.EnvsBodyHover,
+		ColsBodyFade:     &ui.ColsBodyFade,
+		ScriptsBodyFade:  &ui.ScriptsBodyFade,
+		EnvsBodyFade:     &ui.EnvsBodyFade,
+
 		ActiveScriptID: func() string {
 			if ui.Flow != nil && ui.Flow.Scenario != nil {
 				return ui.Flow.Scenario.ID
@@ -147,10 +154,15 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 		PushColLoaded:       ui.pushColLoaded,
 		MarkCollectionDirty: ui.markCollectionDirty,
 		OpenRequestInTab:    ui.openRequestInTab,
-		UpdateVisibleCols:   ui.updateVisibleCols,
-		PushEnvLoaded:       ui.pushEnvLoaded,
-		CommitEditingEnv:    ui.commitEditingEnv,
-		CloseTab:            ui.closeTab,
+		SwitchSection: func(id string) {
+			ui.SetSidebarSection(id)
+			ui.saveState()
+			ui.Window.Invalidate()
+		},
+		UpdateVisibleCols: ui.updateVisibleCols,
+		PushEnvLoaded:     ui.pushEnvLoaded,
+		CommitEditingEnv:  ui.commitEditingEnv,
+		CloseTab:          ui.closeTab,
 		DeleteCollection: func(colID string) {
 			delete(ui.dirtyCollections, colID)
 			ui.collectionSaveMu.Lock()

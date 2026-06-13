@@ -438,9 +438,15 @@ func (s *Strip) Layout(
 
 							bgColor := theme.BgDark
 							fgColor := theme.FgMuted
+							hovered := tab.TabBtn.Hovered() || tab.CloseBtn.Hovered()
 							if idx == *activeIdx {
 								bgColor = theme.Bg
 								fgColor = theme.Fg
+								if hovered {
+									bgColor = theme.BgSecondary
+								}
+							} else if hovered {
+								bgColor = theme.BgHover
 							}
 
 							return layout.Stack{}.Layout(gtx,

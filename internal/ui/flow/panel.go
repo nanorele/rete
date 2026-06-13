@@ -310,7 +310,7 @@ func (ed *Editor) layoutRunBlock(gtx layout.Context, th *material.Theme) layout.
 					return btn.Layout(gtx)
 				}),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					if !(running && stepMode) {
+					if !running || !stepMode {
 						return layout.Dimensions{}
 					}
 					return layout.Inset{Left: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

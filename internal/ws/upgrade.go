@@ -12,9 +12,9 @@ import (
 var ErrNotUpgrade = errors.New("ws: request is not a websocket upgrade")
 
 type UpgradeOptions struct {
-	Subprotocols []string
+	Subprotocols  []string
 	AcceptDeflate bool
-	ExtraHeaders http.Header
+	ExtraHeaders  http.Header
 }
 
 type UpgradeResult struct {

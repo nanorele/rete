@@ -97,7 +97,7 @@ func (i *Inflater) Inflate(payload []byte) ([]byte, error) {
 	} else {
 		fr = flate.NewReaderDict(src, i.history)
 	}
-	defer fr.Close()
+	defer func() { _ = fr.Close() }()
 	out, err := io.ReadAll(io.LimitReader(fr, MaxMessageSize+1))
 	if err != nil && !errors.Is(err, io.EOF) && !errors.Is(err, io.ErrUnexpectedEOF) {
 		return nil, err

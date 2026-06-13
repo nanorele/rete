@@ -9,6 +9,7 @@ import (
 	"tracto/internal/persist"
 	"tracto/internal/ui/collections"
 	"tracto/internal/ui/environments"
+	"tracto/internal/ui/widgets"
 	"tracto/internal/ui/workspace"
 
 	"github.com/nanorele/gio/app"
@@ -147,6 +148,13 @@ func newTestHost() (*Host, func()) {
 		SidebarDropTag:  &dropTag,
 		ActiveEnvDirty:  &activeEnvDirty,
 		SidebarSection:  &sidebarSection,
+
+		ColsBodyHover:    &widgets.Hover{},
+		ScriptsBodyHover: &widgets.Hover{},
+		EnvsBodyHover:    &widgets.Hover{},
+		ColsBodyFade:     &widgets.Fade{},
+		ScriptsBodyFade:  &widgets.Fade{},
+		EnvsBodyFade:     &widgets.Fade{},
 
 		ChooseJSONFile:      func() ([]byte, error) { return nil, nil },
 		SaveState:           func() {},

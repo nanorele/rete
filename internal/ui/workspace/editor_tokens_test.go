@@ -222,11 +222,11 @@ func TestShiftTokens_NoOpWhenNoTokens(t *testing.T) {
 	v := NewRequestEditor()
 	v.SetText("abc")
 	v.Insert(1, "X")
-	if v.tokens != nil && len(v.tokens) != 0 {
+	if len(v.tokens) != 0 {
 		t.Fatalf("expected no tokens, got %+v", v.tokens)
 	}
 	v.DeleteRange(0, 1)
-	if v.tokens != nil && len(v.tokens) != 0 {
+	if len(v.tokens) != 0 {
 		t.Fatalf("expected no tokens, got %+v", v.tokens)
 	}
 }

@@ -60,8 +60,8 @@ func TestDeflateInflateRoundtripContextTakeover(t *testing.T) {
 
 func TestParseExtensions(t *testing.T) {
 	cases := []struct {
-		in    string
-		want  ExtParams
+		in   string
+		want ExtParams
 	}{
 		{"", ExtParams{}},
 		{"permessage-deflate", ExtParams{Negotiated: true}},

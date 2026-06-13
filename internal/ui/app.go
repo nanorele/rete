@@ -139,6 +139,13 @@ type AppUI struct {
 	SidebarScriptsDrag   gesture.Drag
 	SidebarScriptsDragY  float32
 
+	ColsBodyHover    widgets.Hover
+	ScriptsBodyHover widgets.Hover
+	EnvsBodyHover    widgets.Hover
+	ColsBodyFade     widgets.Fade
+	ScriptsBodyFade  widgets.Fade
+	EnvsBodyFade     widgets.Fade
+
 	BtnSecNetlimit widget.Clickable
 	NetMgr         *netlimit.Manager
 	Net            netLimitState
@@ -1888,7 +1895,7 @@ func (ui *AppUI) layoutSidebarSectionRequestsBtn(gtx layout.Context) layout.Dime
 }
 
 func (ui *AppUI) layoutSidebarSectionFlowsBtn(gtx layout.Context) layout.Dimensions {
-	return ui.layoutSidebarSectionBtn(gtx, &ui.BtnSecFlows, widgets.IconFlow, "flows")
+	return ui.layoutSidebarSectionBtn(gtx, &ui.BtnSecFlows, widgets.IconLab, "flows")
 }
 
 func (ui *AppUI) layoutSidebarSectionMITMBtn(gtx layout.Context) layout.Dimensions {

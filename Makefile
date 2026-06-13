@@ -8,3 +8,6 @@ run:
 
 clean:
 	@if exist $(APP_NAME) del $(APP_NAME)
+
+lint:
+	golangci-lint run ./...

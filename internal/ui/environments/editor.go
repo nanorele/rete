@@ -61,7 +61,7 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 		return layout.Dimensions{}
 	}
 
-	for env.BackBtn.Clicked(gtx) {
+	if env.BackBtn.Clicked(gtx) {
 		env.Commit(host.OnDirty)
 		if host.OnClose != nil {
 			host.OnClose()

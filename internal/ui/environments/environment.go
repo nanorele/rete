@@ -111,10 +111,7 @@ func ParseEnvironment(r io.Reader, id string) (*model.ParsedEnvironment, error) 
 
 	var vars []model.EnvVar
 	for _, v := range ext.Values {
-		vars = append(vars, model.EnvVar{
-			Key:   v.Key,
-			Value: v.Value,
-		})
+		vars = append(vars, model.EnvVar(v))
 	}
 
 	return &model.ParsedEnvironment{

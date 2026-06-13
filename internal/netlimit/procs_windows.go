@@ -15,7 +15,7 @@ func listProcs() ([]ProcInfo, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer windows.CloseHandle(snap)
+	defer windows.CloseHandle(snap) //nolint:errcheck
 
 	var entry windows.ProcessEntry32
 	entry.Size = uint32(unsafe.Sizeof(entry))
@@ -49,7 +49,7 @@ func procExePath(pid uint32) string {
 	if err != nil {
 		return ""
 	}
-	defer windows.CloseHandle(h)
+	defer windows.CloseHandle(h) //nolint:errcheck
 	buf := make([]uint16, windows.MAX_PATH)
 	size := uint32(len(buf))
 	if err := windows.QueryFullProcessImageName(h, 0, &buf[0], &size); err != nil {

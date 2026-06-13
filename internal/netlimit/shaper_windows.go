@@ -121,7 +121,7 @@ func (s *winShaper) Apply(spec LimitSpec) error {
 	if spec.Scope == ScopeApp {
 		sockH, err := winDivertOpen("true", wdLayerSocket, 0, wdFlagSniff|wdFlagRecvOnly)
 		if err != nil {
-			netH.close()
+			netH.close() //nolint:errcheck
 			s.netH = nil
 			return err
 		}
@@ -231,10 +231,10 @@ func (s *winShaper) removeLocked() {
 		close(s.stop)
 	}
 	if s.netH != nil {
-		s.netH.close()
+		s.netH.close() //nolint:errcheck
 	}
 	if s.sockH != nil {
-		s.sockH.close()
+		s.sockH.close() //nolint:errcheck
 	}
 	s.mu.Unlock()
 	s.wg.Wait()

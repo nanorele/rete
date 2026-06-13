@@ -71,8 +71,7 @@ type ResponseViewer struct {
 	chunkHeightsWrap  bool
 	chunkHeightsWidth int
 
-	wrapPlans     []wrapPlan
-	wrapPlanWidth int
+	wrapPlans []wrapPlan
 
 	scrollY int
 	scrollX int

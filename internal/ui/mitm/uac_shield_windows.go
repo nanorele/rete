@@ -92,7 +92,7 @@ func renderShieldPNG() ([]byte, error) {
 	if r != 0 {
 		return nil, errShellAPI
 	}
-	defer procDestroyIcon.Call(uintptr(info.hIcon))
+	defer procDestroyIcon.Call(uintptr(info.hIcon)) //nolint:errcheck
 
 	var ii iconInfo
 	r, _, _ = procGetIconInfo.Call(uintptr(info.hIcon), uintptr(unsafe.Pointer(&ii)))
@@ -100,10 +100,10 @@ func renderShieldPNG() ([]byte, error) {
 		return nil, errShellAPI
 	}
 	if ii.hbmMask != 0 {
-		defer procDeleteObject.Call(uintptr(ii.hbmMask))
+		defer procDeleteObject.Call(uintptr(ii.hbmMask)) //nolint:errcheck
 	}
 	if ii.hbmColor != 0 {
-		defer procDeleteObject.Call(uintptr(ii.hbmColor))
+		defer procDeleteObject.Call(uintptr(ii.hbmColor)) //nolint:errcheck
 	}
 
 	const w, h = 16, 16
@@ -117,7 +117,7 @@ func renderShieldPNG() ([]byte, error) {
 	bi.bmiHeader.BiCompression = 0
 
 	hdc, _, _ := procGetDC.Call(0)
-	defer procReleaseDC.Call(0, hdc)
+	defer procReleaseDC.Call(0, hdc) //nolint:errcheck
 
 	r, _, _ = procGetDIBits.Call(
 		hdc,

@@ -888,14 +888,11 @@ func wsCellDir(th *material.Theme, d ws.Dir, w int) layout.FlexChild {
 	return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.X = gtx.Dp(unit.Dp(float32(w)))
 		gtx.Constraints.Max.X = gtx.Constraints.Min.X
-		var sym string
-		col := theme.FgMuted
+		sym := "▼"
+		col := theme.VarFound
 		if d == ws.DirOut {
 			sym = "▲"
 			col = theme.Accent
-		} else {
-			sym = "▼"
-			col = theme.VarFound
 		}
 		lbl := widgets.MonoLabel(th, unit.Sp(11), sym)
 		lbl.Color = col

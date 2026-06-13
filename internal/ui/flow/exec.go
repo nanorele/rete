@@ -604,7 +604,7 @@ func (r *Runner) Start(parent context.Context, win *app.Window, s *Scenario, act
 				}
 			}
 
-			ok := ctx.Err() == nil && !(res != nil && res.failed && n.kind == KindRequest)
+			ok := ctx.Err() == nil && (res == nil || !res.failed || n.kind != KindRequest)
 			if !ok {
 				anyFail = true
 			}

@@ -75,12 +75,12 @@ type RequestRunner struct {
 	SortAsc     bool
 	SortBtns    []widget.Clickable
 
-	started   bool
-	plannedN  int
-	running   atomic.Bool
-	cancel    context.CancelFunc
-	sent      atomic.Int64
-	inFlight  atomic.Int64
+	started  bool
+	plannedN int
+	running  atomic.Bool
+	cancel   context.CancelFunc
+	sent     atomic.Int64
+	inFlight atomic.Int64
 
 	mu        sync.Mutex
 	startedAt time.Time

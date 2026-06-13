@@ -104,17 +104,7 @@ func scriptsHeader(gtx layout.Context, host *Host) layout.Dimensions {
 							gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(26))
 							pointer.CursorPointer.Add(gtx.Ops)
 							return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									ic := widgets.IconChevronR
-									if *host.ScriptsExpanded {
-										ic = widgets.IconChevronD
-									}
-									size := gtx.Dp(unit.Dp(18))
-									gtx.Constraints.Min = image.Pt(size, size)
-									gtx.Constraints.Max = gtx.Constraints.Min
-									return ic.Layout(gtx, theme.FgMuted)
-								}),
-								layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
+								layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
 								layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 									gtx.Constraints.Min.Y = 0
 									lbl := material.Label(host.Theme, unit.Sp(12), "Scripts")
@@ -168,6 +158,9 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	pointer.CursorDefault.Add(gtx.Ops)
 
+	blockHovered := host.ScriptsBodyHover.Update(gtx.Source)
+	fade := host.ScriptsBodyFade.Update(gtx, blockHovered, 100*time.Millisecond)
+
 	rows := *host.Scripts
 	if len(rows) == 0 {
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -190,7 +183,9 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 
 	list := material.List(host.Theme, host.ScriptList)
 	list.AnchorStrategy = material.Overlay
-	return list.Layout(gtx, len(rows), func(gtx layout.Context, i int) layout.Dimensions {
+	list.Indicator.Color.A = uint8(float32(list.Indicator.Color.A) * fade)
+	list.Indicator.HoverColor.A = uint8(float32(list.Indicator.HoverColor.A) * fade)
+	dim := list.Layout(gtx, len(rows), func(gtx layout.Context, i int) layout.Dimensions {
 		row := rows[i]
 		isActive := row.ID == activeID
 
@@ -198,7 +193,19 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 			if row.IsRenaming {
 				continue
 			}
-			if !row.LastClickAt.IsZero() && gtx.Now.Sub(row.LastClickAt) < 300*time.Millisecond {
+			isDouble := !row.LastClickAt.IsZero() && gtx.Now.Sub(row.LastClickAt) < 300*time.Millisecond
+			if !flowsMode {
+				if isDouble {
+					row.LastClickAt = time.Time{}
+					if host.OpenScript != nil {
+						host.OpenScript(row.ID)
+					}
+					continue
+				}
+				row.LastClickAt = gtx.Now
+				continue
+			}
+			if isDouble {
 				row.startRename()
 				row.LastClickAt = time.Time{}
 				continue
@@ -272,7 +279,7 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 			}
 		}
 
-		rowHovered := row.Hover.Update(gtx.Source)
+		rowHovered := row.Hover.Update(gtx.Source) || row.MenuBtn.Hovered()
 
 		rowDim := layout.Inset{}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Stack{}.Layout(gtx,
@@ -300,14 +307,14 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 								gtx.Constraints.Min.X = gtx.Constraints.Max.X
 								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										size := gtx.Dp(unit.Dp(14))
+										size := gtx.Dp(unit.Dp(16))
 										gtx.Constraints.Min = image.Pt(size, size)
 										gtx.Constraints.Max = gtx.Constraints.Min
 										col := theme.FgMuted
 										if isActive {
 											col = theme.Accent
 										}
-										return widgets.IconFlow.Layout(gtx, col)
+										return widgets.IconLab.Layout(gtx, col)
 									}),
 									layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -332,6 +339,7 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 									if row.MenuBtn.Hovered() {
 										iconCol = host.Theme.Fg
 									}
+									iconCol.A = uint8(float32(iconCol.A) * fade)
 									return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										isz := gtx.Dp(16)
 										gtx.Constraints.Min = image.Pt(isz, isz)
@@ -405,4 +413,12 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 		}
 		return rowDim
 	})
+
+	pass := pointer.PassOp{}.Push(gtx.Ops)
+	ov := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
+	host.ScriptsBodyHover.Add(gtx.Ops)
+	ov.Pop()
+	pass.Pop()
+
+	return dim
 }

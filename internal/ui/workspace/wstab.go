@@ -90,16 +90,16 @@ type WSSession struct {
 	UseTractoCA        bool
 	UseTractoCABtn     widget.Clickable
 
-	ComposerEditor    widget.Editor
-	OpcodeText        bool
-	OpcodeMenuBtn     widget.Clickable
-	OpcodeMenuOpen    bool
-	OpcodeTextChoice  widget.Clickable
-	OpcodeBinChoice   widget.Clickable
-	ComposerWrap      bool
-	ComposerWrapBtn   widget.Clickable
-	ComposerCopyBtn   widget.Clickable
-	ComposerSendBtn   widget.Clickable
+	ComposerEditor   widget.Editor
+	OpcodeText       bool
+	OpcodeMenuBtn    widget.Clickable
+	OpcodeMenuOpen   bool
+	OpcodeTextChoice widget.Clickable
+	OpcodeBinChoice  widget.Clickable
+	ComposerWrap     bool
+	ComposerWrapBtn  widget.Clickable
+	ComposerCopyBtn  widget.Clickable
+	ComposerSendBtn  widget.Clickable
 
 	SavedSends     []*WSSavedSend
 	SavedSendsList widget.List
@@ -113,15 +113,15 @@ type WSSession struct {
 	FilterPongBtn  widget.Clickable
 	FilterCloseBtn widget.Clickable
 
-	RowClicks       []*widget.Clickable
-	Selected        int
-	DetailHex       bool
-	DetailTextBtn   widget.Clickable
-	DetailHexBtn    widget.Clickable
-	DetailCopyBtn   widget.Clickable
-	DetailEditor    widget.Editor
-	DetailSrcID     int
-	DetailSrcHex    bool
+	RowClicks     []*widget.Clickable
+	Selected      int
+	DetailHex     bool
+	DetailTextBtn widget.Clickable
+	DetailHexBtn  widget.Clickable
+	DetailCopyBtn widget.Clickable
+	DetailEditor  widget.Editor
+	DetailSrcID   int
+	DetailSrcHex  bool
 
 	SplitRatio    float32
 	SplitDrag     gesture.Drag

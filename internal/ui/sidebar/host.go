@@ -7,6 +7,7 @@ import (
 	"tracto/internal/ui/collections"
 	"tracto/internal/ui/colorpicker"
 	"tracto/internal/ui/environments"
+	"tracto/internal/ui/widgets"
 	"tracto/internal/ui/workspace"
 
 	"github.com/nanorele/gio/app"
@@ -86,6 +87,13 @@ type Host struct {
 	ScriptsDrag        *gesture.Drag
 	ScriptsDragY       *float32
 
+	ColsBodyHover    *widgets.Hover
+	ScriptsBodyHover *widgets.Hover
+	EnvsBodyHover    *widgets.Hover
+	ColsBodyFade     *widgets.Fade
+	ScriptsBodyFade  *widgets.Fade
+	EnvsBodyFade     *widgets.Fade
+
 	ActiveScriptID  func() string
 	OpenScript      func(id string)
 	NewScript       func()
@@ -105,6 +113,7 @@ type Host struct {
 	PushColLoaded         func(*collections.CollectionUI)
 	MarkCollectionDirty   func(*collections.ParsedCollection)
 	OpenRequestInTab      func(*collections.CollectionNode)
+	SwitchSection         func(string)
 	UpdateVisibleCols     func()
 	PushEnvLoaded         func(*environments.EnvironmentUI)
 	CommitEditingEnv      func()

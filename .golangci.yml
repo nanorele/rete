@@ -1,0 +1,21 @@
+version: "2"
+
+linters:
+  default: standard
+  exclusions:
+    generated: lax
+    rules:
+      # Unchecked Close()/cleanup in tests is noise, not a real defect.
+      - path: _test\.go
+        linters:
+          - errcheck
+      # These fixtures intentionally embed raw Unicode format characters
+      # (ZWJ, soft hyphen) because that is exactly what is under test.
+      - path: (emoji_check|text)_test\.go
+        text: ST1018
+        linters:
+          - staticcheck
+
+formatters:
+  enable:
+    - gofmt

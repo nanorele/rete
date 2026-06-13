@@ -200,10 +200,10 @@ func buildFormat12Cmap(pairs []cmapPair) []byte {
 	}
 
 	const (
-		cmapHeader        = 4 // version + numTables
-		encodingRecBytes  = 8
-		fmt12HeaderBytes  = 16
-		fmt12GroupBytes   = 12
+		cmapHeader         = 4 // version + numTables
+		encodingRecBytes   = 8
+		fmt12HeaderBytes   = 16
+		fmt12GroupBytes    = 12
 		numEncodingRecords = 2
 	)
 
@@ -213,8 +213,8 @@ func buildFormat12Cmap(pairs []cmapPair) []byte {
 
 	out := make([]byte, totalLen)
 
-	binary.BigEndian.PutUint16(out[0:2], 0)                   // version
-	binary.BigEndian.PutUint16(out[2:4], numEncodingRecords)  // numTables
+	binary.BigEndian.PutUint16(out[0:2], 0)                  // version
+	binary.BigEndian.PutUint16(out[2:4], numEncodingRecords) // numTables
 
 	// (platformID=0, encodingID=4) Unicode 2.0+ full repertoire
 	binary.BigEndian.PutUint16(out[4:6], 0)
@@ -228,10 +228,10 @@ func buildFormat12Cmap(pairs []cmapPair) []byte {
 
 	// Format 12 subtable
 	o := int(subOffset)
-	binary.BigEndian.PutUint16(out[o:o+2], 12)               // format
-	binary.BigEndian.PutUint16(out[o+2:o+4], 0)              // reserved
-	binary.BigEndian.PutUint32(out[o+4:o+8], subLen)         // length
-	binary.BigEndian.PutUint32(out[o+8:o+12], 0)             // language
+	binary.BigEndian.PutUint16(out[o:o+2], 12)                      // format
+	binary.BigEndian.PutUint16(out[o+2:o+4], 0)                     // reserved
+	binary.BigEndian.PutUint32(out[o+4:o+8], subLen)                // length
+	binary.BigEndian.PutUint32(out[o+8:o+12], 0)                    // language
 	binary.BigEndian.PutUint32(out[o+12:o+16], uint32(len(groups))) // numGroups
 
 	for i, g := range groups {

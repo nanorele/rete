@@ -12,7 +12,7 @@ func FirefoxEnterpriseRootsEnabled() bool {
 	if err != nil {
 		return false
 	}
-	defer k.Close()
+	defer k.Close() //nolint:errcheck
 	v, _, err := k.GetIntegerValue(firefoxPolicyValue)
 	return err == nil && v == 1
 }

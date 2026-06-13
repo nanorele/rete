@@ -311,14 +311,11 @@ func (ui *AppUI) mitmGuideBrowser(gtx layout.Context, title string, ok bool, ste
 				}),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					var note string
-					col := theme.FgMuted
+					note := "needs manual import"
+					col := theme.VarMissing
 					if ok {
 						note = "ready"
 						col = theme.VarFound
-					} else {
-						note = "needs manual import"
-						col = theme.VarMissing
 					}
 					lbl := material.Label(ui.Theme, unit.Sp(11), note)
 					lbl.Color = col

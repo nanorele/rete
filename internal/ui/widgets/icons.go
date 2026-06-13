@@ -2,6 +2,7 @@ package widgets
 
 import (
 	"github.com/nanorele/gio/widget"
+	"golang.org/x/exp/shiny/iconvg"
 	"golang.org/x/exp/shiny/materialdesign/icons"
 )
 
@@ -45,6 +46,7 @@ var (
 	IconNetlimit   *widget.Icon
 	IconDownload   *widget.Icon
 	IconUpload     *widget.Icon
+	IconLab        *widget.Icon
 )
 
 func mustIcon(data []byte) *widget.Icon {
@@ -53,6 +55,30 @@ func mustIcon(data []byte) *widget.Icon {
 		panic("widgets: failed to load icon: " + err.Error())
 	}
 	return ic
+}
+
+func labIcon() *widget.Icon {
+	var e iconvg.Encoder
+	e.Reset(iconvg.Metadata{ViewBox: iconvg.DefaultViewBox, Palette: iconvg.DefaultPalette})
+	e.StartPath(0, -7, -21)
+	e.AbsLineTo(7, -21)
+	e.AbsLineTo(7, -17)
+	e.AbsLineTo(5, -17)
+	e.AbsLineTo(5, -5)
+	e.AbsLineTo(22, 19)
+	e.AbsLineTo(22, 22)
+	e.AbsLineTo(-22, 22)
+	e.AbsLineTo(-22, 19)
+	e.AbsLineTo(-5, -5)
+	e.AbsLineTo(-5, -17)
+	e.AbsLineTo(-7, -17)
+	e.ClosePathEndPath()
+	if data, err := e.Bytes(); err == nil {
+		if ic, err := widget.NewIcon(data); err == nil {
+			return ic
+		}
+	}
+	return mustIcon(icons.ImageColorize)
 }
 
 func init() {
@@ -95,4 +121,5 @@ func init() {
 	IconNetlimit = mustIcon(icons.NotificationNetworkCheck)
 	IconDownload = mustIcon(icons.FileFileDownload)
 	IconUpload = mustIcon(icons.FileFileUpload)
+	IconLab = labIcon()
 }

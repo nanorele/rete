@@ -449,3 +449,45 @@ func TestCommit_AddedVariablePersistsWithValue(t *testing.T) {
 		t.Fatalf("reloaded var wrong (a value-bearing var must survive round-trip): %+v", got.Vars)
 	}
 }
+
+func TestLayoutEditor_BackReturnsEarlyBeforeOtherEvents(t *testing.T) {
+	setupEnvConfig(t)
+	env := &model.ParsedEnvironment{ID: "envBack", Name: "X"}
+	ui := &EnvironmentUI{Data: env}
+	ui.InitEditor()
+
+	closed := 0
+	host := &EditorHost{Theme: material.NewTheme(), OnClose: func() { closed++ }}
+
+	ui.BackBtn.Click()
+	ui.AddBtn.Click()
+	dims := ui.LayoutEditor(makeGtx(), host)
+
+	if closed != 1 {
+		t.Errorf("expected OnClose invoked exactly once, got %d", closed)
+	}
+	if len(ui.Rows) != 0 {
+		t.Errorf("back must return before the AddBtn handler runs, so no row is added; got %d rows", len(ui.Rows))
+	}
+	if dims.Size.X != 0 || dims.Size.Y != 0 {
+		t.Errorf("expected zero dims when back closes early, got %+v", dims)
+	}
+}
+
+func TestLayoutEditor_BackProcessedOncePerFrame(t *testing.T) {
+	setupEnvConfig(t)
+	env := &model.ParsedEnvironment{ID: "envBack2", Name: "X"}
+	ui := &EnvironmentUI{Data: env}
+	ui.InitEditor()
+
+	closed := 0
+	host := &EditorHost{Theme: material.NewTheme(), OnClose: func() { closed++ }}
+
+	ui.BackBtn.Click()
+	ui.BackBtn.Click()
+	ui.LayoutEditor(makeGtx(), host)
+
+	if closed != 1 {
+		t.Errorf("multiple queued back clicks must collapse to a single close per frame, got %d", closed)
+	}
+}

@@ -206,7 +206,7 @@ func readHandshakeBody(body io.ReadCloser) []byte {
 	if body == nil {
 		return nil
 	}
-	defer body.Close()
+	defer func() { _ = body.Close() }()
 	buf := make([]byte, 4096)
 	n, _ := io.ReadFull(io.LimitReader(body, int64(len(buf))), buf)
 	return buf[:n]

@@ -71,10 +71,7 @@ func EnvironmentBytes(env *model.ParsedEnvironment) (string, []byte, error) {
 		HighlightColor: env.HighlightColor,
 	}
 	for _, v := range env.Vars {
-		ext.Values = append(ext.Values, model.ExtEnvVar{
-			Key:   v.Key,
-			Value: v.Value,
-		})
+		ext.Values = append(ext.Values, model.ExtEnvVar(v))
 	}
 	data, err := MarshalIndentEasy(ext, "  ")
 	if err != nil {
