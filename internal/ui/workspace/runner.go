@@ -239,7 +239,7 @@ type runSpec struct {
 
 func (t *RequestTab) buildRunSpec(ctx context.Context, env map[string]string) (*runSpec, error) {
 	t.UpdateSystemHeaders()
-	s := &runSpec{method: t.Method}
+	s := &runSpec{method: t.httpMethod()}
 	urlRaw := strings.ReplaceAll(t.URLInput.Text(), "\n", "")
 	urlRaw = strings.ReplaceAll(urlRaw, "\t", "")
 	s.urlTmpl = strings.TrimSpace(utils.SanitizeText(urlRaw))
@@ -248,6 +248,21 @@ func (t *RequestTab) buildRunSpec(ctx context.Context, env map[string]string) (*
 			continue
 		}
 		s.headers = append(s.headers, [2]string{h.Key.Text(), h.Value.Text()})
+	}
+	if t.Method == MethodGraphQL {
+		reader, ct, err := t.buildBody(ctx, env)
+		if err != nil {
+			return nil, err
+		}
+		if reader != nil {
+			b, err := io.ReadAll(reader)
+			if err != nil {
+				return nil, err
+			}
+			s.bodyBytes = b
+		}
+		s.explicitCT = ct
+		return s, nil
 	}
 	switch t.BodyType {
 	case model.BodyNone:

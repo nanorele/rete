@@ -115,9 +115,10 @@ type regionJSON struct {
 }
 
 type manifestJSON struct {
-	Scene   string       `json:"scene"`
-	Size    [2]int       `json:"size"`
-	Regions []regionJSON `json:"regions"`
+	Scene   string         `json:"scene"`
+	Size    [2]int         `json:"size"`
+	Regions []regionJSON   `json:"regions"`
+	Diag    map[string]int `json:"diag,omitempty"`
 }
 
 func buildRegions(ui *AppUI, probes map[string]layout.Dimensions) []regionJSON {
@@ -184,7 +185,8 @@ func renderScene(t *testing.T, sc scene) {
 	probes := map[string]layout.Dimensions{}
 	probeRegion = func(name string, d layout.Dimensions) { probes[name] = d }
 	ops := new(op.Ops)
-	ui.layoutApp(newShotGtx(ops))
+	gtx := newShotGtx(ops)
+	ui.layoutApp(gtx)
 	probeRegion = nil
 
 	if err := win.Frame(ops); err != nil {
@@ -212,7 +214,26 @@ func renderScene(t *testing.T, sc scene) {
 		t.Fatal(err)
 	}
 
-	man := manifestJSON{Scene: sc.name, Size: [2]int{shotW, shotH}, Regions: buildRegions(ui, probes)}
+	diag := map[string]int{
+		"sidebar_width":   ui.SidebarWidth,
+		"win_w":           win.Size().X,
+		"win_h":           win.Size().Y,
+		"px_per_dp_x1000": int(gtx.Metric.PxPerDp * 1000),
+		"dp8":             gtx.Dp(unit.Dp(8)),
+	}
+	if d, ok := probes["titlebar"]; ok {
+		diag["titlebar_h"] = d.Size.Y
+	}
+	if ui.TabBar.TabCtxMenuOpen {
+		offX := int(ui.TabBar.TabCtxMenuPos.X) + ui.SidebarWidth + gtx.Dp(unit.Dp(8))
+		offY := int(ui.TabBar.TabCtxMenuPos.Y) + gtx.Dp(unit.Dp(8))
+		diag["tabctx_pos_x"] = int(ui.TabBar.TabCtxMenuPos.X)
+		diag["tabctx_pos_y"] = int(ui.TabBar.TabCtxMenuPos.Y)
+		diag["menu_off_x"] = offX
+		diag["menu_screen_y"] = diag["titlebar_h"] + offY
+	}
+
+	man := manifestJSON{Scene: sc.name, Size: [2]int{shotW, shotH}, Regions: buildRegions(ui, probes), Diag: diag}
 	mb, err := json.MarshalIndent(man, "", "  ")
 	if err != nil {
 		t.Fatal(err)

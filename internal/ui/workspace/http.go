@@ -242,6 +242,9 @@ func (t *RequestTab) MarkClosed() {
 }
 
 func (t *RequestTab) buildBody(ctx context.Context, env map[string]string) (io.Reader, string, error) {
+	if t.Method == MethodGraphQL {
+		return t.buildGraphQLBody(env)
+	}
 	switch t.BodyType {
 	case model.BodyNone:
 		return nil, "", nil
@@ -408,7 +411,7 @@ func (t *RequestTab) prepareRequest(parent context.Context, env map[string]strin
 		cancel()
 		return nil, nil, nil, buildErr
 	}
-	req, err := http.NewRequestWithContext(ctx, t.Method, rawURL, bodyReader)
+	req, err := http.NewRequestWithContext(ctx, t.httpMethod(), rawURL, bodyReader)
 	if err != nil {
 		cancel()
 		return nil, nil, nil, err

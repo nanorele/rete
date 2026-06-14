@@ -19,6 +19,9 @@ func (ui *AppUI) loadTabFromState(ts persist.TabState) *workspace.RequestTab {
 	if ts.Kind == workspace.TabKindWebSocket {
 		method = workspace.MethodWS
 	}
+	if ts.Kind == workspace.TabKindGraphQL {
+		method = workspace.MethodGraphQL
+	}
 	if method == "" {
 		method = "GET"
 	}
@@ -89,6 +92,14 @@ func (ui *AppUI) loadTabFromState(ts persist.TabState) *workspace.RequestTab {
 			ws.AppendSavedSend(s.Name, s.Text, opcodeFromString(s.Opcode))
 		}
 	}
+	if ts.GQL != nil {
+		g := rt.EnsureGQL()
+		g.Query.SetText(ts.GQL.Query)
+		g.Variables.SetText(ts.GQL.Variables)
+		if ts.GQL.VarsSplitRatio > 0 {
+			g.VarsSplitRatio = ts.GQL.VarsSplitRatio
+		}
+	}
 	return rt
 }
 
@@ -98,6 +109,9 @@ func (ui *AppUI) tabStateFromTab(rt *workspace.RequestTab) persist.TabState {
 	method := rt.Method
 	if rt.Method == workspace.MethodWS {
 		kind = workspace.TabKindWebSocket
+	}
+	if rt.Method == workspace.MethodGraphQL {
+		kind = workspace.TabKindGraphQL
 	}
 	ts := persist.TabState{
 		Kind:             kind,
@@ -165,6 +179,13 @@ func (ui *AppUI) tabStateFromTab(rt *workspace.RequestTab) persist.TabState {
 			})
 		}
 		ts.WS = wsState
+	}
+	if rt.GQL != nil {
+		ts.GQL = &persist.GQLTabState{
+			Query:          rt.GQL.Query.Text(),
+			Variables:      rt.GQL.Variables.Text(),
+			VarsSplitRatio: rt.GQL.VarsSplitRatio,
+		}
 	}
 	return ts
 }

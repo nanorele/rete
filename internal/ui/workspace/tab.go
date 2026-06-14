@@ -44,7 +44,7 @@ import (
 
 var methods = []string{"GET", "POST", "PUT", "DELETE", "HEAD", "PATCH", "OPTIONS"}
 
-var protocols = []string{"HTTP", "WS"}
+var protocols = []string{"HTTP", "WS", "GraphQL"}
 
 var (
 	iconCopy *widget.Icon
@@ -109,7 +109,7 @@ type RequestTab struct {
 	MethodClickables   []widget.Clickable
 	ProtocolBtn        widget.Clickable
 	ProtocolListOpen   bool
-	ProtocolClickables [2]widget.Clickable
+	ProtocolClickables [3]widget.Clickable
 	LastHTTPMethod     string
 	URLInput           widget.Editor
 	urlClick           gesture.Click
@@ -246,6 +246,8 @@ type RequestTab struct {
 
 	WS     *WSSession
 	WSHost WSHostFuncs
+
+	GQL *GQLSession
 
 	Run         *RequestRunner
 	RunOpen     bool
@@ -496,13 +498,13 @@ func (t *RequestTab) layoutModeBar(gtx layout.Context, th *material.Theme, hBtn,
 			}),
 			layout.Flexed(1, layout.Spacer{}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if t.Method == MethodWS {
+				if t.Method == MethodWS || t.Method == MethodGraphQL {
 					return layout.Dimensions{}
 				}
 				return t.layoutExampleSelector(gtx, th)
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				if t.Method == MethodWS {
+				if t.Method == MethodWS || t.Method == MethodGraphQL {
 					return layout.Dimensions{}
 				}
 				return layout.Spacer{Width: unit.Dp(100)}.Layout(gtx)
@@ -1372,21 +1374,35 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 	}
 	for i := range t.ProtocolClickables {
 		for t.ProtocolClickables[i].Clicked(gtx) {
-			if protocols[i] == "WS" {
+			switch protocols[i] {
+			case "WS":
 				if t.Method != MethodWS {
-					t.LastHTTPMethod = t.Method
+					if t.Method != MethodGraphQL {
+						t.LastHTTPMethod = t.Method
+					}
 					t.EnsureWS().SplitRatio = t.SplitRatio
+					t.Method = MethodWS
 				}
-				t.Method = MethodWS
-			} else {
-				if t.Method == MethodWS {
+			case "GraphQL":
+				if t.Method != MethodGraphQL {
+					if t.Method == MethodWS {
+						if t.WS != nil {
+							t.SplitRatio = t.WS.SplitRatio
+						}
+					} else {
+						t.LastHTTPMethod = t.Method
+					}
+					t.Method = MethodGraphQL
+				}
+			default:
+				if t.Method == MethodWS || t.Method == MethodGraphQL {
+					if t.Method == MethodWS && t.WS != nil {
+						t.SplitRatio = t.WS.SplitRatio
+					}
 					if t.LastHTTPMethod == "" {
 						t.LastHTTPMethod = "GET"
 					}
 					t.Method = t.LastHTTPMethod
-					if t.WS != nil {
-						t.SplitRatio = t.WS.SplitRatio
-					}
 				}
 			}
 			t.ProtocolListOpen = false
@@ -1749,7 +1765,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 												return layout.Dimensions{Size: gtx.Constraints.Min}
 											}),
 											layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-												rowW := gtx.Dp(unit.Dp(70))
+												rowW := gtx.Dp(unit.Dp(96))
 												children := make([]layout.FlexChild, 0, len(protocols))
 												for i, p := range protocols {
 													idx := i
@@ -1781,8 +1797,11 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 								return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 									gtx.Constraints.Min.Y = 0
 									protoLabel := "HTTP"
-									if t.Method == MethodWS {
+									switch t.Method {
+									case MethodWS:
 										protoLabel = "WS"
+									case MethodGraphQL:
+										protoLabel = "GraphQL"
 									}
 									btn := widgets.MonoButton(th, &t.ProtocolBtn, protoLabel)
 									btn.Background = theme.BgSecondary
@@ -1796,13 +1815,13 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 						)
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						if t.Method == MethodWS {
+						if t.Method == MethodWS || t.Method == MethodGraphQL {
 							return layout.Dimensions{}
 						}
 						return layout.Spacer{Width: unit.Dp(4)}.Layout(gtx)
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						if t.Method == MethodWS {
+						if t.Method == MethodWS || t.Method == MethodGraphQL {
 							return layout.Dimensions{}
 						}
 						gtx.Constraints.Min.Y = btnH
@@ -2040,6 +2059,9 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			if t.Method == MethodWS {
 				return t.layoutWSBody(gtx, th, win, activeEnv)
+			}
+			if t.Method == MethodGraphQL {
+				return t.layoutGraphQLBody(gtx, th, win, activeEnv, ratio, stacked, isDragging)
 			}
 			flexAxis := layout.Horizontal
 			leftInset := layout.Inset{Right: unit.Dp(1)}

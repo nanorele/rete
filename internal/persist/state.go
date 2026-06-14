@@ -39,6 +39,14 @@ type TabState struct {
 	URLEncoded       []HeaderState   `json:"url_encoded,omitempty"`
 	BinaryPath       string          `json:"binary_path,omitempty"`
 	WS               *WSTabState     `json:"ws,omitempty"`
+	GQL              *GQLTabState    `json:"gql,omitempty"`
+}
+
+//easyjson:json
+type GQLTabState struct {
+	Query          string  `json:"query,omitempty"`
+	Variables      string  `json:"variables,omitempty"`
+	VarsSplitRatio float32 `json:"vars_split_ratio,omitempty"`
 }
 
 //easyjson:json

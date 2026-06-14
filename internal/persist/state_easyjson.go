@@ -725,6 +725,20 @@ func easyjsonBd887cf1DecodeTractoInternalPersist2(in *jlexer.Lexer, out *TabStat
 					(*out.WS).UnmarshalEasyJSON(in)
 				}
 			}
+		case "gql":
+			if in.IsNull() {
+				in.Skip()
+				out.GQL = nil
+			} else {
+				if out.GQL == nil {
+					out.GQL = new(GQLTabState)
+				}
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					(*out.GQL).UnmarshalEasyJSON(in)
+				}
+			}
 		default:
 			switch strings.ToLower(key) {
 			case "kind":
@@ -947,6 +961,20 @@ func easyjsonBd887cf1DecodeTractoInternalPersist2(in *jlexer.Lexer, out *TabStat
 						(*out.WS).UnmarshalEasyJSON(in)
 					}
 				}
+			case "gql":
+				if in.IsNull() {
+					in.Skip()
+					out.GQL = nil
+				} else {
+					if out.GQL == nil {
+						out.GQL = new(GQLTabState)
+					}
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						(*out.GQL).UnmarshalEasyJSON(in)
+					}
+				}
 			default:
 				in.SkipRecursive()
 			}
@@ -1106,6 +1134,11 @@ func easyjsonBd887cf1EncodeTractoInternalPersist2(out *jwriter.Writer, in TabSta
 		out.RawString(prefix)
 		(*in.WS).MarshalEasyJSON(out)
 	}
+	if in.GQL != nil {
+		const prefix string = ",\"gql\":"
+		out.RawString(prefix)
+		(*in.GQL).MarshalEasyJSON(out)
+	}
 	out.RawByte('}')
 }
 
@@ -1223,7 +1256,126 @@ func (v *HeaderState) UnmarshalJSON(data []byte) error {
 func (v *HeaderState) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjsonBd887cf1DecodeTractoInternalPersist3(l, v)
 }
-func easyjsonBd887cf1DecodeTractoInternalPersist4(in *jlexer.Lexer, out *FormPartState) {
+func easyjsonBd887cf1DecodeTractoInternalPersist4(in *jlexer.Lexer, out *GQLTabState) {
+	isTopLevel := in.IsStart()
+	if in.IsNull() {
+		if isTopLevel {
+			in.Consumed()
+		}
+		in.Skip()
+		return
+	}
+	in.Delim('{')
+	for !in.IsDelim('}') {
+		key := in.UnsafeFieldName(false)
+		in.WantColon()
+		switch key {
+		case "query":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Query = string(in.String())
+			}
+		case "variables":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.Variables = string(in.String())
+			}
+		case "vars_split_ratio":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.VarsSplitRatio = float32(in.Float32())
+			}
+		default:
+			switch strings.ToLower(key) {
+			case "query":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.Query = string(in.String())
+				}
+			case "variables":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.Variables = string(in.String())
+				}
+			case "vars_split_ratio":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.VarsSplitRatio = float32(in.Float32())
+				}
+			default:
+				in.SkipRecursive()
+			}
+		}
+		in.WantComma()
+	}
+	in.Delim('}')
+	if isTopLevel {
+		in.Consumed()
+	}
+}
+func easyjsonBd887cf1EncodeTractoInternalPersist4(out *jwriter.Writer, in GQLTabState) {
+	out.RawByte('{')
+	first := true
+	_ = first
+	if in.Query != "" {
+		const prefix string = ",\"query\":"
+		first = false
+		out.RawString(prefix[1:])
+		out.String(string(in.Query))
+	}
+	if in.Variables != "" {
+		const prefix string = ",\"variables\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.String(string(in.Variables))
+	}
+	if in.VarsSplitRatio != 0 {
+		const prefix string = ",\"vars_split_ratio\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Float32(float32(in.VarsSplitRatio))
+	}
+	out.RawByte('}')
+}
+
+// MarshalJSON supports json.Marshaler interface
+func (v GQLTabState) MarshalJSON() ([]byte, error) {
+	w := jwriter.Writer{}
+	easyjsonBd887cf1EncodeTractoInternalPersist4(&w, v)
+	return w.Buffer.BuildBytes(), w.Error
+}
+
+// MarshalEasyJSON supports easyjson.Marshaler interface
+func (v GQLTabState) MarshalEasyJSON(w *jwriter.Writer) {
+	easyjsonBd887cf1EncodeTractoInternalPersist4(w, v)
+}
+
+// UnmarshalJSON supports json.Unmarshaler interface
+func (v *GQLTabState) UnmarshalJSON(data []byte) error {
+	r := jlexer.Lexer{Data: data}
+	easyjsonBd887cf1DecodeTractoInternalPersist4(&r, v)
+	return r.Error()
+}
+
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
+func (v *GQLTabState) UnmarshalEasyJSON(l *jlexer.Lexer) {
+	easyjsonBd887cf1DecodeTractoInternalPersist4(l, v)
+}
+func easyjsonBd887cf1DecodeTractoInternalPersist5(in *jlexer.Lexer, out *FormPartState) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -1298,7 +1450,7 @@ func easyjsonBd887cf1DecodeTractoInternalPersist4(in *jlexer.Lexer, out *FormPar
 		in.Consumed()
 	}
 }
-func easyjsonBd887cf1EncodeTractoInternalPersist4(out *jwriter.Writer, in FormPartState) {
+func easyjsonBd887cf1EncodeTractoInternalPersist5(out *jwriter.Writer, in FormPartState) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -1328,27 +1480,27 @@ func easyjsonBd887cf1EncodeTractoInternalPersist4(out *jwriter.Writer, in FormPa
 // MarshalJSON supports json.Marshaler interface
 func (v FormPartState) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonBd887cf1EncodeTractoInternalPersist4(&w, v)
+	easyjsonBd887cf1EncodeTractoInternalPersist5(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v FormPartState) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonBd887cf1EncodeTractoInternalPersist4(w, v)
+	easyjsonBd887cf1EncodeTractoInternalPersist5(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *FormPartState) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonBd887cf1DecodeTractoInternalPersist4(&r, v)
+	easyjsonBd887cf1DecodeTractoInternalPersist5(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *FormPartState) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonBd887cf1DecodeTractoInternalPersist4(l, v)
+	easyjsonBd887cf1DecodeTractoInternalPersist5(l, v)
 }
-func easyjsonBd887cf1DecodeTractoInternalPersist5(in *jlexer.Lexer, out *AppState) {
+func easyjsonBd887cf1DecodeTractoInternalPersist6(in *jlexer.Lexer, out *AppState) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -1889,7 +2041,7 @@ func easyjsonBd887cf1DecodeTractoInternalPersist5(in *jlexer.Lexer, out *AppStat
 		in.Consumed()
 	}
 }
-func easyjsonBd887cf1EncodeTractoInternalPersist5(out *jwriter.Writer, in AppState) {
+func easyjsonBd887cf1EncodeTractoInternalPersist6(out *jwriter.Writer, in AppState) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -2049,23 +2201,23 @@ func easyjsonBd887cf1EncodeTractoInternalPersist5(out *jwriter.Writer, in AppSta
 // MarshalJSON supports json.Marshaler interface
 func (v AppState) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonBd887cf1EncodeTractoInternalPersist5(&w, v)
+	easyjsonBd887cf1EncodeTractoInternalPersist6(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v AppState) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonBd887cf1EncodeTractoInternalPersist5(w, v)
+	easyjsonBd887cf1EncodeTractoInternalPersist6(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *AppState) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonBd887cf1DecodeTractoInternalPersist5(&r, v)
+	easyjsonBd887cf1DecodeTractoInternalPersist6(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *AppState) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonBd887cf1DecodeTractoInternalPersist5(l, v)
+	easyjsonBd887cf1DecodeTractoInternalPersist6(l, v)
 }
