@@ -62,3 +62,73 @@ jobs:
 
     - name: Run tests
       run: go test -cover ./...
+
+  ui-screenshots:
+    needs: gate
+    runs-on: self-hosted
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version: '1.25.5'
+        cache: true
+
+    - name: Install GUI build deps + software GL (llvmpipe)
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y \
+          gcc \
+          libwayland-dev \
+          libx11-dev \
+          libx11-xcb-dev \
+          libxkbcommon-x11-dev \
+          libgles2-mesa-dev \
+          libegl1-mesa-dev \
+          libffi-dev \
+          libxcursor-dev \
+          libvulkan-dev \
+          libgl1-mesa-dri \
+          libegl-mesa0 \
+          mesa-vulkan-drivers
+
+    - name: Set up Python
+      uses: actions/setup-python@v5
+      with:
+        python-version: '3.12'
+
+    - name: Install Python deps
+      run: pip install -r tools/uitest/requirements.txt
+
+    # gpu/headless has no software rasterizer; on this CPU-only Ubuntu 24
+    # runner Mesa's llvmpipe provides a software EGL context (surfaceless,
+    # no X/Wayland display needed).
+    - name: Render screenshots
+      env:
+        LIBGL_ALWAYS_SOFTWARE: '1'
+        GALLIUM_DRIVER: llvmpipe
+        EGL_PLATFORM: surfaceless
+      run: go test -tags screenshots ./internal/ui -run TestScreenshots -count=1 -v
+
+    # Structural + non-blank checks are backend-tolerant. Golden pixel-diff
+    # is opt-in: it activates only when Linux baselines exist under
+    # golden-linux/ (generated on this runner), since the committed golden/
+    # images come from a different GPU backend and won't pixel-match.
+    - name: Verify layout (contours + non-blank)
+      run: python tools/uitest/verify.py --golden internal/ui/testdata/screenshots/golden-linux
+
+    - name: Upload screenshots & report
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: ui-screenshots
+        path: |
+          internal/ui/testdata/screenshots/*.png
+          internal/ui/testdata/screenshots/*.layout.json
+          internal/ui/testdata/screenshots/report.html
+          internal/ui/testdata/screenshots/annotated
+          internal/ui/testdata/screenshots/diff
+        if-no-files-found: error

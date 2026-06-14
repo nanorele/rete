@@ -21,3 +21,4 @@ bin
 *.JPG
 *.jpg
 *.png
+internal/ui/testdata

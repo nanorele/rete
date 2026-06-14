@@ -1161,6 +1161,8 @@ func (ui *AppUI) inheritActiveTabLayout(rt *workspace.RequestTab) {
 	rt.HeaderSplitRatio = src.HeaderSplitRatio
 }
 
+var probeRegion func(name string, dims layout.Dimensions)
+
 func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 	ui.windowSize = gtx.Constraints.Max
 
@@ -1199,17 +1201,27 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 
 	dim := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return ui.layoutTitleBar(gtx)
+			d := ui.layoutTitleBar(gtx)
+			if probeRegion != nil {
+				probeRegion("titlebar", d)
+			}
+			return d
 		}),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			var d layout.Dimensions
 			if ui.SettingsOpen {
 				paint.FillShape(gtx.Ops, ui.Theme.Bg, clip.Rect{Max: gtx.Constraints.Max}.Op())
 				if ui.SettingsState == nil {
 					ui.SettingsState = settings.NewEditor(ui.Settings)
 				}
-				return ui.SettingsState.Layout(gtx, ui.settingsHost())
+				d = ui.SettingsState.Layout(gtx, ui.settingsHost())
+			} else {
+				d = ui.layoutContent(gtx)
 			}
-			return ui.layoutContent(gtx)
+			if probeRegion != nil {
+				probeRegion("content", d)
+			}
+			return d
 		}),
 	)
 
@@ -1687,7 +1699,11 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.X = sidebarW
 					gtx.Constraints.Max.X = sidebarW
-					return ui.layoutSidebar(gtx)
+					d := ui.layoutSidebar(gtx)
+					if probeRegion != nil {
+						probeRegion("sidebar", d)
+					}
+					return d
 				}),
 			)
 			if !hideSidebar {
