@@ -1559,6 +1559,48 @@ func easyjsonBd887cf1DecodeTractoInternalPersist5(in *jlexer.Lexer, out *AppStat
 				}
 				in.Delim('}')
 			}
+		case "cols_expanded":
+			if in.IsNull() {
+				in.Skip()
+				out.ColsExpanded = nil
+			} else {
+				if out.ColsExpanded == nil {
+					out.ColsExpanded = new(bool)
+				}
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					*out.ColsExpanded = bool(in.Bool())
+				}
+			}
+		case "envs_expanded":
+			if in.IsNull() {
+				in.Skip()
+				out.EnvsExpanded = nil
+			} else {
+				if out.EnvsExpanded == nil {
+					out.EnvsExpanded = new(bool)
+				}
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					*out.EnvsExpanded = bool(in.Bool())
+				}
+			}
+		case "scripts_expanded":
+			if in.IsNull() {
+				in.Skip()
+				out.ScriptsExpanded = nil
+			} else {
+				if out.ScriptsExpanded == nil {
+					out.ScriptsExpanded = new(bool)
+				}
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					*out.ScriptsExpanded = bool(in.Bool())
+				}
+			}
 		case "window_width_dp":
 			if in.IsNull() {
 				in.Skip()
@@ -1776,6 +1818,48 @@ func easyjsonBd887cf1DecodeTractoInternalPersist5(in *jlexer.Lexer, out *AppStat
 					}
 					in.Delim('}')
 				}
+			case "cols_expanded":
+				if in.IsNull() {
+					in.Skip()
+					out.ColsExpanded = nil
+				} else {
+					if out.ColsExpanded == nil {
+						out.ColsExpanded = new(bool)
+					}
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						*out.ColsExpanded = bool(in.Bool())
+					}
+				}
+			case "envs_expanded":
+				if in.IsNull() {
+					in.Skip()
+					out.EnvsExpanded = nil
+				} else {
+					if out.EnvsExpanded == nil {
+						out.EnvsExpanded = new(bool)
+					}
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						*out.EnvsExpanded = bool(in.Bool())
+					}
+				}
+			case "scripts_expanded":
+				if in.IsNull() {
+					in.Skip()
+					out.ScriptsExpanded = nil
+				} else {
+					if out.ScriptsExpanded == nil {
+						out.ScriptsExpanded = new(bool)
+					}
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						*out.ScriptsExpanded = bool(in.Bool())
+					}
+				}
 			case "window_width_dp":
 				if in.IsNull() {
 					in.Skip()
@@ -1928,6 +2012,21 @@ func easyjsonBd887cf1EncodeTractoInternalPersist5(out *jwriter.Writer, in AppSta
 			}
 			out.RawByte('}')
 		}
+	}
+	if in.ColsExpanded != nil {
+		const prefix string = ",\"cols_expanded\":"
+		out.RawString(prefix)
+		out.Bool(bool(*in.ColsExpanded))
+	}
+	if in.EnvsExpanded != nil {
+		const prefix string = ",\"envs_expanded\":"
+		out.RawString(prefix)
+		out.Bool(bool(*in.EnvsExpanded))
+	}
+	if in.ScriptsExpanded != nil {
+		const prefix string = ",\"scripts_expanded\":"
+		out.RawString(prefix)
+		out.Bool(bool(*in.ScriptsExpanded))
 	}
 	if in.WindowWidthDp != 0 {
 		const prefix string = ",\"window_width_dp\":"

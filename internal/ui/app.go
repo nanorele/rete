@@ -768,6 +768,15 @@ func (ui *AppUI) loadState() {
 	if state.SidebarScriptsHeightPx > 0 {
 		ui.SidebarScriptsHeight = state.SidebarScriptsHeightPx
 	}
+	if state.ColsExpanded != nil {
+		ui.ColsExpanded = *state.ColsExpanded
+	}
+	if state.EnvsExpanded != nil {
+		ui.EnvsExpanded = *state.EnvsExpanded
+	}
+	if state.ScriptsExpanded != nil {
+		ui.ScriptsExpanded = *state.ScriptsExpanded
+	}
 
 	loadedCols := collections.LoadAll()
 	colByID := make(map[string]*collections.ParsedCollection, len(loadedCols))
@@ -858,6 +867,9 @@ func (ui *AppUI) loadState() {
 
 func (ui *AppUI) buildStateSnapshot() persist.AppState {
 	settings := ui.Settings
+	colsExpanded := ui.ColsExpanded
+	envsExpanded := ui.EnvsExpanded
+	scriptsExpanded := ui.ScriptsExpanded
 	state := persist.AppState{
 		Tabs:                   make([]persist.TabState, 0, len(ui.Tabs)),
 		ActiveIdx:              ui.ActiveIdx,
@@ -866,6 +878,9 @@ func (ui *AppUI) buildStateSnapshot() persist.AppState {
 		SidebarEnvHeightPx:     ui.SidebarEnvHeight,
 		SidebarSection:         ui.SidebarSection,
 		SidebarScriptsHeightPx: ui.SidebarScriptsHeight,
+		ColsExpanded:           &colsExpanded,
+		EnvsExpanded:           &envsExpanded,
+		ScriptsExpanded:        &scriptsExpanded,
 		Settings:               &settings,
 	}
 	for _, e := range ui.Environments {

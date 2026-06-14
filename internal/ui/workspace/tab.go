@@ -1375,6 +1375,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 			if protocols[i] == "WS" {
 				if t.Method != MethodWS {
 					t.LastHTTPMethod = t.Method
+					t.EnsureWS().SplitRatio = t.SplitRatio
 				}
 				t.Method = MethodWS
 			} else {
@@ -1383,6 +1384,9 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 						t.LastHTTPMethod = "GET"
 					}
 					t.Method = t.LastHTTPMethod
+					if t.WS != nil {
+						t.SplitRatio = t.WS.SplitRatio
+					}
 				}
 			}
 			t.ProtocolListOpen = false

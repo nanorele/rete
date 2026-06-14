@@ -82,6 +82,9 @@ type AppState struct {
 	SidebarSection         string             `json:"sidebar_section,omitempty"`
 	SidebarScriptsHeightPx int                `json:"sidebar_scripts_height_px,omitempty"`
 	CollectionExpanded     map[string][][]int `json:"collection_expanded,omitempty"`
+	ColsExpanded           *bool              `json:"cols_expanded,omitempty"`
+	EnvsExpanded           *bool              `json:"envs_expanded,omitempty"`
+	ScriptsExpanded        *bool              `json:"scripts_expanded,omitempty"`
 	WindowWidthDp          int                `json:"window_width_dp,omitempty"`
 	WindowHeightDp         int                `json:"window_height_dp,omitempty"`
 	WindowMode             string             `json:"window_mode,omitempty"`

@@ -22,12 +22,18 @@ go test -tags screenshots ./internal/ui -run TestScreenshots -count=1
 python tools/uitest/verify.py --update-golden
 
 # 3. verify (exit code != 0 on any failure)
-pip install -r tools/uitest/requirements.txt
+pip install numpy opencv-python   # or: pip install -r tools/uitest/requirements.txt
 python tools/uitest/verify.py
 # open internal/ui/testdata/screenshots/report.html
 ```
 
 `go test` without `-tags screenshots` ignores all of this and needs no GPU.
+
+> The repo's root `.gitignore` matches `*.txt`, `*.json`, `*.png` and the whole
+> `internal/ui/testdata` tree, so `requirements.txt`, the rendered PNGs, the `*.layout.json`
+> manifests and any goldens are **not committed** — they are regenerated each run. CI installs
+> the Python deps inline for this reason. Committing baseline goldens (below) first requires
+> un-ignoring those paths in the root `.gitignore`.
 
 ## Headless / CI
 

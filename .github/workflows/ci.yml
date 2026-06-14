@@ -100,8 +100,10 @@ jobs:
       with:
         python-version: '3.12'
 
+    # requirements.txt is matched by the repo's root `.gitignore` (*.txt), so it
+    # is never checked out — install the deps inline instead of via -r.
     - name: Install Python deps
-      run: pip install -r tools/uitest/requirements.txt
+      run: pip install numpy opencv-python
 
     # gpu/headless has no software rasterizer; on this CPU-only Ubuntu 24
     # runner Mesa's llvmpipe provides a software EGL context (surfaceless,
