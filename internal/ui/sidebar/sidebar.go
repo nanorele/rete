@@ -2215,12 +2215,19 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		}
 	}
 
-	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+	dims := layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 		layout.Rigid(gutter),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 		}),
 	)
+	if host.ScriptsDrag.Dragging() || host.ScriptsDrag.Pressed() ||
+		host.SidebarEnvDrag.Dragging() || host.SidebarEnvDrag.Pressed() {
+		ca := clip.Rect{Max: size}.Push(gtx.Ops)
+		pointer.CursorRowResize.Add(gtx.Ops)
+		ca.Pop()
+	}
+	return dims
 }
 
 func renderNodeGhost(gtx layout.Context, th *material.Theme, node *collections.CollectionNode) layout.Dimensions {
