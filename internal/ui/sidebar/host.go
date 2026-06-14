@@ -67,6 +67,8 @@ type Host struct {
 	ImportBtn       *widget.Clickable
 	AddColBtn       *widget.Clickable
 	ColsMenuBtn     *widget.Clickable
+	ColsExpandAll   *widget.Clickable
+	ColsCollapseAll *widget.Clickable
 	ColsMenuOpen    *bool
 	ImportEnvBtn    *widget.Clickable
 	AddEnvBtn       *widget.Clickable

@@ -81,6 +81,10 @@ type AppState struct {
 	CollectionIDsOrder     []string           `json:"collection_ids_order,omitempty"`
 	SidebarSection         string             `json:"sidebar_section,omitempty"`
 	SidebarScriptsHeightPx int                `json:"sidebar_scripts_height_px,omitempty"`
+	CollectionExpanded     map[string][][]int `json:"collection_expanded,omitempty"`
+	WindowWidthDp          int                `json:"window_width_dp,omitempty"`
+	WindowHeightDp         int                `json:"window_height_dp,omitempty"`
+	WindowMode             string             `json:"window_mode,omitempty"`
 }
 
 func Load() AppState {

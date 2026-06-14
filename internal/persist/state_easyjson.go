@@ -1493,6 +1493,90 @@ func easyjsonBd887cf1DecodeTractoInternalPersist5(in *jlexer.Lexer, out *AppStat
 			} else {
 				out.SidebarScriptsHeightPx = int(in.Int())
 			}
+		case "collection_expanded":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				in.Delim('{')
+				if !in.IsDelim('}') {
+					out.CollectionExpanded = make(map[string][][]int)
+				} else {
+					out.CollectionExpanded = nil
+				}
+				for !in.IsDelim('}') {
+					key := string(in.String())
+					in.WantColon()
+					var v28 [][]int
+					if in.IsNull() {
+						in.Skip()
+						v28 = nil
+					} else {
+						in.Delim('[')
+						if v28 == nil {
+							if !in.IsDelim(']') {
+								v28 = make([][]int, 0, 2)
+							} else {
+								v28 = [][]int{}
+							}
+						} else {
+							v28 = (v28)[:0]
+						}
+						for !in.IsDelim(']') {
+							var v29 []int
+							if in.IsNull() {
+								in.Skip()
+								v29 = nil
+							} else {
+								in.Delim('[')
+								if v29 == nil {
+									if !in.IsDelim(']') {
+										v29 = make([]int, 0, 8)
+									} else {
+										v29 = []int{}
+									}
+								} else {
+									v29 = (v29)[:0]
+								}
+								for !in.IsDelim(']') {
+									var v30 int
+									if in.IsNull() {
+										in.Skip()
+									} else {
+										v30 = int(in.Int())
+									}
+									v29 = append(v29, v30)
+									in.WantComma()
+								}
+								in.Delim(']')
+							}
+							v28 = append(v28, v29)
+							in.WantComma()
+						}
+						in.Delim(']')
+					}
+					(out.CollectionExpanded)[key] = v28
+					in.WantComma()
+				}
+				in.Delim('}')
+			}
+		case "window_width_dp":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.WindowWidthDp = int(in.Int())
+			}
+		case "window_height_dp":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.WindowHeightDp = int(in.Int())
+			}
+		case "window_mode":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.WindowMode = string(in.String())
+			}
 		default:
 			switch strings.ToLower(key) {
 			case "tabs":
@@ -1511,13 +1595,13 @@ func easyjsonBd887cf1DecodeTractoInternalPersist5(in *jlexer.Lexer, out *AppStat
 						out.Tabs = (out.Tabs)[:0]
 					}
 					for !in.IsDelim(']') {
-						var v28 TabState
+						var v31 TabState
 						if in.IsNull() {
 							in.Skip()
 						} else {
-							(v28).UnmarshalEasyJSON(in)
+							(v31).UnmarshalEasyJSON(in)
 						}
-						out.Tabs = append(out.Tabs, v28)
+						out.Tabs = append(out.Tabs, v31)
 						in.WantComma()
 					}
 					in.Delim(']')
@@ -1576,13 +1660,13 @@ func easyjsonBd887cf1DecodeTractoInternalPersist5(in *jlexer.Lexer, out *AppStat
 						out.EnvIDsOrder = (out.EnvIDsOrder)[:0]
 					}
 					for !in.IsDelim(']') {
-						var v29 string
+						var v32 string
 						if in.IsNull() {
 							in.Skip()
 						} else {
-							v29 = string(in.String())
+							v32 = string(in.String())
 						}
-						out.EnvIDsOrder = append(out.EnvIDsOrder, v29)
+						out.EnvIDsOrder = append(out.EnvIDsOrder, v32)
 						in.WantComma()
 					}
 					in.Delim(']')
@@ -1603,13 +1687,13 @@ func easyjsonBd887cf1DecodeTractoInternalPersist5(in *jlexer.Lexer, out *AppStat
 						out.CollectionIDsOrder = (out.CollectionIDsOrder)[:0]
 					}
 					for !in.IsDelim(']') {
-						var v30 string
+						var v33 string
 						if in.IsNull() {
 							in.Skip()
 						} else {
-							v30 = string(in.String())
+							v33 = string(in.String())
 						}
-						out.CollectionIDsOrder = append(out.CollectionIDsOrder, v30)
+						out.CollectionIDsOrder = append(out.CollectionIDsOrder, v33)
 						in.WantComma()
 					}
 					in.Delim(']')
@@ -1625,6 +1709,90 @@ func easyjsonBd887cf1DecodeTractoInternalPersist5(in *jlexer.Lexer, out *AppStat
 					in.Skip()
 				} else {
 					out.SidebarScriptsHeightPx = int(in.Int())
+				}
+			case "collection_expanded":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					in.Delim('{')
+					if !in.IsDelim('}') {
+						out.CollectionExpanded = make(map[string][][]int)
+					} else {
+						out.CollectionExpanded = nil
+					}
+					for !in.IsDelim('}') {
+						key := string(in.String())
+						in.WantColon()
+						var v34 [][]int
+						if in.IsNull() {
+							in.Skip()
+							v34 = nil
+						} else {
+							in.Delim('[')
+							if v34 == nil {
+								if !in.IsDelim(']') {
+									v34 = make([][]int, 0, 2)
+								} else {
+									v34 = [][]int{}
+								}
+							} else {
+								v34 = (v34)[:0]
+							}
+							for !in.IsDelim(']') {
+								var v35 []int
+								if in.IsNull() {
+									in.Skip()
+									v35 = nil
+								} else {
+									in.Delim('[')
+									if v35 == nil {
+										if !in.IsDelim(']') {
+											v35 = make([]int, 0, 8)
+										} else {
+											v35 = []int{}
+										}
+									} else {
+										v35 = (v35)[:0]
+									}
+									for !in.IsDelim(']') {
+										var v36 int
+										if in.IsNull() {
+											in.Skip()
+										} else {
+											v36 = int(in.Int())
+										}
+										v35 = append(v35, v36)
+										in.WantComma()
+									}
+									in.Delim(']')
+								}
+								v34 = append(v34, v35)
+								in.WantComma()
+							}
+							in.Delim(']')
+						}
+						(out.CollectionExpanded)[key] = v34
+						in.WantComma()
+					}
+					in.Delim('}')
+				}
+			case "window_width_dp":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.WindowWidthDp = int(in.Int())
+				}
+			case "window_height_dp":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.WindowHeightDp = int(in.Int())
+				}
+			case "window_mode":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.WindowMode = string(in.String())
 				}
 			default:
 				in.SkipRecursive()
@@ -1648,11 +1816,11 @@ func easyjsonBd887cf1EncodeTractoInternalPersist5(out *jwriter.Writer, in AppSta
 			out.RawString("null")
 		} else {
 			out.RawByte('[')
-			for v31, v32 := range in.Tabs {
-				if v31 > 0 {
+			for v37, v38 := range in.Tabs {
+				if v37 > 0 {
 					out.RawByte(',')
 				}
-				(v32).MarshalEasyJSON(out)
+				(v38).MarshalEasyJSON(out)
 			}
 			out.RawByte(']')
 		}
@@ -1687,11 +1855,11 @@ func easyjsonBd887cf1EncodeTractoInternalPersist5(out *jwriter.Writer, in AppSta
 		out.RawString(prefix)
 		{
 			out.RawByte('[')
-			for v33, v34 := range in.EnvIDsOrder {
-				if v33 > 0 {
+			for v39, v40 := range in.EnvIDsOrder {
+				if v39 > 0 {
 					out.RawByte(',')
 				}
-				out.String(string(v34))
+				out.String(string(v40))
 			}
 			out.RawByte(']')
 		}
@@ -1701,11 +1869,11 @@ func easyjsonBd887cf1EncodeTractoInternalPersist5(out *jwriter.Writer, in AppSta
 		out.RawString(prefix)
 		{
 			out.RawByte('[')
-			for v35, v36 := range in.CollectionIDsOrder {
-				if v35 > 0 {
+			for v41, v42 := range in.CollectionIDsOrder {
+				if v41 > 0 {
 					out.RawByte(',')
 				}
-				out.String(string(v36))
+				out.String(string(v42))
 			}
 			out.RawByte(']')
 		}
@@ -1719,6 +1887,62 @@ func easyjsonBd887cf1EncodeTractoInternalPersist5(out *jwriter.Writer, in AppSta
 		const prefix string = ",\"sidebar_scripts_height_px\":"
 		out.RawString(prefix)
 		out.Int(int(in.SidebarScriptsHeightPx))
+	}
+	if len(in.CollectionExpanded) != 0 {
+		const prefix string = ",\"collection_expanded\":"
+		out.RawString(prefix)
+		{
+			out.RawByte('{')
+			v43First := true
+			for v43Name, v43Value := range in.CollectionExpanded {
+				if v43First {
+					v43First = false
+				} else {
+					out.RawByte(',')
+				}
+				out.String(string(v43Name))
+				out.RawByte(':')
+				if v43Value == nil && (out.Flags&jwriter.NilSliceAsEmpty) == 0 {
+					out.RawString("null")
+				} else {
+					out.RawByte('[')
+					for v44, v45 := range v43Value {
+						if v44 > 0 {
+							out.RawByte(',')
+						}
+						if v45 == nil && (out.Flags&jwriter.NilSliceAsEmpty) == 0 {
+							out.RawString("null")
+						} else {
+							out.RawByte('[')
+							for v46, v47 := range v45 {
+								if v46 > 0 {
+									out.RawByte(',')
+								}
+								out.Int(int(v47))
+							}
+							out.RawByte(']')
+						}
+					}
+					out.RawByte(']')
+				}
+			}
+			out.RawByte('}')
+		}
+	}
+	if in.WindowWidthDp != 0 {
+		const prefix string = ",\"window_width_dp\":"
+		out.RawString(prefix)
+		out.Int(int(in.WindowWidthDp))
+	}
+	if in.WindowHeightDp != 0 {
+		const prefix string = ",\"window_height_dp\":"
+		out.RawString(prefix)
+		out.Int(int(in.WindowHeightDp))
+	}
+	if in.WindowMode != "" {
+		const prefix string = ",\"window_mode\":"
+		out.RawString(prefix)
+		out.String(string(in.WindowMode))
 	}
 	out.RawByte('}')
 }

@@ -62,6 +62,8 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 		ImportBtn:       &ui.ImportBtn,
 		AddColBtn:       &ui.AddColBtn,
 		ColsMenuBtn:     &ui.ColsMenuBtn,
+		ColsExpandAll:   &ui.ColsExpandAll,
+		ColsCollapseAll: &ui.ColsCollapseAll,
 		ColsMenuOpen:    &ui.ColsMenuOpen,
 		ImportEnvBtn:    &ui.ImportEnvBtn,
 		AddEnvBtn:       &ui.AddEnvBtn,

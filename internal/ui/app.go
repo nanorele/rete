@@ -82,6 +82,8 @@ type AppUI struct {
 	ImportBtn        widget.Clickable
 	AddColBtn        widget.Clickable
 	ColsMenuBtn      widget.Clickable
+	ColsExpandAll    widget.Clickable
+	ColsCollapseAll  widget.Clickable
 	ColsMenuOpen     bool
 	Collections      []*collections.CollectionUI
 	VisibleCols      []*collections.CollectionNode
@@ -172,6 +174,10 @@ type AppUI struct {
 	SidebarDropTag bool
 	LastPointerPos f32.Point
 	centeredOnce   bool
+
+	winWDp  int
+	winHDp  int
+	winMode app.WindowMode
 
 	VarPopup varpopup.State
 
@@ -424,11 +430,24 @@ func NewAppUI() *AppUI {
 	settings.Apply(th, model.DefaultSettings())
 
 	win := new(app.Window)
-	win.Option(
+	winWDp, winHDp := 1280, 720
+	saved := persist.Load()
+	if saved.WindowWidthDp >= 480 && saved.WindowHeightDp >= 360 {
+		winWDp = saved.WindowWidthDp
+		winHDp = saved.WindowHeightDp
+	}
+	winOpts := []app.Option{
 		app.Decorated(false),
 		app.MinSize(unit.Dp(480), unit.Dp(360)),
-		app.Size(unit.Dp(1280), unit.Dp(720)),
-	)
+		app.Size(unit.Dp(float32(winWDp)), unit.Dp(float32(winHDp))),
+	}
+	switch saved.WindowMode {
+	case "maximized":
+		winOpts = append(winOpts, app.Maximized.Option())
+	case "fullscreen":
+		winOpts = append(winOpts, app.Fullscreen.Option())
+	}
+	win.Option(winOpts...)
 
 	defs := model.DefaultSettings()
 	defaultSidebar := defs.DefaultSidebarWidthPx
@@ -640,12 +659,28 @@ func (ui *AppUI) Run() error {
 			ui.saveStateSync()
 			return e.Err
 		case app.ConfigEvent:
+			if e.Config.Mode != ui.winMode {
+				ui.winMode = e.Config.Mode
+				ui.saveState()
+			}
 			ui.TitleBar.Maximized = e.Config.Mode == app.Maximized || e.Config.Mode == app.Fullscreen
 			ui.Window.Invalidate()
 		case app.FrameEvent:
 			if !ui.centeredOnce {
 				ui.centeredOnce = true
-				ui.Window.Perform(system.ActionCenter)
+				if ui.winMode == app.Windowed {
+					ui.Window.Perform(system.ActionCenter)
+				}
+			}
+
+			if ui.winMode == app.Windowed && e.Metric.PxPerDp > 0 && e.Size.X > 0 && e.Size.Y > 0 {
+				wDp := int(float32(e.Size.X) / e.Metric.PxPerDp)
+				hDp := int(float32(e.Size.Y) / e.Metric.PxPerDp)
+				if wDp > 0 && hDp > 0 && (wDp != ui.winWDp || hDp != ui.winHDp) {
+					ui.winWDp = wDp
+					ui.winHDp = hDp
+					ui.saveState()
+				}
 			}
 
 			for {
@@ -774,6 +809,50 @@ func (ui *AppUI) loadState() {
 	}
 	ui.ActiveEnvID = state.ActiveEnvID
 	ui.activeEnvDirty = true
+
+	if state.CollectionExpanded != nil {
+		for _, c := range ui.Collections {
+			if c.Data == nil || c.Data.Root == nil {
+				continue
+			}
+			paths, ok := state.CollectionExpanded[c.Data.ID]
+			if !ok {
+				continue
+			}
+			var clear func(node *collections.CollectionNode)
+			clear = func(node *collections.CollectionNode) {
+				if node == nil {
+					return
+				}
+				if node.IsFolder || node.Depth == 0 {
+					node.Expanded = false
+				}
+				for _, child := range node.Children {
+					clear(child)
+				}
+			}
+			clear(c.Data.Root)
+			for _, path := range paths {
+				if node := collections.NodeAtPath(c.Data.Root, path); node != nil {
+					node.Expanded = true
+				}
+			}
+		}
+	}
+
+	if state.WindowWidthDp > 0 && state.WindowHeightDp > 0 {
+		ui.winWDp = state.WindowWidthDp
+		ui.winHDp = state.WindowHeightDp
+	}
+	switch state.WindowMode {
+	case "maximized":
+		ui.winMode = app.Maximized
+	case "fullscreen":
+		ui.winMode = app.Fullscreen
+	default:
+		ui.winMode = app.Windowed
+	}
+
 	ui.updateVisibleCols()
 }
 
@@ -795,12 +874,48 @@ func (ui *AppUI) buildStateSnapshot() persist.AppState {
 		}
 	}
 	for _, c := range ui.Collections {
-		if c.Data != nil && c.Data.ID != "" {
-			state.CollectionIDsOrder = append(state.CollectionIDsOrder, c.Data.ID)
+		if c.Data == nil || c.Data.ID == "" {
+			continue
 		}
+		state.CollectionIDsOrder = append(state.CollectionIDsOrder, c.Data.ID)
+		if c.Data.Root == nil {
+			continue
+		}
+		var paths [][]int
+		var walk func(node *collections.CollectionNode)
+		walk = func(node *collections.CollectionNode) {
+			if node == nil {
+				return
+			}
+			if (node.IsFolder || node.Depth == 0) && node.Expanded {
+				if node == c.Data.Root {
+					paths = append(paths, []int{})
+				} else {
+					paths = append(paths, collections.NodePathFrom(c.Data.Root, node))
+				}
+			}
+			for _, child := range node.Children {
+				walk(child)
+			}
+		}
+		walk(c.Data.Root)
+		if state.CollectionExpanded == nil {
+			state.CollectionExpanded = make(map[string][][]int)
+		}
+		state.CollectionExpanded[c.Data.ID] = paths
 	}
 	for _, tab := range ui.Tabs {
 		state.Tabs = append(state.Tabs, ui.tabStateFromTab(tab))
+	}
+	if ui.winWDp > 0 && ui.winHDp > 0 {
+		state.WindowWidthDp = ui.winWDp
+		state.WindowHeightDp = ui.winHDp
+	}
+	switch ui.winMode {
+	case app.Maximized:
+		state.WindowMode = "maximized"
+	case app.Fullscreen:
+		state.WindowMode = "fullscreen"
 	}
 	return state
 }

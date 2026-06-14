@@ -143,6 +143,8 @@ func newTestHost() (*Host, func()) {
 		EnvsExpanded:    &envsExpanded,
 		ImportBtn:       &widget.Clickable{},
 		AddColBtn:       &widget.Clickable{},
+		ColsExpandAll:   &widget.Clickable{},
+		ColsCollapseAll: &widget.Clickable{},
 		ImportEnvBtn:    &widget.Clickable{},
 		AddEnvBtn:       &widget.Clickable{},
 		SidebarDropTag:  &dropTag,

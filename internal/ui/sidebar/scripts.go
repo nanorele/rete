@@ -105,6 +105,8 @@ func scriptsHeader(gtx layout.Context, host *Host) layout.Dimensions {
 							pointer.CursorPointer.Add(gtx.Ops)
 							return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 								layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
+								layout.Rigid(sectionCount(host.Theme, len(*host.Scripts))),
+								layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 								layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 									gtx.Constraints.Min.Y = 0
 									lbl := material.Label(host.Theme, unit.Sp(12), "Scripts")
@@ -158,7 +160,14 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
 	pointer.CursorDefault.Add(gtx.Ops)
 
-	blockHovered := host.ScriptsBodyHover.Update(gtx.Source)
+	anyScriptMenuOpen := false
+	for _, r := range *host.Scripts {
+		if r.MenuOpen {
+			anyScriptMenuOpen = true
+			break
+		}
+	}
+	blockHovered := host.ScriptsBodyHover.Update(gtx.Source) || anyScriptMenuOpen
 	fade := host.ScriptsBodyFade.Update(gtx, blockHovered, 100*time.Millisecond)
 
 	rows := *host.Scripts
@@ -292,7 +301,7 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 						case isActive:
 							paint.FillShape(gtx.Ops, theme.AccentDim, clip.Rect{Max: size}.Op())
 						case rowHovered:
-							paint.FillShape(gtx.Ops, theme.BgHover, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
+							paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: size}.Op())
 						}
 						defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 						row.Hover.Add(gtx.Ops)
@@ -301,7 +310,7 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 				}),
 				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.X = gtx.Constraints.Max.X
-					return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 								gtx.Constraints.Min.X = gtx.Constraints.Max.X
@@ -332,8 +341,12 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 							layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 								return material.Clickable(gtx, &row.MenuBtn, func(gtx layout.Context) layout.Dimensions {
-									size := gtx.Dp(18)
-									gtx.Constraints.Min = image.Pt(size, size)
+									w := gtx.Dp(18)
+									h := *host.ScriptRowH - 2*gtx.Dp(unit.Dp(4))
+									if h <= 0 {
+										h = w
+									}
+									gtx.Constraints.Min = image.Pt(w, h)
 									gtx.Constraints.Max = gtx.Constraints.Min
 									iconCol := theme.FgMuted
 									if row.MenuBtn.Hovered() {

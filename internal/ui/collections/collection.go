@@ -43,14 +43,19 @@ type CollectionNode struct {
 
 	LastClickAt time.Time
 
-	NameLeftPx  int
-	NameWidthPx int
-	RowHeightPx int
+	NameLeftPx      int
+	NameWidthPx     int
+	RowHeightPx     int
+	ContentHeightPx int
 
 	Drag          gesture.Drag
 	Hover         widgets.Hover
 	StickyClick   widget.Clickable
 	StickyMenuBtn widget.Clickable
+
+	StickyArmed       bool
+	StickyArmedFirst  int
+	StickyArmedOffset int
 }
 
 type ParsedCollection struct {

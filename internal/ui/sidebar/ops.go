@@ -35,6 +35,33 @@ func addNewCollection(host *Host) {
 	host.Window.Invalidate()
 }
 
+func setAllCollectionsExpanded(host *Host, expanded bool) {
+	var walk func(n *collections.CollectionNode)
+	walk = func(n *collections.CollectionNode) {
+		if n == nil {
+			return
+		}
+		if n.IsFolder {
+			n.Expanded = expanded
+			if !expanded {
+				n.ResetSubtreeHover()
+			}
+		}
+		for _, c := range n.Children {
+			walk(c)
+		}
+	}
+	for _, cu := range *host.Collections {
+		if cu == nil || cu.Data == nil || cu.Data.Root == nil {
+			continue
+		}
+		walk(cu.Data.Root)
+	}
+	host.UpdateVisibleCols()
+	host.SaveState()
+	host.Window.Invalidate()
+}
+
 func addNewEnvironment(host *Host) {
 	id := persist.NewRandomID()
 	env := &model.ParsedEnvironment{
