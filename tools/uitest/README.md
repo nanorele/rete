@@ -6,9 +6,11 @@ that all widgets actually drew, and that nothing regressed against a golden base
 ## Layers
 
 1. **Render (Go).** `internal/ui/screenshot_test.go` (build tag `screenshots`) builds an
-   `AppUI` per scene and rasterizes the full UI through `gpu/headless`. Output per scene:
-   `internal/ui/testdata/screenshots/<scene>.png` and `<scene>.layout.json` (expected region rects:
-   `titlebar`, `content`, `sidebar`, `main`).
+   `AppUI` per scene and rasterizes the full UI through `gpu/headless`. Each scene is rendered at
+   every size in `shotSizes` (currently `1280x800` and the app's `480x360` minimum), so layout is
+   checked at both a roomy and a cramped extent. Output per scene/size:
+   `internal/ui/testdata/screenshots/<scene>_<W>x<H>.png` and `<scene>_<W>x<H>.layout.json`
+   (expected region rects: `titlebar`, `content`, `sidebar`, `main`).
 2. **Verify (Python).** `verify.py` checks region bounds / non-overlap / drawn edges, checks each
    region is non-blank, diffs against `golden/<scene>.png`, and writes `report.html`.
 

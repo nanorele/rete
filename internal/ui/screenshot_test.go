@@ -4,6 +4,7 @@ package ui
 
 import (
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/color"
 	"image/png"
@@ -27,10 +28,10 @@ import (
 	"github.com/nanorele/gio/unit"
 )
 
-const (
-	shotW = 1280
-	shotH = 800
-)
+var shotSizes = []image.Point{
+	{X: 1280, Y: 800},
+	{X: 480, Y: 360},
+}
 
 var fixedTime = time.Unix(1700000000, 0)
 
@@ -95,7 +96,7 @@ func sceneList() []scene {
 			withTab(ui)
 			ui.TabBar.TabCtxMenuOpen = true
 			ui.TabBar.TabCtxMenuIdx = 0
-			ui.TabBar.TabCtxMenuPos = f32.Pt(220, 64)
+			ui.TabBar.TabCtxMenuPos = f32.Pt(40, 20)
 		}},
 		{"overlay-cols-menu", func(ui *AppUI) { withTab(ui); ui.ColsMenuOpen = true }},
 		{"overlay-envs-menu", func(ui *AppUI) { withTab(ui); ui.EnvsMenuOpen = true }},
@@ -106,6 +107,17 @@ func sceneList() []scene {
 		}},
 		{"overlay-send-menu", func(ui *AppUI) { withTab(ui); ui.Tabs[0].SendMenuOpen = true }},
 		{"overlay-method-list", func(ui *AppUI) { withTab(ui); ui.Tabs[0].MethodListOpen = true }},
+		{"overlay-protocol-list", func(ui *AppUI) { withTab(ui); ui.Tabs[0].ProtocolListOpen = true }},
+		{"requests-multitab", func(ui *AppUI) {
+			ui.SidebarSection = "requests"
+			ui.Tabs = []*workspace.RequestTab{
+				workspace.NewRequestTab("Get users"),
+				workspace.NewRequestTab("Create user"),
+				workspace.NewRequestTab("Delete user"),
+				workspace.NewRequestTab("List orders"),
+			}
+			ui.ActiveIdx = 1
+		}},
 	}
 }
 
@@ -115,19 +127,18 @@ type regionJSON struct {
 }
 
 type manifestJSON struct {
-	Scene   string         `json:"scene"`
-	Size    [2]int         `json:"size"`
-	Regions []regionJSON   `json:"regions"`
-	Diag    map[string]int `json:"diag,omitempty"`
+	Scene   string       `json:"scene"`
+	Size    [2]int       `json:"size"`
+	Regions []regionJSON `json:"regions"`
 }
 
-func buildRegions(ui *AppUI, probes map[string]layout.Dimensions) []regionJSON {
+func buildRegions(ui *AppUI, probes map[string]layout.Dimensions, sz image.Point) []regionJSON {
 	var out []regionJSON
 	titleH := 0
 	if d, ok := probes["titlebar"]; ok {
 		w := d.Size.X
 		if w == 0 {
-			w = shotW
+			w = sz.X
 		}
 		titleH = d.Size.Y
 		out = append(out, regionJSON{"titlebar", [4]int{0, 0, w, titleH}})
@@ -135,7 +146,7 @@ func buildRegions(ui *AppUI, probes map[string]layout.Dimensions) []regionJSON {
 	if d, ok := probes["content"]; ok {
 		w := d.Size.X
 		if w == 0 {
-			w = shotW
+			w = sz.X
 		}
 		out = append(out, regionJSON{"content", [4]int{0, titleH, w, titleH + d.Size.Y}})
 	}
@@ -147,21 +158,21 @@ func buildRegions(ui *AppUI, probes map[string]layout.Dimensions) []regionJSON {
 		if ui.hideSidebar() {
 			divider = 0
 		}
-		out = append(out, regionJSON{"main", [4]int{sw + divider, titleH, shotW, titleH + sh}})
+		out = append(out, regionJSON{"main", [4]int{sw + divider, titleH, sz.X, titleH + sh}})
 	}
 	return out
 }
 
-func newShotGtx(ops *op.Ops) layout.Context {
+func newShotGtx(ops *op.Ops, sz image.Point) layout.Context {
 	return layout.Context{
 		Ops:         ops,
 		Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
-		Constraints: layout.Exact(image.Pt(shotW, shotH)),
+		Constraints: layout.Exact(sz),
 		Now:         fixedTime,
 	}
 }
 
-func renderScene(t *testing.T, sc scene) {
+func renderScene(t *testing.T, sc scene, sz image.Point) {
 	t.Helper()
 	setupTestConfigDir(t)
 	ui := NewAppUI()
@@ -172,21 +183,20 @@ func renderScene(t *testing.T, sc scene) {
 		sc.setup(ui)
 	}
 
-	win, err := headless.NewWindow(shotW, shotH)
+	win, err := headless.NewWindow(sz.X, sz.Y)
 	if err != nil {
 		t.Skipf("headless GPU backend unavailable: %v", err)
 	}
 	defer win.Release()
 
 	for i := 0; i < 2; i++ {
-		ui.layoutApp(newShotGtx(new(op.Ops)))
+		ui.layoutApp(newShotGtx(new(op.Ops), sz))
 	}
 
 	probes := map[string]layout.Dimensions{}
 	probeRegion = func(name string, d layout.Dimensions) { probes[name] = d }
 	ops := new(op.Ops)
-	gtx := newShotGtx(ops)
-	ui.layoutApp(gtx)
+	ui.layoutApp(newShotGtx(ops, sz))
 	probeRegion = nil
 
 	if err := win.Frame(ops); err != nil {
@@ -202,7 +212,8 @@ func renderScene(t *testing.T, sc scene) {
 		t.Fatal(err)
 	}
 
-	f, err := os.Create(filepath.Join(dir, sc.name+".png"))
+	name := fmt.Sprintf("%s_%dx%d", sc.name, sz.X, sz.Y)
+	f, err := os.Create(filepath.Join(dir, name+".png"))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -214,40 +225,24 @@ func renderScene(t *testing.T, sc scene) {
 		t.Fatal(err)
 	}
 
-	diag := map[string]int{
-		"sidebar_width":   ui.SidebarWidth,
-		"win_w":           win.Size().X,
-		"win_h":           win.Size().Y,
-		"px_per_dp_x1000": int(gtx.Metric.PxPerDp * 1000),
-		"dp8":             gtx.Dp(unit.Dp(8)),
-	}
-	if d, ok := probes["titlebar"]; ok {
-		diag["titlebar_h"] = d.Size.Y
-	}
-	if ui.TabBar.TabCtxMenuOpen {
-		offX := int(ui.TabBar.TabCtxMenuPos.X) + ui.SidebarWidth + gtx.Dp(unit.Dp(8))
-		offY := int(ui.TabBar.TabCtxMenuPos.Y) + gtx.Dp(unit.Dp(8))
-		diag["tabctx_pos_x"] = int(ui.TabBar.TabCtxMenuPos.X)
-		diag["tabctx_pos_y"] = int(ui.TabBar.TabCtxMenuPos.Y)
-		diag["menu_off_x"] = offX
-		diag["menu_screen_y"] = diag["titlebar_h"] + offY
-	}
-
-	man := manifestJSON{Scene: sc.name, Size: [2]int{shotW, shotH}, Regions: buildRegions(ui, probes), Diag: diag}
+	man := manifestJSON{Scene: name, Size: [2]int{sz.X, sz.Y}, Regions: buildRegions(ui, probes, sz)}
 	mb, err := json.MarshalIndent(man, "", "  ")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(dir, sc.name+".layout.json"), mb, 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, name+".layout.json"), mb, 0o644); err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestScreenshots(t *testing.T) {
-	for _, sc := range sceneList() {
-		sc := sc
-		t.Run(sc.name, func(t *testing.T) {
-			renderScene(t, sc)
-		})
+	for _, sz := range shotSizes {
+		sz := sz
+		for _, sc := range sceneList() {
+			sc := sc
+			t.Run(fmt.Sprintf("%s_%dx%d", sc.name, sz.X, sz.Y), func(t *testing.T) {
+				renderScene(t, sc, sz)
+			})
+		}
 	}
 }

@@ -6,7 +6,10 @@ import (
 
 	"tracto/internal/ui/workspace"
 
+	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/font/gofont"
+	"github.com/nanorele/gio/io/input"
+	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
 	"github.com/nanorele/gio/text"
@@ -421,4 +424,69 @@ func TestLayout_ZeroMaxWidthDegenerate(t *testing.T) {
 	}
 	active := 0
 	s.Layout(gtx, th, &tabs, &active, nil, nil)
+}
+
+func rightClickTabBar(t *testing.T, titles []string, pos f32.Point, w, h int) *Strip {
+	t.Helper()
+	th := newTestTheme()
+	s := NewStrip()
+	var tabs []*workspace.RequestTab
+	for _, ti := range titles {
+		tabs = append(tabs, workspace.NewRequestTab(ti))
+	}
+	active := 0
+
+	var router input.Router
+	ops := new(op.Ops)
+	gtx := layout.Context{
+		Ops:         ops,
+		Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
+		Constraints: layout.Exact(image.Pt(w, h)),
+		Source:      router.Source(),
+	}
+
+	s.Layout(gtx, th, &tabs, &active, nil, nil)
+	router.Frame(ops)
+	router.Queue(
+		pointer.Event{Kind: pointer.Press, Position: pos, Buttons: pointer.ButtonSecondary, Source: pointer.Mouse},
+		pointer.Event{Kind: pointer.Release, Position: pos, Buttons: pointer.ButtonSecondary, Source: pointer.Mouse},
+	)
+	ops.Reset()
+	gtx.Ops = ops
+	s.Layout(gtx, th, &tabs, &active, nil, nil)
+	return s
+}
+
+func TestTabContextMenu_IgnoresEmptySpace(t *testing.T) {
+	for _, pos := range []f32.Point{
+		f32.Pt(220, 18),
+		f32.Pt(220, 64),
+		f32.Pt(500, 18),
+	} {
+		s := rightClickTabBar(t, []string{"Get users"}, pos, 1000, 200)
+		if s.TabCtxMenuOpen {
+			t.Errorf("right-click at empty tab-bar point %v must not open the context menu", pos)
+		}
+	}
+}
+
+func TestTabContextMenu_OpensOnClickedTab(t *testing.T) {
+	s := rightClickTabBar(t, []string{"Get users"}, f32.Pt(30, 18), 1000, 200)
+	if !s.TabCtxMenuOpen {
+		t.Fatal("right-click on a tab must open the context menu")
+	}
+	if s.TabCtxMenuIdx != 0 {
+		t.Errorf("expected TabCtxMenuIdx=0, got %d", s.TabCtxMenuIdx)
+	}
+}
+
+func TestTabContextMenu_PicksSecondTab(t *testing.T) {
+	w0 := measureTabWidth(makeGtx(1000, 200), newTestTheme(), "alpha")
+	s := rightClickTabBar(t, []string{"alpha", "bravo"}, f32.Pt(float32(4+w0+6), 18), 1000, 200)
+	if !s.TabCtxMenuOpen {
+		t.Fatal("right-click on the second tab must open the context menu")
+	}
+	if s.TabCtxMenuIdx != 1 {
+		t.Errorf("expected TabCtxMenuIdx=1, got %d", s.TabCtxMenuIdx)
+	}
 }
