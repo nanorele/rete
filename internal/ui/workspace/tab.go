@@ -1199,6 +1199,46 @@ func (t *RequestTab) handleURLWordJump(gtx layout.Context) {
 	}
 }
 
+func (t *RequestTab) handleURLWordDelete(gtx layout.Context) {
+	for {
+		ev, ok := gtx.Event(
+			key.Filter{Focus: &t.URLInput, Name: key.NameDeleteBackward, Required: key.ModShortcut},
+			key.Filter{Focus: &t.URLInput, Name: key.NameDeleteForward, Required: key.ModShortcut},
+		)
+		if !ok {
+			break
+		}
+		ke, ok := ev.(key.Event)
+		if !ok || ke.State != key.Press {
+			continue
+		}
+		start, end := t.URLInput.Selection()
+		if start != end {
+			t.URLInput.Insert("")
+			continue
+		}
+		text := t.URLInput.Text()
+		var newPos int
+		switch ke.Name {
+		case key.NameDeleteBackward:
+			newPos = moveURLWord(text, end, -1)
+		case key.NameDeleteForward:
+			newPos = moveURLWord(text, end, 1)
+		default:
+			continue
+		}
+		if newPos == end {
+			continue
+		}
+		if newPos < end {
+			t.URLInput.SetCaret(newPos, end)
+		} else {
+			t.URLInput.SetCaret(end, newPos)
+		}
+		t.URLInput.Insert("")
+	}
+}
+
 func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Window, exp *explorer.Explorer, activeEnv map[string]string, isAppDragging bool, onSave func(), onCollectionDirty func(*collections.ParsedCollection)) layout.Dimensions {
 	t.window = win
 
@@ -1228,6 +1268,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 	}
 
 	t.handleURLWordJump(gtx)
+	t.handleURLWordDelete(gtx)
 
 	for {
 		ev, ok := t.URLInput.Update(gtx)

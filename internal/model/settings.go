@@ -38,6 +38,7 @@ type AppSettings struct {
 	JSONIndentSpaces        int     `json:"json_indent_spaces"`
 	WrapLinesDefault        bool    `json:"wrap_lines_default"`
 	PreviewMaxMB            int     `json:"preview_max_mb"`
+	SyntaxHighlightMaxMB    int     `json:"syntax_highlight_max_mb"`
 	ResponseBodyPadding     int     `json:"response_body_padding"`
 	DefaultSplitRatio       float32 `json:"default_split_ratio"`
 	AutoFormatJSON          bool    `json:"auto_format_json"`
@@ -147,6 +148,7 @@ func DefaultSettings() AppSettings {
 		JSONIndentSpaces:        2,
 		WrapLinesDefault:        false,
 		PreviewMaxMB:            100,
+		SyntaxHighlightMaxMB:    100,
 		ResponseBodyPadding:     4,
 		DefaultSplitRatio:       0.5,
 		AutoFormatJSON:          true,

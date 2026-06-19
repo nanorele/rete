@@ -7,6 +7,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"tracto/internal/ui/settings"
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/widgets"
 	"unicode"
@@ -29,8 +30,6 @@ import (
 	"github.com/nanorele/gio/widget"
 	"golang.org/x/image/math/fixed"
 )
-
-const responseViewerTokenizeMaxBytes = 2 * 1024 * 1024
 
 func byteToRuneIdx(text []byte, byteIdx int) int {
 	if byteIdx > len(text) {
@@ -466,7 +465,7 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		return layout.Dimensions{Size: size}
 	}
 
-	if s.Lang != syntax.LangPlain && len(v.text) > responseViewerTokenizeMaxBytes {
+	if s.Lang != syntax.LangPlain && len(v.text) > settings.SyntaxHighlightMaxMB*1024*1024 {
 		if v.tokens != nil {
 			v.tokens = nil
 			v.tokensLang = syntax.LangPlain

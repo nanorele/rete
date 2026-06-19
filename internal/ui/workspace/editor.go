@@ -1268,6 +1268,9 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 					v.selEnd = start
 				} else if v.selEnd > 0 {
 					prev := v.charLeft(v.selEnd)
+					if ke.Modifiers.Contain(key.ModShortcut) {
+						prev = v.wordLeft(v.selEnd)
+					}
 					v.DeleteRange(prev, v.selEnd)
 					v.selStart = prev
 					v.selEnd = prev
@@ -1282,6 +1285,9 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 					v.selEnd = start
 				} else if v.selEnd < len(v.text) {
 					next := v.charRight(v.selEnd)
+					if ke.Modifiers.Contain(key.ModShortcut) {
+						next = v.wordRight(v.selEnd)
+					}
 					v.DeleteRange(v.selEnd, next)
 				}
 				v.ensureCaretVisible()

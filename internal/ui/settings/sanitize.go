@@ -84,6 +84,12 @@ func Sanitize(s model.AppSettings) model.AppSettings {
 	if s.PreviewMaxMB > 500 {
 		s.PreviewMaxMB = 500
 	}
+	if s.SyntaxHighlightMaxMB < 1 {
+		s.SyntaxHighlightMaxMB = 100
+	}
+	if s.SyntaxHighlightMaxMB > 500 {
+		s.SyntaxHighlightMaxMB = 500
+	}
 	if s.ResponseBodyPadding < 0 {
 		s.ResponseBodyPadding = 0
 	}

@@ -41,6 +41,10 @@ func Apply(th *material.Theme, s model.AppSettings) {
 	if PreviewMaxMB < 1 {
 		PreviewMaxMB = 100
 	}
+	SyntaxHighlightMaxMB = s.SyntaxHighlightMaxMB
+	if SyntaxHighlightMaxMB < 1 {
+		SyntaxHighlightMaxMB = 100
+	}
 	RespBodyPad = unit.Dp(s.ResponseBodyPadding)
 	DefaultMethod = s.DefaultMethod
 	if DefaultMethod == "" {

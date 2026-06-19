@@ -113,6 +113,9 @@ type Editor struct {
 	PreviewMaxDec           widget.Clickable
 	PreviewMaxInc           widget.Clickable
 	PreviewMaxEditor        widget.Editor
+	SyntaxHLMaxDec          widget.Clickable
+	SyntaxHLMaxInc          widget.Clickable
+	SyntaxHLMaxEditor       widget.Editor
 	WrapLines               widget.Bool
 	AutoFormatJSON          widget.Bool
 	AutoFormatJSONRequest   widget.Bool
@@ -384,6 +387,7 @@ func (e *Editor) Reset() {
 	e.MaxConnsEditor.SetText(strconv.Itoa(def.MaxConnsPerHost))
 	e.JSONIndentEditor.SetText(strconv.Itoa(def.JSONIndentSpaces))
 	e.PreviewMaxEditor.SetText(strconv.Itoa(def.PreviewMaxMB))
+	e.SyntaxHLMaxEditor.SetText(strconv.Itoa(def.SyntaxHighlightMaxMB))
 
 	e.syntaxEditorsThemeID = ""
 	e.themeEditorsThemeID = ""
@@ -760,6 +764,18 @@ func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			changed = true
 		}
 	}
+	for e.SyntaxHLMaxDec.Clicked(gtx) {
+		if e.Draft.SyntaxHighlightMaxMB > 1 {
+			e.Draft.SyntaxHighlightMaxMB--
+			changed = true
+		}
+	}
+	for e.SyntaxHLMaxInc.Clicked(gtx) {
+		if e.Draft.SyntaxHighlightMaxMB < 500 {
+			e.Draft.SyntaxHighlightMaxMB++
+			changed = true
+		}
+	}
 
 	if v, ok := intStepperUpdate(gtx, &e.UISizeEditor, e.Draft.UITextSize, 10, 28); ok {
 		e.Draft.UITextSize = v
@@ -822,6 +838,10 @@ func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	}
 	if v, ok := intStepperUpdate(gtx, &e.PreviewMaxEditor, e.Draft.PreviewMaxMB, 1, 500); ok {
 		e.Draft.PreviewMaxMB = v
+		changed = true
+	}
+	if v, ok := intStepperUpdate(gtx, &e.SyntaxHLMaxEditor, e.Draft.SyntaxHighlightMaxMB, 1, 500); ok {
+		e.Draft.SyntaxHighlightMaxMB = v
 		changed = true
 	}
 
@@ -1734,6 +1754,13 @@ func (e *Editor) sectionsAdvanced(host *Host) []layout.Widget {
 		settingsHint(host.Theme, fmt.Sprintf("Maximum response size loaded into the preview editor before 'Load more' is required. Default: %d MB.", def.PreviewMaxMB)),
 		spacerH(8),
 		stepperEditableRow(host.Theme, &e.PreviewMaxDec, &e.PreviewMaxInc, &e.PreviewMaxEditor, "MB"),
+		spacerH(20),
+
+		settingsSectionTitle(host.Theme, "Syntax highlighting cap"),
+		spacerH(4),
+		settingsHint(host.Theme, fmt.Sprintf("Maximum response size that still gets syntax highlighting. Larger bodies render as plain text to stay responsive. Default: %d MB.", def.SyntaxHighlightMaxMB)),
+		spacerH(8),
+		stepperEditableRow(host.Theme, &e.SyntaxHLMaxDec, &e.SyntaxHLMaxInc, &e.SyntaxHLMaxEditor, "MB"),
 		spacerH(20),
 
 		settingsSectionTitle(host.Theme, "Editors"),

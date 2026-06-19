@@ -128,6 +128,7 @@ func TestDefaultSettings_Values(t *testing.T) {
 		{"JSONIndentSpaces", s.JSONIndentSpaces, 2},
 		{"WrapLinesDefault", s.WrapLinesDefault, false},
 		{"PreviewMaxMB", s.PreviewMaxMB, 100},
+		{"SyntaxHighlightMaxMB", s.SyntaxHighlightMaxMB, 100},
 		{"ResponseBodyPadding", s.ResponseBodyPadding, 4},
 		{"DefaultSplitRatio", s.DefaultSplitRatio, float32(0.5)},
 		{"AutoFormatJSON", s.AutoFormatJSON, true},

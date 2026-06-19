@@ -292,6 +292,7 @@ func gqlEditorPanel(gtx layout.Context, th *material.Theme, title string, ed *wi
 				e.TextSize = unit.Sp(12)
 				e.HintColor = theme.FgMuted
 				e.Font.Typeface = widgets.MonoTypeface
+				widgets.HandleEditorShortcuts(gtx, ed)
 				return e.Layout(gtx)
 			})
 		}),

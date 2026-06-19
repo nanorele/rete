@@ -169,6 +169,17 @@ func TestSanitize_PreviewMaxMB(t *testing.T) {
 	}
 }
 
+func TestSanitize_SyntaxHighlightMaxMB(t *testing.T) {
+	out := Sanitize(model.AppSettings{Theme: "dark", SyntaxHighlightMaxMB: 0})
+	if out.SyntaxHighlightMaxMB != 100 {
+		t.Errorf("zero SyntaxHighlightMaxMB → 100, got %d", out.SyntaxHighlightMaxMB)
+	}
+	out = Sanitize(model.AppSettings{Theme: "dark", SyntaxHighlightMaxMB: 9999})
+	if out.SyntaxHighlightMaxMB != 500 {
+		t.Errorf("huge SyntaxHighlightMaxMB → 500, got %d", out.SyntaxHighlightMaxMB)
+	}
+}
+
 func TestSanitize_ResponseBodyPadding(t *testing.T) {
 	out := Sanitize(model.AppSettings{Theme: "dark", ResponseBodyPadding: -1})
 	if out.ResponseBodyPadding != 0 {

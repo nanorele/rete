@@ -1175,6 +1175,8 @@ func HandleEditorShortcuts(gtx layout.Context, ed *widget.Editor) {
 		ev, ok := gtx.Event(
 			key.Filter{Focus: ed, Name: key.NameLeftArrow, Required: key.ModShortcut, Optional: key.ModShift},
 			key.Filter{Focus: ed, Name: key.NameRightArrow, Required: key.ModShortcut, Optional: key.ModShift},
+			key.Filter{Focus: ed, Name: key.NameDeleteBackward, Required: key.ModShortcut},
+			key.Filter{Focus: ed, Name: key.NameDeleteForward, Required: key.ModShortcut},
 		)
 		if !ok {
 			break
@@ -1201,6 +1203,28 @@ func HandleEditorShortcuts(gtx layout.Context, ed *widget.Editor) {
 			} else {
 				ed.SetCaret(newPos, newPos)
 			}
+		case key.NameDeleteBackward:
+			if start != end {
+				ed.Insert("")
+				continue
+			}
+			newPos := MoveWord(ed.Text(), end, -1)
+			if newPos == end {
+				continue
+			}
+			ed.SetCaret(newPos, end)
+			ed.Insert("")
+		case key.NameDeleteForward:
+			if start != end {
+				ed.Insert("")
+				continue
+			}
+			newPos := MoveWord(ed.Text(), end, 1)
+			if newPos == end {
+				continue
+			}
+			ed.SetCaret(end, newPos)
+			ed.Insert("")
 		}
 	}
 }

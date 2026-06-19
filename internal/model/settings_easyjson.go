@@ -1516,6 +1516,12 @@ func easyjsonB229cf53DecodeTractoInternalModel4(in *jlexer.Lexer, out *AppSettin
 			} else {
 				out.PreviewMaxMB = int(in.Int())
 			}
+		case "syntax_highlight_max_mb":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SyntaxHighlightMaxMB = int(in.Int())
+			}
 		case "response_body_padding":
 			if in.IsNull() {
 				in.Skip()
@@ -1830,6 +1836,12 @@ func easyjsonB229cf53DecodeTractoInternalModel4(in *jlexer.Lexer, out *AppSettin
 				} else {
 					out.PreviewMaxMB = int(in.Int())
 				}
+			case "syntax_highlight_max_mb":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.SyntaxHighlightMaxMB = int(in.Int())
+				}
 			case "response_body_padding":
 				if in.IsNull() {
 					in.Skip()
@@ -2120,6 +2132,11 @@ func easyjsonB229cf53EncodeTractoInternalModel4(out *jwriter.Writer, in AppSetti
 		const prefix string = ",\"preview_max_mb\":"
 		out.RawString(prefix)
 		out.Int(int(in.PreviewMaxMB))
+	}
+	{
+		const prefix string = ",\"syntax_highlight_max_mb\":"
+		out.RawString(prefix)
+		out.Int(int(in.SyntaxHighlightMaxMB))
 	}
 	{
 		const prefix string = ",\"response_body_padding\":"

@@ -15,6 +15,7 @@ var (
 	DefaultHeaders        []model.DefaultHeader
 	JSONIndent            = 2
 	PreviewMaxMB          = 100
+	SyntaxHighlightMaxMB  = 100
 	RespBodyPad           = unit.Dp(4)
 	DefaultMethod         = "GET"
 	DefaultSplitRatio     = float32(0.5)

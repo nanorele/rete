@@ -1514,16 +1514,26 @@ func (ui *AppUI) closeAllSidebarMenus() {
 	}
 }
 
-func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
-	for {
-		ev, ok := gtx.Event(
-			key.Filter{Name: "S", Required: key.ModShortcut},
-			key.Filter{Name: "W", Required: key.ModShortcut},
-			key.Filter{Name: "F", Required: key.ModShortcut},
+func (ui *AppUI) contentKeyFilters() []event.Filter {
+	filters := []event.Filter{
+		key.Filter{Name: "S", Required: key.ModShortcut},
+		key.Filter{Name: "W", Required: key.ModShortcut},
+		key.Filter{Name: "F", Required: key.ModShortcut},
+		key.Filter{Name: key.NameReturn, Required: key.ModShortcut},
+	}
+	if ui.SidebarSection == "flows" {
+		filters = append(filters,
 			key.Filter{Name: "Z", Required: key.ModShortcut},
 			key.Filter{Name: "Y", Required: key.ModShortcut},
-			key.Filter{Name: key.NameReturn, Required: key.ModShortcut},
 		)
+	}
+	return filters
+}
+
+func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
+	contentFilters := ui.contentKeyFilters()
+	for {
+		ev, ok := gtx.Event(contentFilters...)
 		if !ok {
 			break
 		}

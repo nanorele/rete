@@ -46,7 +46,7 @@ func easyjson59dfaf49DecodeTractoInternalModel(in *jlexer.Lexer, out *ExtEnviron
 				in.Delim('[')
 				if out.Values == nil {
 					if !in.IsDelim(']') {
-						out.Values = make([]ExtEnvVar, 0, 1)
+						out.Values = make([]ExtEnvVar, 0, 2)
 					} else {
 						out.Values = []ExtEnvVar{}
 					}
@@ -87,7 +87,7 @@ func easyjson59dfaf49DecodeTractoInternalModel(in *jlexer.Lexer, out *ExtEnviron
 					in.Delim('[')
 					if out.Values == nil {
 						if !in.IsDelim(']') {
-							out.Values = make([]ExtEnvVar, 0, 1)
+							out.Values = make([]ExtEnvVar, 0, 2)
 						} else {
 							out.Values = []ExtEnvVar{}
 						}
