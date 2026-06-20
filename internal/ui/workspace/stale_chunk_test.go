@@ -33,14 +33,12 @@ func TestLayoutDropsStaleAppendChunk(t *testing.T) {
 	curID := tab.requestID.Load()
 	tab.RespEditor.SetText("")
 
-	// Stale chunk from a previous request must be ignored.
 	tab.appendChan <- appendChunk{requestID: curID - 1, text: "STALE"}
 	tab.Layout(gtx, th, win, nil, nil, false, func() {}, func(*collections.ParsedCollection) {})
 	if got := tab.RespEditor.Text(); got != "" {
 		t.Fatalf("stale chunk was applied: %q", got)
 	}
 
-	// Current chunk must be appended.
 	tab.appendChan <- appendChunk{requestID: curID, text: "FRESH"}
 	tab.Layout(gtx, th, win, nil, nil, false, func() {}, func(*collections.ParsedCollection) {})
 	if got := tab.RespEditor.Text(); got != "FRESH" {

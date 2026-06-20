@@ -42,7 +42,6 @@ func TestCloneNodeCopiesExamples(t *testing.T) {
 	if len(dup.Request.Examples) != 2 {
 		t.Fatalf("expected 2 examples copied, got %d", len(dup.Request.Examples))
 	}
-	// Ensure it's an independent slice.
 	dup.Request.Examples[0].Name = "changed"
 	if node.Request.Examples[0].Name != "ex1" {
 		t.Error("clone shares Examples backing array with original")

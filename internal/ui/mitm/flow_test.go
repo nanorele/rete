@@ -15,7 +15,6 @@ func TestStoreCapsFlowCount(t *testing.T) {
 	if len(meta) != MaxFlows {
 		t.Fatalf("SnapshotMeta len=%d, want %d", len(meta), MaxFlows)
 	}
-	// Oldest flows must have been dropped: ID 1..500 gone, newest kept.
 	first := meta[0]
 	if first.ID <= 500 {
 		t.Errorf("oldest flow not evicted, first ID=%d", first.ID)

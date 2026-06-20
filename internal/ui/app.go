@@ -109,6 +109,7 @@ type AppUI struct {
 
 	envRowH         int
 	colRowH         int
+	stickyBandH     int
 	colRowYs        map[int]int
 	colAfterLastY   int
 	SidebarEnvDrag  gesture.Drag
@@ -346,10 +347,6 @@ func NewAppUI() *AppUI {
 
 	var fonts []font.FontFace
 
-	// loadTextFont strips emoji-property codepoints from a TTF before
-	// parsing so the gio shaper's per-rune face resolver never picks Inter
-	// or JBM for a glyph that should render as color emoji. Digits, '#',
-	// '*' are preserved (see fontsubset.IsEmojiCodepoint).
 	loadTextFont := func(name string) (opentype.Face, bool) {
 		b, err := loadEmbeddedTTF(name)
 		if err != nil {
@@ -400,7 +397,6 @@ func NewAppUI() *AppUI {
 	addJBM("JetBrainsMono-Italic.ttf", font.Italic, font.Normal)
 	addJBM("JetBrainsMono-BoldItalic.ttf", font.Italic, font.Bold)
 
-	// NotoColorEmoji loads unmodified — it owns all emoji glyphs.
 	if b, err := loadEmbeddedTTF("NotoColorEmoji.ttf"); err == nil {
 		if face, perr := opentype.Parse(b); perr == nil {
 			fonts = append(fonts, font.FontFace{Font: face.Font(), Face: face})
@@ -955,9 +951,6 @@ func (ui *AppUI) saveState() {
 	}
 }
 
-// flushSaveState coalesces rapid saveState() calls (e.g. a burst of keystrokes
-// in settings) so the full state snapshot — which copies every tab's request
-// body — is marshalled at most once per debounce window instead of every frame.
 func (ui *AppUI) flushSaveState() {
 	if !ui.saveNeeded {
 		return
@@ -1071,9 +1064,6 @@ func (ui *AppUI) flushCollectionSaves() {
 	}()
 }
 
-// saveEnvironmentAsync serializes env on the calling (UI) goroutine and writes
-// it to disk in the background, so a slow fsync never stalls a frame. Writes
-// for the same file are serialized via envSaveMu.
 func (ui *AppUI) saveEnvironmentAsync(env *model.ParsedEnvironment) {
 	if env == nil {
 		return

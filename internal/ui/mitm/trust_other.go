@@ -4,9 +4,6 @@ package mitm
 
 import "errors"
 
-// SetTrustRefreshNotify is a no-op off Windows: trust-store checks there are
-// synchronous (TrustInstalled always reports false), so there is no async
-// result to notify the UI about.
 func SetTrustRefreshNotify(func()) {}
 
 func InstallTrust(certPath string) error {

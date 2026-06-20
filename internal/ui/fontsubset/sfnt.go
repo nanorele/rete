@@ -8,8 +8,8 @@ import (
 )
 
 const (
-	tagCmap uint32 = 0x636d6170 // 'cmap'
-	tagHead uint32 = 0x68656164 // 'head'
+	tagCmap uint32 = 0x636d6170
+	tagHead uint32 = 0x68656164
 )
 
 type sfntTable struct {
@@ -28,9 +28,9 @@ func parseSFNT(b []byte) (*sfntFile, error) {
 	}
 	version := binary.BigEndian.Uint32(b[0:4])
 	switch version {
-	case 0x00010000, // TrueType
-		0x4F54544F, // 'OTTO' — CFF
-		0x74727565: // 'true' — old TrueType
+	case 0x00010000,
+		0x4F54544F,
+		0x74727565:
 	default:
 		return nil, fmt.Errorf("sfnt: unsupported version 0x%08x", version)
 	}
@@ -87,7 +87,6 @@ func (f *sfntFile) serialize() ([]byte, error) {
 	for i, tag := range tags {
 		entry := 12 + i*16
 		binary.BigEndian.PutUint32(out[entry:entry+4], tag)
-		// checksum filled in second pass
 		binary.BigEndian.PutUint32(out[entry+8:entry+12], offsets[tag])
 		binary.BigEndian.PutUint32(out[entry+12:entry+16], uint32(len(f.tables[tag].data)))
 	}
@@ -96,8 +95,6 @@ func (f *sfntFile) serialize() ([]byte, error) {
 		copy(out[offsets[tag]:], f.tables[tag].data)
 	}
 
-	// Per spec: zero out head.checkSumAdjustment, compute per-table checksums
-	// and whole-file checksum, then set adjustment.
 	headOff, headPresent := offsets[tagHead]
 	if headPresent && len(f.tables[tagHead].data) >= 12 {
 		binary.BigEndian.PutUint32(out[headOff+8:headOff+12], 0)
@@ -120,8 +117,6 @@ func (f *sfntFile) serialize() ([]byte, error) {
 	return out, nil
 }
 
-// tableChecksum sums b as big-endian uint32s, zero-padding the tail to
-// the next 4-byte boundary if needed.
 func tableChecksum(b []byte) uint32 {
 	var sum uint32
 	full := len(b) / 4

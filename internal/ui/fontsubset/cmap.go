@@ -12,10 +12,6 @@ type cmapPair struct {
 	glyphID   uint32
 }
 
-// parseUnicodeCmap walks the cmap table and returns every Unicode codepoint
-// that resolves to a non-.notdef glyph. Only format 4 and format 12 Unicode
-// subtables are read. Format 12 entries override format 4 entries for the
-// same codepoint, since format 12 is authoritative for full Unicode.
 func parseUnicodeCmap(data []byte) ([]cmapPair, error) {
 	if len(data) < 4 {
 		return nil, errors.New("cmap: header truncated")
@@ -86,9 +82,9 @@ func parseUnicodeCmap(data []byte) ([]cmapPair, error) {
 
 func isUnicodeEncoding(platformID, encodingID uint16) bool {
 	switch platformID {
-	case 0: // Unicode platform — any encoding
+	case 0:
 		return true
-	case 3: // Windows
+	case 3:
 		return encodingID == 1 || encodingID == 10
 	}
 	return false
@@ -108,7 +104,7 @@ func parseFormat4(sub []byte, out map[rune]uint32) error {
 	}
 	const headerBytes = 14
 	endCodeOff := headerBytes
-	startCodeOff := endCodeOff + segCount*2 + 2 // +2 for reservedPad
+	startCodeOff := endCodeOff + segCount*2 + 2
 	idDeltaOff := startCodeOff + segCount*2
 	idRangeOffsetOff := idDeltaOff + segCount*2
 	if idRangeOffsetOff+segCount*2 > length {
@@ -121,8 +117,6 @@ func parseFormat4(sub []byte, out map[rune]uint32) error {
 		idDelta := int16(binary.BigEndian.Uint16(sub[idDeltaOff+i*2:]))
 		idRangeOffset := binary.BigEndian.Uint16(sub[idRangeOffsetOff+i*2:])
 
-		// The last segment per spec is the sentinel [0xFFFF, 0xFFFF] with
-		// idDelta=1. Skip it — U+FFFF is non-character anyway.
 		if startCode == 0xFFFF && endCode == 0xFFFF {
 			continue
 		}
@@ -132,15 +126,12 @@ func parseFormat4(sub []byte, out map[rune]uint32) error {
 			if idRangeOffset == 0 {
 				glyph = uint32(uint16(int32(c) + int32(idDelta)))
 			} else {
-				// Address of glyphIdArray entry, relative to the
-				// idRangeOffset[i] slot itself.
 				ptr := idRangeOffsetOff + i*2 + int(idRangeOffset) + int(c-uint32(startCode))*2
 				if ptr+2 > length {
 					continue
 				}
 				raw := binary.BigEndian.Uint16(sub[ptr:])
 				if raw == 0 {
-					// .notdef even before idDelta
 					continue
 				}
 				glyph = uint32(uint16(int32(raw) + int32(idDelta)))
@@ -177,11 +168,6 @@ func parseFormat12(sub []byte, out map[rune]uint32) error {
 	return nil
 }
 
-// buildFormat12Cmap emits a complete cmap table containing exactly one
-// subtable in format 12 ("Segmented coverage"), registered under both
-// Unicode platform (0, 4) and Windows full-Unicode platform (3, 10).
-// Consecutive codepoints with consecutive glyph IDs are coalesced into a
-// single SequentialMapGroup to minimise size.
 func buildFormat12Cmap(pairs []cmapPair) []byte {
 	sort.Slice(pairs, func(i, j int) bool { return pairs[i].codepoint < pairs[j].codepoint })
 
@@ -200,7 +186,7 @@ func buildFormat12Cmap(pairs []cmapPair) []byte {
 	}
 
 	const (
-		cmapHeader         = 4 // version + numTables
+		cmapHeader         = 4
 		encodingRecBytes   = 8
 		fmt12HeaderBytes   = 16
 		fmt12GroupBytes    = 12
@@ -213,26 +199,23 @@ func buildFormat12Cmap(pairs []cmapPair) []byte {
 
 	out := make([]byte, totalLen)
 
-	binary.BigEndian.PutUint16(out[0:2], 0)                  // version
-	binary.BigEndian.PutUint16(out[2:4], numEncodingRecords) // numTables
+	binary.BigEndian.PutUint16(out[0:2], 0)
+	binary.BigEndian.PutUint16(out[2:4], numEncodingRecords)
 
-	// (platformID=0, encodingID=4) Unicode 2.0+ full repertoire
 	binary.BigEndian.PutUint16(out[4:6], 0)
 	binary.BigEndian.PutUint16(out[6:8], 4)
 	binary.BigEndian.PutUint32(out[8:12], subOffset)
 
-	// (platformID=3, encodingID=10) Windows full Unicode (UCS-4)
 	binary.BigEndian.PutUint16(out[12:14], 3)
 	binary.BigEndian.PutUint16(out[14:16], 10)
 	binary.BigEndian.PutUint32(out[16:20], subOffset)
 
-	// Format 12 subtable
 	o := int(subOffset)
-	binary.BigEndian.PutUint16(out[o:o+2], 12)                      // format
-	binary.BigEndian.PutUint16(out[o+2:o+4], 0)                     // reserved
-	binary.BigEndian.PutUint32(out[o+4:o+8], subLen)                // length
-	binary.BigEndian.PutUint32(out[o+8:o+12], 0)                    // language
-	binary.BigEndian.PutUint32(out[o+12:o+16], uint32(len(groups))) // numGroups
+	binary.BigEndian.PutUint16(out[o:o+2], 12)
+	binary.BigEndian.PutUint16(out[o+2:o+4], 0)
+	binary.BigEndian.PutUint32(out[o+4:o+8], subLen)
+	binary.BigEndian.PutUint32(out[o+8:o+12], 0)
+	binary.BigEndian.PutUint32(out[o+12:o+16], uint32(len(groups)))
 
 	for i, g := range groups {
 		gOff := o + fmt12HeaderBytes + i*fmt12GroupBytes

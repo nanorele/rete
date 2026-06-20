@@ -25,8 +25,6 @@ func linkedTab(method, url, body string, bodyType model.BodyType) *RequestTab {
 }
 
 func TestCheckDirtyCleanWithCJKBody(t *testing.T) {
-	// Body with multi-byte runes: byte length != rune count. The old check
-	// compared bytes to rune count and falsely marked this dirty.
 	tab := linkedTab("POST", "http://例え.test/路径", "本文ボディ", model.BodyRaw)
 	tab.checkDirty()
 	if tab.IsDirty {
@@ -36,7 +34,7 @@ func TestCheckDirtyCleanWithCJKBody(t *testing.T) {
 
 func TestCheckDirtyDetectsBodyEdit(t *testing.T) {
 	tab := linkedTab("POST", "http://x.test", "AAAA", model.BodyRaw)
-	tab.ReqEditor.SetText("BBBB") // same byte length, different content
+	tab.ReqEditor.SetText("BBBB")
 	tab.checkDirty()
 	if !tab.IsDirty {
 		t.Error("same-length body edit not detected as dirty")

@@ -44,6 +44,7 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 		DragEnvActive:   &ui.DragEnvActive,
 
 		ColRowH:       &ui.colRowH,
+		StickyBandH:   &ui.stickyBandH,
 		EnvRowH:       &ui.envRowH,
 		ColRowYs:      &ui.colRowYs,
 		ColAfterLastY: &ui.colAfterLastY,

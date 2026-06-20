@@ -126,6 +126,7 @@ func newTestHost() (*Host, func()) {
 		DragEnvActive:   &dragEnvActive,
 
 		ColRowH:       &colRowH,
+		StickyBandH:   new(int),
 		EnvRowH:       &envRowH,
 		ColRowYs:      &colRowYs,
 		ColAfterLastY: &colAfterLastY,

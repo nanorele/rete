@@ -86,7 +86,6 @@ func TestRealLayoutEnvHoverScroll(t *testing.T) {
 	}
 
 	frame()
-	// calibrate: sweep Y to find a coordinate that hovers an env row
 	hitY := -1
 	for y := 0; y < 240; y += 4 {
 		r.Queue(pointer.Event{Kind: pointer.Move, Position: f32.Pt(110, float32(y)), Source: pointer.Mouse})
@@ -108,9 +107,6 @@ func TestRealLayoutEnvHoverScroll(t *testing.T) {
 	}
 	dump("after hover")
 
-	// Drive virtualization directly: advance the first visible index while the
-	// cursor stays put. The router's frame-time re-hit-test sees a different row
-	// under p.last each frame — the real wheel-scroll condition.
 	for s := 1; s <= 12; s++ {
 		host.EnvList.Position.First = s
 		host.EnvList.Position.Offset = 0

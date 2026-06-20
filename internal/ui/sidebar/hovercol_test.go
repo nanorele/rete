@@ -84,7 +84,7 @@ func TestRealLayoutColHoverScroll(t *testing.T) {
 		return len(idxs)
 	}
 
-	host.ColList.Position.First = 1 // show a request node (index 0 is the tall root header)
+	host.ColList.Position.First = 1
 	frame()
 	hitY := -1
 	for y := 0; y < 240; y += 3 {

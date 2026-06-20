@@ -23,9 +23,6 @@ var (
 	trustNotify   func()
 )
 
-// SetTrustRefreshNotify registers a callback invoked (from a background
-// goroutine) whenever an async trust-store check finishes, so the UI can
-// repaint with the refreshed value.
 func SetTrustRefreshNotify(fn func()) {
 	trustMu.Lock()
 	trustNotify = fn
@@ -67,9 +64,6 @@ func UninstallTrust() error {
 	return nil
 }
 
-// TrustInstalled never blocks the caller. It returns the last cached value
-// immediately and, when the cache is stale or missing, kicks off a single
-// background certutil probe whose result is published via trustNotify.
 func TrustInstalled() bool {
 	trustMu.Lock()
 	fresh := trustKnown && time.Since(trustChecked) < trustInstalledTTL

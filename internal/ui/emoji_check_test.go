@@ -29,12 +29,6 @@ func TestEmojiFontMetadata(t *testing.T) {
 	}
 }
 
-// buildShaper mirrors the registration order in NewAppUI:
-//
-//	[Inter Regular, Inter Bold, JBM-Regular..BoldItalic, NotoColorEmoji].
-//
-// System fonts are disabled — only embedded faces participate, matching
-// the production shaper configuration.
 func buildShaper(t *testing.T) (*text.Shaper, []string) {
 	var fonts []font.FontFace
 	var faceNames []string
@@ -106,7 +100,6 @@ func faceIdxFromGlyph(id uint64) int {
 	return int(id >> (gidbits + sizebits))
 }
 
-// Face indices in the production order from NewAppUI / buildShaper.
 const (
 	interRegularIdx = 0
 	interBoldIdx    = 1
@@ -124,8 +117,6 @@ func TestEmojiShapingPureEmojisUseEmojiFont(t *testing.T) {
 		t.Logf("  face[%d] = %s", i, n)
 	}
 
-	// "Pure" emojis — supplementary plane characters Inter does NOT cover,
-	// so they MUST resolve through NotoColorEmoji.
 	cases := []struct {
 		name string
 		s    string
@@ -192,9 +183,6 @@ func TestEmojiShapingPureEmojisUseEmojiFont(t *testing.T) {
 	}
 }
 
-// TestDigitsAndTextStayInTextFont guarantees ordinary text — digits,
-// punctuation, Latin/Cyrillic letters — keeps using Inter / JetBrains Mono,
-// not NotoColorEmoji (whose cmap includes keycap-base codepoints like 0-9).
 func TestDigitsAndTextStayInTextFont(t *testing.T) {
 	shaper, faceNames := buildShaper(t)
 	cases := []struct {
@@ -247,10 +235,6 @@ func TestDigitsAndTextStayInTextFont(t *testing.T) {
 	}
 }
 
-// TestDualUseBMPEmojiNowGoToEmojiFont covers BMP codepoints that used to
-// leak through Inter / JBM (they had monochrome glyphs for ❤ ⚠ ☀ ⚡ ⬜ etc.).
-// After subsetting those text fonts, the resolver must fall through to
-// NotoColorEmoji.
 func TestDualUseBMPEmojiNowGoToEmojiFont(t *testing.T) {
 	shaper, faceNames := buildShaper(t)
 	cases := []struct {

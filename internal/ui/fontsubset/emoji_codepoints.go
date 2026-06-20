@@ -1,14 +1,5 @@
 package fontsubset
 
-// emojiRanges enumerates inclusive [start, end] codepoint ranges carrying the
-// Unicode 15.1 Emoji property (UCD emoji-data.txt), with three deliberate
-// omissions kept as plain text characters:
-//
-//	U+0023 '#', U+002A '*', U+0030..U+0039 '0'..'9'.
-//
-// Those are keycap-base codepoints whose dominant use is text. Without
-// cluster-aware shaping we cannot distinguish a bare digit from a keycap
-// sequence, so we err toward "text font wins".
 var emojiRanges = [...][2]rune{
 	{0x00A9, 0x00A9},
 	{0x00AE, 0x00AE},
@@ -162,8 +153,6 @@ var emojiRanges = [...][2]rune{
 	{0x1FAF0, 0x1FAF8},
 }
 
-// IsEmojiCodepoint reports whether r should be stripped from a text font.
-// Always false for '#', '*', '0'..'9' so those remain available as text.
 func IsEmojiCodepoint(r rune) bool {
 	if r == '#' || r == '*' || (r >= '0' && r <= '9') {
 		return false

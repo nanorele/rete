@@ -89,6 +89,22 @@ func collectionMethodSet(n *collections.CollectionNode, set map[string]bool) {
 	}
 }
 
+var DebugSticky func(first int, names []string)
+
+var DebugBand func(reserve, fullBandH int)
+
+// DebugBandSolid reports the OPAQUE contiguous band height (the filled background),
+// which is <= the full band height while a folder header is still sliding in/out
+// over its own real row (the gap between them is transparent). Used by tests that
+// verify the band never paints an opaque "empty space" region.
+var DebugBandSolid func(solidH int)
+
+// DebugBandGeom reports the actually-drawn band lines (names and their rendered Y
+// top positions) and the band bottom. Unlike DebugSticky (which reports only the
+// logical reach-up chain), this includes the incoming folder rendered sliding into
+// a slot during a seamless transition. Tests use it to verify band geometry.
+var DebugBandGeom func(names []string, ys []int, bottom int)
+
 func recalcDepth(node *collections.CollectionNode, depth int) {
 	if node == nil {
 		return
@@ -1120,178 +1136,405 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		return dim
 	}
 
-	// stickyHeaders pins the collection name and the parent folders of the
-	// topmost visible node in a separate region directly above the Collections
-	// list (VS Code behaviour). Living above the list rather than overlaying it
-	// keeps the first list row fully visible and lets the rows be plain opaque
-	// clickables without disturbing list-row hover.
+	// stickySolidH carries the OPAQUE contiguous band height (filled background)
+	// out to colsArea's DebugBand call, distinct from *host.StickyBandH which is the
+	// FULL band height (down to a still-rising entering/leaving header). They differ
+	// only mid-transition; the gap between them is transparent (real rows show).
+	stickySolidH := 0
 	stickyHeaders := func(gtx layout.Context) layout.Dimensions {
+		host.StickyRows = host.StickyRows[:0]
+		*host.StickyBandH = 0
+		stickySolidH = 0
+
 		snap := *host.VisibleCols
 		first := host.ColList.Position.First
 		if first < 0 || first >= len(snap) {
 			return layout.Dimensions{}
 		}
-		var anc []*collections.CollectionNode
-		for p := snap[first].Parent; p != nil; p = p.Parent {
-			anc = append(anc, p)
-		}
-		if len(anc) == 0 {
-			return layout.Dimensions{}
-		}
-		for a, b := 0, len(anc)-1; a < b; a, b = a+1, b-1 {
-			anc[a], anc[b] = anc[b], anc[a]
-		}
-		if approxH := gtx.Dp(unit.Dp(24)); approxH > 0 {
-			if maxRows := gtx.Constraints.Max.Y/approxH - 2; maxRows >= 1 && len(anc) > maxRows {
-				anc = anc[:maxRows]
+		// Overlay model: the band is painted ON TOP of the list (the list is NOT
+		// offset by it — see colsArea), so content scrolls 1:1 and the number of
+		// pinned rows never moves it. Because the band COVERS the top rows, the
+		// pinned chain must be the ancestors of the first row that is NOT covered
+		// (the first row the user actually sees below the band), not of snap[First]
+		// which is hidden underneath — else the band lags by the covered rows. The
+		// uncovered row (`target`) is found below, once the row height is known.
+		ancestorsOf := func(n *collections.CollectionNode) []*collections.CollectionNode {
+			var a []*collections.CollectionNode
+			for p := n.Parent; p != nil; p = p.Parent {
+				a = append(a, p)
 			}
-		}
-		idxOf := make(map[*collections.CollectionNode]int, len(snap))
-		for i, n := range snap {
-			idxOf[n] = i
-		}
-		for _, a := range anc {
-			if a.StickyArmed && (host.ColList.Position.First != a.StickyArmedFirst || host.ColList.Position.Offset != a.StickyArmedOffset) {
-				a.StickyArmed = false
+			for i, j := 0, len(a)-1; i < j; i, j = i+1, j-1 {
+				a[i], a[j] = a[j], a[i]
 			}
-			if a.StickyClick.Clicked(gtx) {
-				if a.StickyArmed {
-					a.Expanded = !a.Expanded
-					if !a.Expanded {
-						a.ResetSubtreeHover()
-					}
-					if idx, ok := idxOf[a]; ok {
-						host.ColList.Position.First = idx
-						host.ColList.Position.Offset = 0
-					}
-					a.StickyArmed = false
-					host.UpdateVisibleCols()
-					host.Window.Invalidate()
-				} else if idx, ok := idxOf[a]; ok && idx+1 < len(snap) {
-					host.ColList.Position.First = idx + 1
-					host.ColList.Position.Offset = 0
-					a.StickyArmed = true
-					a.StickyArmedFirst = idx + 1
-					a.StickyArmedOffset = 0
-					host.Window.Invalidate()
-				}
-			}
-			// Opening a sticky folder's menu scrolls it to the top of the list so
-			// its row (now visible) renders the menu and handles every action via
-			// the normal list path. The folder barely moves: it lands right below
-			// its remaining sticky ancestors, where its sticky row already sat.
-			if a.StickyMenuBtn.Clicked(gtx) {
-				for _, n := range snap {
-					n.MenuOpen = false
-				}
-				a.MenuOpen = true
-				if idx, ok := idxOf[a]; ok {
-					host.ColList.Position.First = idx
-					host.ColList.Position.Offset = 0
-				}
-				host.Window.Invalidate()
-			}
+			return a
 		}
+
 		w := gtx.Constraints.Max.X
 		indent := gtx.Dp(unit.Dp(12))
 		guideW := max(1, gtx.Dp(unit.Dp(1)))
 		goff := gtx.Dp(unit.Dp(7))
 		fade := host.ColsBodyFade.Value()
-		children := make([]layout.FlexChild, 0, len(anc)+1)
-		for _, node := range anc {
-			node := node
-			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Min.X = w
-				gtx.Constraints.Max.X = w
-				return material.Clickable(gtx, &node.StickyClick, func(gtx layout.Context) layout.Dimensions {
-					return layout.Stack{}.Layout(gtx,
-						layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-							size := gtx.Constraints.Min
-							bg := theme.BgDark
-							if node.StickyClick.Hovered() {
-								bg = theme.BgHover
+
+		renderRow := func(gtx layout.Context, node *collections.CollectionNode) layout.Dimensions {
+			gtx.Constraints.Min.X = w
+			gtx.Constraints.Max.X = w
+			return layout.Stack{}.Layout(gtx,
+				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+					size := gtx.Constraints.Min
+					paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: size}.Op())
+					if node.Depth > 0 && fade > 0 {
+						gc := theme.BorderSubtle
+						gc.A = uint8(float32(gc.A) * fade)
+						for dd := 0; dd < node.Depth; dd++ {
+							x := dd*indent + goff
+							if x+guideW > size.X {
+								break
 							}
-							paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
-							if node.Depth > 0 && fade > 0 {
-								gc := theme.BorderSubtle
-								if node.StickyClick.Hovered() {
-									gc = theme.FgDisabled
+							paint.FillShape(gtx.Ops, gc, clip.Rect{Min: image.Pt(x, 0), Max: image.Pt(x+guideW, size.Y)}.Op())
+						}
+					}
+					return layout.Dimensions{Size: size}
+				}),
+				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Min.X = w
+					leftDp := float32(node.Depth * 12)
+					return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(leftDp), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								isz := gtx.Dp(unit.Dp(14))
+								gtx.Constraints.Min = image.Pt(isz, isz)
+								gtx.Constraints.Max = gtx.Constraints.Min
+								return widgets.IconChevronD.Layout(gtx, theme.FgMuted)
+							}),
+							layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+								lbl := material.Label(host.Theme, unit.Sp(12), node.Name)
+								lbl.MaxLines = 1
+								lbl.Truncator = "…"
+								lbl.LineHeightScale = 1.0
+								if node.Depth == 0 {
+									lbl.Font.Weight = font.Bold
 								}
-								gc.A = uint8(float32(gc.A) * fade)
-								for dd := 0; dd < node.Depth; dd++ {
-									x := dd*indent + goff
-									if x+guideW > size.X {
-										break
-									}
-									paint.FillShape(gtx.Ops, gc, clip.Rect{Min: image.Pt(x, 0), Max: image.Pt(x+guideW, size.Y)}.Op())
-								}
-							}
-							pointer.CursorPointer.Add(gtx.Ops)
-							return layout.Dimensions{Size: size}
-						}),
-						layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-							gtx.Constraints.Min.X = w
-							leftDp := float32(node.Depth * 12)
-							return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(leftDp), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										isz := gtx.Dp(unit.Dp(14))
-										gtx.Constraints.Min = image.Pt(isz, isz)
-										gtx.Constraints.Max = gtx.Constraints.Min
-										return widgets.IconChevronD.Layout(gtx, theme.FgMuted)
-									}),
-									layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
-									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-										lbl := material.Label(host.Theme, unit.Sp(12), node.Name)
-										lbl.MaxLines = 1
-										lbl.Truncator = "…"
-										lbl.LineHeightScale = 1.0
-										if node.Depth == 0 {
-											lbl.Font.Weight = font.Bold
-										}
-										return lbl.Layout(gtx)
-									}),
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										return material.Clickable(gtx, &node.StickyMenuBtn, func(gtx layout.Context) layout.Dimensions {
-											bw := gtx.Dp(unit.Dp(18))
-											bh := gtx.Dp(unit.Dp(16))
-											gtx.Constraints.Min = image.Pt(bw, bh)
-											gtx.Constraints.Max = gtx.Constraints.Min
-											iconCol := theme.FgMuted
-											if node.StickyMenuBtn.Hovered() {
-												iconCol = host.Theme.Fg
-											}
-											iconCol.A = uint8(float32(iconCol.A) * fade)
-											return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-												isz := gtx.Dp(unit.Dp(14))
-												gtx.Constraints.Min = image.Pt(isz, isz)
-												gtx.Constraints.Max = gtx.Constraints.Min
-												return widgets.IconMore.Layout(gtx, iconCol)
-											})
-										})
-									}),
-								)
-							})
-						}),
-					)
-				})
-			}))
+								return lbl.Layout(gtx)
+							}),
+							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+								bw := gtx.Dp(unit.Dp(18))
+								bh := gtx.Dp(unit.Dp(16))
+								gtx.Constraints.Min = image.Pt(bw, bh)
+								gtx.Constraints.Max = gtx.Constraints.Min
+								iconCol := theme.FgMuted
+								iconCol.A = uint8(float32(iconCol.A) * fade)
+								return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									isz := gtx.Dp(unit.Dp(14))
+									gtx.Constraints.Min = image.Pt(isz, isz)
+									gtx.Constraints.Max = gtx.Constraints.Min
+									return widgets.IconMore.Layout(gtx, iconCol)
+								})
+							}),
+						)
+					})
+				}),
+			)
 		}
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			h := max(1, gtx.Dp(unit.Dp(1)))
-			paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Max: image.Pt(w, h)}.Op())
-			return layout.Dimensions{Size: image.Pt(w, h)}
-		}))
-		dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
-		// Treat the sticky region as part of the Collections block so the guide
-		// lines, scrollbar and menu buttons stay revealed while the cursor is over
-		// it (pass-through so the clickable rows still receive their events).
+
+		maxRows := gtx.Constraints.Max.Y/max(1, gtx.Dp(unit.Dp(24))) - 2
+
+		// bandFor returns the rows that should be pinned if `i` is the first row the
+		// overlay does NOT hide: its ancestors, plus `i` itself when it is a folder
+		// you are scrolling into (its header is covered, but its children show under
+		// the band, so it must be pinned — otherwise the band lags by one).
+		bandFor := func(i int) []*collections.CollectionNode {
+			a := ancestorsOf(snap[i])
+			n := snap[i]
+			if (n.IsFolder || n.Depth == 0) && n.Expanded &&
+				i+1 < len(snap) && snap[i+1].Parent == n {
+				a = append(a, n)
+			}
+			return a
+		}
+		// Row height of a single band row (uniform, single-line) for sizing.
+		borderH := max(1, gtx.Dp(unit.Dp(1)))
+		mgtx := gtx
+		mgtx.Constraints.Min.Y = 0
+		mrec := op.Record(gtx.Ops)
+		bandRowH := renderRow(mgtx, snap[first]).Size.Y
+		mrec.Stop()
+		if bandRowH <= 0 {
+			bandRowH = gtx.Dp(unit.Dp(24))
+		}
+		listRowH := func(i int) int {
+			if i >= 0 && i < len(snap) {
+				if h := snap[i].RowHeightPx; h > 0 {
+					return h
+				}
+			}
+			if host.ColRowH != nil && *host.ColRowH > 0 {
+				return *host.ColRowH
+			}
+			return gtx.Dp(unit.Dp(24))
+		}
+		offset := host.ColList.Position.Offset
+		isAncestorOrSelf := func(a, n *collections.CollectionNode) bool {
+			for p := n; p != nil; p = p.Parent {
+				if p == a {
+					return true
+				}
+			}
+			return false
+		}
+
+		// VS Code reach-UP sticky model. The pinned chain is the ancestor chain of
+		// the TOP row (`first`) — the scope the user is actually inside — NOT a row
+		// found by looking DOWN past the band. Looking down made the band jump ahead
+		// into the next sibling/subfolder and cover it (e.g. pinning "Получение
+		// файлов" and covering "Очереди" while the top row was still in the previous
+		// subfolder). bandFor includes `first` itself when it is a folder being
+		// entered (its header is at the top, its children show below), so the band
+		// never lags the content by one row.
+		chain := bandFor(first)
+		if len(chain) == 0 {
+			return layout.Dimensions{}
+		}
+		if maxRows >= 1 && len(chain) > maxRows {
+			chain = chain[len(chain)-maxRows:]
+		}
+		m := len(chain)
+
+		// screenAt = the real (overlay) top Y of the row at any visible index (the
+		// list is not offset by the band, so this is just the scroll geometry).
+		screenAt := func(idx int) int {
+			y := -offset
+			if idx >= first {
+				for j := first; j < idx; j++ {
+					y += listRowH(j)
+				}
+			} else {
+				for j := idx; j < first; j++ {
+					y -= listRowH(j)
+				}
+			}
+			return y
+		}
+		idxOf := func(n *collections.CollectionNode) int {
+			for i := 0; i < len(snap); i++ {
+				if snap[i] == n {
+					return i
+				}
+			}
+			return -1
+		}
+		// endYAbs = the screen Y where folder c's subtree ends (the top of the first
+		// row after c's subtree), independent of `first`. found is false when the
+		// subtree runs to the end of the list — there is no next section, so c is not
+		// pushed out (it stays pinned at the bottom).
+		endYAbs := func(c *collections.CollectionNode) (int, bool) {
+			i := idxOf(c)
+			if i < 0 {
+				return 0, false
+			}
+			for i < len(snap) && isAncestorOrSelf(c, snap[i]) {
+				i++
+			}
+			if i >= len(snap) {
+				return screenAt(i), false
+			}
+			return screenAt(i), true
+		}
+		// place = the Y at which folder F sits when pinned at slot s (VS Code): it
+		// rides its real row until that row reaches the docked slot (s*bandRowH) where
+		// it sticks (entering slide-in, no duplicate — while riding the pinned copy
+		// sits over the real row; once docked the real row is hidden behind the lines
+		// above). When F's own scope ends, the next section's boundary row pushes it up
+		// and out (leaving slide-out). Both fall out of one clamp.
+		place := func(F *collections.CollectionNode, s int) int {
+			dock := s * bandRowH
+			y := screenAt(idxOf(F))
+			if y < dock {
+				y = dock
+			}
+			if e, found := endYAbs(F); found {
+				if ceil := e - bandRowH; y > ceil {
+					y = ceil
+				}
+			}
+			return y
+		}
+
+		// Reported (logical) pinned chain — the reach-up ancestor chain (the scope the
+		// user is inside). The incoming folder rendered below for a seamless transition
+		// is VISUAL ONLY and is not reported, so the band never *claims* to pin a
+		// folder the top row is not inside (the "covers the next sibling" bug).
+		host.StickyRows = append(host.StickyRows[:0], chain...)
+		if DebugSticky != nil {
+			names := make([]string, len(chain))
+			for i, a := range chain {
+				names[i] = a.Name
+			}
+			DebugSticky(first, names)
+		}
+
+		// Build the drawn lines: the current chain (each placed/clamped) PLUS the
+		// incoming swap. The incoming = the chain of the NEXT row (first+1). Where it
+		// differs from the current chain at a slot, that folder is taking the slot —
+		// render it rising INTO the slot so the slot is never empty while the outgoing
+		// folder slides out (the root-only gap the user saw between two short folders).
+		// Looking only ONE row ahead, and applying the same scope-end push clamp, keeps
+		// the band from ever covering a sibling header that is further down.
+		type bandLine struct {
+			node *collections.CollectionNode
+			y    int
+			slot int
+		}
+		lines := make([]bandLine, 0, m+2)
+		for k := 0; k < m; k++ {
+			lines = append(lines, bandLine{chain[k], place(chain[k], k), k})
+		}
+		// Look ahead: the chain of the next row, following the descending first-child
+		// folder path so a nested subfolder chain docks together with its parent (no
+		// per-level "lag by one node" for 2nd level and deeper).
+		ni := first + 1
+		if ni >= len(snap) {
+			ni = len(snap) - 1
+		}
+		for ni+1 < len(snap) {
+			n := snap[ni]
+			entered := (n.IsFolder || n.Depth == 0) && n.Expanded
+			child := snap[ni+1]
+			childFolder := (child.IsFolder || child.Depth == 0) && child.Expanded
+			if entered && child.Parent == n && childFolder {
+				ni++
+				continue
+			}
+			break
+		}
+		if next := bandFor(ni); ni > first {
+			if maxRows >= 1 && len(next) > maxRows {
+				next = next[len(next)-maxRows:]
+			}
+			for k := 0; k < len(next); k++ {
+				if k < m && next[k] == chain[k] {
+					continue // stable slot — already drawn
+				}
+				rawY := screenAt(idxOf(next[k]))
+				if rawY > k*bandRowH+bandRowH {
+					continue // not yet risen to within a row of its slot — far off
+				}
+				lines = append(lines, bandLine{next[k], place(next[k], k), k})
+			}
+		}
+
+		// Band bottom = the lowest visible drawn line. Solid (opaque) height = the
+		// contiguous docked stack from the top; below it (a still-rising header, or
+		// pushed-out lines) the gap stays transparent so the real rows show through —
+		// painting it opaque was the "empty space on top" bug.
+		bandBottom := 0
+		for _, ln := range lines {
+			if b := ln.y + bandRowH; b > bandBottom {
+				bandBottom = b
+			}
+		}
+		if bandBottom < 0 {
+			bandBottom = 0
+		}
+		solidH := 0
+		for s := 0; ; s++ {
+			docked := false
+			for _, ln := range lines {
+				if ln.slot == s && ln.y == s*bandRowH {
+					docked = true
+					break
+				}
+			}
+			if !docked {
+				break
+			}
+			solidH = (s + 1) * bandRowH
+		}
+		bandTotalH := bandBottom + borderH
+
+		rg := gtx
+		rg.Constraints.Min.Y = 0
+		// Clip everything to the band region so pushed-out lines vanish at the top
+		// rather than drawing over the list below.
+		bandClip := clip.Rect{Max: image.Pt(w, bandTotalH)}.Push(gtx.Ops)
+		// Opaque background over the contiguous docked stack only.
+		if solidH > 0 {
+			paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: image.Pt(w, solidH)}.Op())
+		}
+		// Draw deepest slot first (and, within a slot, the outgoing line before the
+		// incoming) so outer lines paint on top: a leaving inner line slides up UNDER
+		// its parent and disappears, while the incoming header docks cleanly over it.
+		for s := bandBottom/bandRowH + 1; s >= 0; s-- {
+			for _, ln := range lines {
+				if ln.slot != s {
+					continue
+				}
+				ro := op.Offset(image.Pt(0, ln.y)).Push(gtx.Ops)
+				renderRow(rg, ln.node)
+				ro.Pop()
+			}
+		}
+		// Separator under the band bottom.
+		bo := op.Offset(image.Pt(0, bandBottom)).Push(gtx.Ops)
+		paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Max: image.Pt(w, borderH)}.Op())
+		bo.Pop()
+		bandClip.Pop()
+
+		dims := layout.Dimensions{Size: image.Pt(w, bandTotalH)}
+		*host.StickyBandH = bandTotalH // band height (overlay: informational, not a list offset)
+		stickySolidH = solidH
+		if DebugBandGeom != nil {
+			names := make([]string, len(lines))
+			ys := make([]int, len(lines))
+			for i, ln := range lines {
+				names[i], ys[i] = ln.node.Name, ln.y
+			}
+			DebugBandGeom(names, ys, bandBottom)
+		}
+
+		// The band is a pure-visual overlay: it registers NO opaque pointer area.
+		// In this gio build an opaque hit area inside the on-top band blocks input
+		// to the entire list beneath it (only pass-through ops are safe), so pinned
+		// headers are non-interactive — clicks fall through to the covered row. The
+		// block-hover below is added pass-through purely to keep the body fade alive.
 		sp := pointer.PassOp{}.Push(gtx.Ops)
 		hc := clip.Rect{Max: dims.Size}.Push(gtx.Ops)
 		host.ColsBodyHover.Add(gtx.Ops)
 		hc.Pop()
 		sp.Pop()
 		return dims
+	}
+
+	colsArea := func(gtx layout.Context) layout.Dimensions {
+		total := gtx.Constraints.Max.Y
+
+		// Overlay: the list is laid out at full height and is NOT offset — the
+		// content scrolls 1:1 (no sticky-induced jump, ever). The band is recorded
+		// after the list (so it reads the current Position.First) and painted on
+		// top, occluding the top rows the way VS Code's sticky scroll does.
+		lgtx := gtx
+		lgtx.Constraints.Min.Y = 0
+		lgtx.Constraints.Max.Y = total
+		listMacro := op.Record(gtx.Ops)
+		colsBody(lgtx)
+		listCall := listMacro.Stop()
+
+		bgtx := gtx
+		bgtx.Constraints.Min.Y = 0
+		bandMacro := op.Record(bgtx.Ops)
+		bandDim := stickyHeaders(bgtx)
+		bandCall := bandMacro.Stop()
+
+		listCall.Add(gtx.Ops)
+		bandCall.Add(gtx.Ops)
+
+		if DebugBand != nil {
+			DebugBand(0, bandDim.Size.Y) // overlay: list not offset, so reserve is 0
+		}
+		if DebugBandSolid != nil {
+			DebugBandSolid(stickySolidH)
+		}
+		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, total)}
 	}
 
 	envsHeader := func(gtx layout.Context) layout.Dimensions {
@@ -1924,9 +2167,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		colRowH = gtx.Dp(unit.Dp(24))
 	}
 
-	// `avail` is the space below the Collections header shared by the
-	// Collections, Scripts and Environments bodies. Collections fills whatever
-	// the two sized sections leave behind.
 	avail := gtx.Constraints.Max.Y - gtx.Dp(unit.Dp(81))
 	if avail < scriptRowH+envRowH {
 		avail = scriptRowH + envRowH
@@ -1941,9 +2181,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		envContent = envRowH
 	}
 
-	// Minimum body height of an expanded section: one row stays visible and the
-	// rest scrolls, so a section can always be dragged past its content instead
-	// of bottoming out once its nodes fill the space (VS Code behaviour).
 	scriptsMin, envMin := 0, 0
 	if *host.ScriptsExpanded {
 		scriptsMin = min(scriptRowH, scriptsContent)
@@ -1952,9 +2189,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		envMin = min(envRowH, envContent)
 	}
 
-	// Expanded Collections always keeps at least one node row visible, so the
-	// Scripts and Environments bodies together may claim only `budget` of the
-	// shared space. On a very short window Collections yields this last.
 	colsMin := 0
 	if *host.ColsExpanded {
 		colsMin = colRowH
@@ -1964,8 +2198,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		budget = min(avail, scriptsMin+envMin)
 	}
 
-	// Each section defaults to hugging its content; a stored value (set by
-	// dragging a divider) overrides it.
 	scriptsPx := 0
 	if *host.ScriptsExpanded {
 		scriptsPx = scriptsContent
@@ -1981,8 +2213,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		}
 	}
 
-	// Keep both sections within the shared budget (so Collections keeps its
-	// min). On overflow Scripts yields first, then Environments, down to min.
 	fit := func() {
 		scriptsPx = max(scriptsPx, scriptsMin)
 		envPx = max(envPx, envMin)
@@ -2013,46 +2243,32 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		}
 		return
 	}
-	// Collections|Scripts divider. Dragging down grows Collections: Scripts
-	// shrinks to its min first, then the pressure propagates and Environments
-	// shrinks too. Dragging up grows Scripts, reclaiming height from Collections
-	// until Collections is gone. Returns the pixels the boundary actually moved
-	// (signed, down positive) so the drag can re-anchor against clamping.
 	resizeScripts := func(delta int) int {
-		if delta > 0 { // down: shrink Scripts, then Environments
+		if delta > 0 {
 			delta = min(delta, (scriptsPx-scriptsMin)+(envPx-envMin))
 			ds := min(delta, scriptsPx-scriptsMin)
 			scriptsPx -= ds
 			envPx -= delta - ds
 			return delta
 		}
-		up := min(-delta, budget-scriptsPx-envPx) // up: grow from Collections' slack
+		up := min(-delta, budget-scriptsPx-envPx)
 		scriptsPx += up
 		return -up
 	}
 
-	// Scripts|Environments divider. An Environments resize never hides or
-	// reveals Scripts nodes — it only consumes Scripts' empty space (the gap
-	// under its last node). Dragging up eats that gap first; once it is gone, or
-	// Scripts is already scrolled, Collections gives up the rest so the whole
-	// Scripts section slides up. Dragging down mirrors it, sliding Scripts back
-	// down as Collections grows.
 	resizeEnv := func(delta int) int {
-		if delta < 0 { // up: grow Environments
-			slack := max(0, scriptsPx-scriptsContent) // Scripts' empty space
+		if delta < 0 {
+			slack := max(0, scriptsPx-scriptsContent)
 			up := min(-delta, slack+(budget-scriptsPx-envPx))
 			scriptsPx -= min(up, slack)
 			envPx += up
 			return -up
 		}
-		down := min(delta, envPx-envMin) // down: shrink Environments, slide Scripts down
+		down := min(delta, envPx-envMin)
 		envPx -= down
 		return down
 	}
 
-	// Scripts|Environments divider when Collections is collapsed: Environments
-	// fills the leftover space, so dragging the divider only resizes Scripts
-	// (down grows Scripts and shrinks Environments; up does the reverse).
 	resizeScriptsBottom := func(delta int) int {
 		lo, hi := scriptsMin, budget-envMin
 		want := scriptsPx + delta
@@ -2119,8 +2335,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		}
 		paint.FillShape(gtx.Ops, lineCol, clip.Rect{Max: image.Pt(w, vis)}.Op())
 
-		// Grab area extends upward beyond the 1px layout footprint so the line
-		// stays flush against both sections while remaining easy to grab.
 		hitArea := clip.Rect{Min: image.Pt(0, vis-grab), Max: image.Pt(w, vis)}.Push(gtx.Ops)
 		pointer.CursorRowResize.Add(gtx.Ops)
 		host.ScriptsDrag.Add(gtx.Ops)
@@ -2170,13 +2384,9 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		layout.Rigid(colsHeader),
 	}
 
-	// Environments always sits directly under Scripts. When Collections is
-	// expanded it fills the slack above (pushing Scripts/Environments down);
-	// when Collections is collapsed a spacer at the very bottom takes the slack,
-	// so Environments does not dock to the bottom edge.
 	switch {
 	case *host.ColsExpanded && *host.EnvsExpanded:
-		children = append(children, layout.Rigid(stickyHeaders), layout.Flexed(1, colsBody))
+		children = append(children, layout.Flexed(1, colsArea))
 		children = append(children, scriptsChildren()...)
 		children = append(children,
 			layout.Rigid(envDivider),
@@ -2184,7 +2394,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			envBody,
 		)
 	case *host.ColsExpanded:
-		children = append(children, layout.Rigid(stickyHeaders), layout.Flexed(1, colsBody))
+		children = append(children, layout.Flexed(1, colsArea))
 		children = append(children, scriptsChildren()...)
 		children = append(children,
 			layout.Rigid(borderLine),

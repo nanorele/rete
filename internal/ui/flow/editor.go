@@ -1033,9 +1033,6 @@ func zoomLevelBounds() (int, int) {
 	return lo, hi
 }
 
-// zoomByNotches changes zoom by a fixed number of discrete steps, keeping the
-// point under pt stationary. Zoom levels are powers of zoomStep anchored at 1.0,
-// so stepping always lands exactly on 100% and clamps to the same min/max grid.
 func (ed *Editor) zoomByNotches(pt f32.Point, notches int) {
 	if notches == 0 {
 		return
