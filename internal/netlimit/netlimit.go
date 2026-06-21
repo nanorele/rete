@@ -2,6 +2,7 @@ package netlimit
 
 import (
 	"encoding/json"
+	"net"
 	"os"
 	"runtime"
 	"sync"
@@ -33,6 +34,28 @@ func (s LimitSpec) Unlimited() bool {
 type Sample struct {
 	InBps  int64
 	OutBps int64
+}
+
+type TrafficPoint struct {
+	InBps  int64
+	OutBps int64
+}
+
+type PingResult struct {
+	Target  string
+	Latency time.Duration
+	OK      bool
+}
+
+func TCPPing(target string, timeout time.Duration) PingResult {
+	start := time.Now()
+	conn, err := net.DialTimeout("tcp", target, timeout)
+	if err != nil {
+		return PingResult{Target: target}
+	}
+	lat := time.Since(start)
+	_ = conn.Close()
+	return PingResult{Target: target, Latency: lat, OK: true}
 }
 
 type ProcInfo struct {
@@ -87,6 +110,11 @@ type Manager struct {
 	doneCh     chan struct{}
 	onChange   func()
 	markerPath string
+
+	histMu   sync.Mutex
+	hist     []TrafficPoint
+	histPos  int
+	histFull bool
 }
 
 func (m *Manager) SetMarkerPath(p string) {
@@ -148,6 +176,7 @@ func New() *Manager {
 		monitor:  newMonitor(),
 		shaper:   newShaper(),
 		interval: 700 * time.Millisecond,
+		hist:     make([]TrafficPoint, 600),
 	}
 }
 
@@ -236,9 +265,39 @@ func (m *Manager) sampleLoop(stop, done chan struct{}) {
 				}
 			}
 
+			m.recordHistory(m.sysIn.Load(), m.sysOut.Load())
 			m.notify()
 		}
 	}
+}
+
+func (m *Manager) recordHistory(in, out int64) {
+	m.histMu.Lock()
+	m.hist[m.histPos] = TrafficPoint{InBps: in, OutBps: out}
+	m.histPos++
+	if m.histPos >= len(m.hist) {
+		m.histPos = 0
+		m.histFull = true
+	}
+	m.histMu.Unlock()
+}
+
+func (m *Manager) History() []TrafficPoint {
+	m.histMu.Lock()
+	defer m.histMu.Unlock()
+	if m.histFull {
+		out := make([]TrafficPoint, 0, len(m.hist))
+		out = append(out, m.hist[m.histPos:]...)
+		out = append(out, m.hist[:m.histPos]...)
+		return out
+	}
+	out := make([]TrafficPoint, m.histPos)
+	copy(out, m.hist[:m.histPos])
+	return out
+}
+
+func (m *Manager) Interval() time.Duration {
+	return m.interval
 }
 
 func rateOf(cur, prev uint64, dt float64) int64 {

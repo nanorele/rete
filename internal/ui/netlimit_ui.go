@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"image"
 	"image/color"
+	"net"
 	"os"
 	"runtime"
 	"strconv"
@@ -17,6 +18,7 @@ import (
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/widgets"
 
+	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/io/system"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
@@ -57,10 +59,26 @@ type netLimitState struct {
 	orphan         bool
 	clearOrphanBtn widget.Clickable
 
+	secList     widget.List
+	graphWindow time.Duration
+	win30Btn    widget.Clickable
+	win1mBtn    widget.Clickable
+	win5mBtn    widget.Clickable
+
+	diagBtn     widget.Clickable
+	diagRunning bool
+	diagLines   []netDiagLine
+
 	mu           sync.Mutex
 	procs        []netlimit.ProcInfo
 	procsLoading bool
 	lastErr      string
+}
+
+type netDiagLine struct {
+	label string
+	value string
+	ok    int8
 }
 
 type netConfig struct {
@@ -83,6 +101,8 @@ func (ui *AppUI) initNetlimit() {
 	ui.Net.searchEd.SingleLine = true
 	ui.Net.unitMB = true
 	ui.Net.procList.Axis = layout.Vertical
+	ui.Net.secList.Axis = layout.Vertical
+	ui.Net.graphWindow = time.Minute
 	ui.loadNetConfig()
 	ui.Net.orphan = ui.NetMgr.HasOrphan()
 	ui.NetMgr.Start()
@@ -582,50 +602,457 @@ func (ui *AppUI) netField(gtx layout.Context, ed *widget.Editor, hint string) la
 }
 
 func (ui *AppUI) layoutNetlimitSection(gtx layout.Context) layout.Dimensions {
-	gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(500 * time.Millisecond)})
+	ui.netHandleSectionClicks(gtx)
+	gtx.Execute(op.InvalidateCmd{At: gtx.Now.Add(400 * time.Millisecond)})
 	th := ui.Theme
 	paint.FillShape(gtx.Ops, theme.Bg, clip.Rect{Max: gtx.Constraints.Max}.Op())
 
-	sys := ui.NetMgr.SystemSpeed()
-	state := ui.NetMgr.State()
+	if ui.Net.graphWindow == 0 {
+		ui.Net.graphWindow = time.Minute
+	}
 
-	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				lbl := material.Label(th, unit.Sp(13), "Current traffic")
-				lbl.Color = theme.FgMuted
-				return lbl.Layout(gtx)
-			}),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(14)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return netSpeedRow(gtx, th, widgets.IconDownload, theme.MethodGet, formatRate(sys.InBps))
-			}),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return netSpeedRow(gtx, th, widgets.IconUpload, theme.MethodPost, formatRate(sys.OutBps))
-			}),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(20)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return ui.netAppSpeed(gtx)
-			}),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return netStateBadge(gtx, th, state, ui.NetMgr.Spec())
-			}),
-		)
+	cards := []layout.Widget{
+		ui.netGraphCard,
+		layout.Spacer{Height: unit.Dp(12)}.Layout,
+		ui.netDiagCard,
+	}
+	return layout.UniformInset(unit.Dp(14)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return material.List(th, &ui.Net.secList).Layout(gtx, len(cards), func(gtx layout.Context, i int) layout.Dimensions {
+			return cards[i](gtx)
+		})
 	})
 }
 
-func (ui *AppUI) netAppSpeed(gtx layout.Context) layout.Dimensions {
-	th := ui.Theme
-	if ui.Net.scope != netlimit.ScopeApp || !ui.Net.hasApp || !ui.Net.caps.PerAppSpeed {
-		return layout.Dimensions{}
+func (ui *AppUI) netHandleSectionClicks(gtx layout.Context) {
+	for ui.Net.win30Btn.Clicked(gtx) {
+		ui.Net.graphWindow = 30 * time.Second
 	}
-	app := ui.NetMgr.AppSpeed()
-	lbl := material.Label(th, unit.Sp(12),
-		fmt.Sprintf("%s — ↓ %s   ↑ %s", ui.Net.selApp.Name, formatRate(app.InBps), formatRate(app.OutBps)))
-	lbl.Color = theme.FgHint
-	return lbl.Layout(gtx)
+	for ui.Net.win1mBtn.Clicked(gtx) {
+		ui.Net.graphWindow = time.Minute
+	}
+	for ui.Net.win5mBtn.Clicked(gtx) {
+		ui.Net.graphWindow = 5 * time.Minute
+	}
+	for ui.Net.diagBtn.Clicked(gtx) {
+		ui.Net.mu.Lock()
+		if ui.Net.diagRunning {
+			ui.Net.mu.Unlock()
+			continue
+		}
+		ui.Net.diagRunning = true
+		ui.Net.mu.Unlock()
+		go func() {
+			lines := ui.buildDiagnostics()
+			ui.Net.mu.Lock()
+			ui.Net.diagLines = lines
+			ui.Net.diagRunning = false
+			ui.Net.mu.Unlock()
+			ui.Window.Invalidate()
+		}()
+	}
+}
+
+func (ui *AppUI) netGraphCard(gtx layout.Context) layout.Dimensions {
+	th := ui.Theme
+	interval := ui.NetMgr.Interval()
+	if interval <= 0 {
+		interval = 700 * time.Millisecond
+	}
+	slots := int(ui.Net.graphWindow / interval)
+	if slots < 2 {
+		slots = 2
+	}
+	hist := ui.NetMgr.History()
+	vis := hist
+	if len(vis) > slots {
+		vis = vis[len(vis)-slots:]
+	}
+
+	var curIn, curOut, peakIn, peakOut int64
+	if n := len(vis); n > 0 {
+		curIn = vis[n-1].InBps
+		curOut = vis[n-1].OutBps
+	}
+	for _, p := range vis {
+		if p.InBps > peakIn {
+			peakIn = p.InBps
+		}
+		if p.OutBps > peakOut {
+			peakOut = p.OutBps
+		}
+	}
+
+	return netBox(gtx, theme.BgDark, theme.Border, func(gtx layout.Context) layout.Dimensions {
+		return layout.UniformInset(unit.Dp(12)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return netSectionLabel(gtx, th, "CURRENT TRAFFIC")
+						}),
+						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+							return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, 0)}
+						}),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return ui.netIntervalSelector(gtx)
+						}),
+					)
+				}),
+				layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+							return netTrafficGraph(gtx, th, vis, slots, peakIn, peakOut)
+						}),
+						layout.Rigid(layout.Spacer{Width: unit.Dp(16)}.Layout),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return ui.netCurrentNumbers(gtx, curIn, curOut, peakIn, peakOut)
+						}),
+					)
+				}),
+				layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return netStateBadge(gtx, th, ui.NetMgr.State(), ui.NetMgr.Spec())
+				}),
+			)
+		})
+	})
+}
+
+func (ui *AppUI) netIntervalSelector(gtx layout.Context) layout.Dimensions {
+	th := ui.Theme
+	w := ui.Net.graphWindow
+	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return netChip(gtx, th, &ui.Net.win30Btn, "30s", w == 30*time.Second)
+		}),
+		layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return netChip(gtx, th, &ui.Net.win1mBtn, "1m", w == time.Minute)
+		}),
+		layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return netChip(gtx, th, &ui.Net.win5mBtn, "5m", w == 5*time.Minute)
+		}),
+	)
+}
+
+func (ui *AppUI) netCurrentNumbers(gtx layout.Context, in, out, peakIn, peakOut int64) layout.Dimensions {
+	th := ui.Theme
+	w := netNumbersColWidth(gtx, th)
+	gtx.Constraints.Min.X = w
+	gtx.Constraints.Max.X = w
+	children := []layout.FlexChild{
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return netSpeedRow(gtx, th, widgets.IconDownload, theme.MethodGet, formatRate(in))
+		}),
+		layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return netSpeedRow(gtx, th, widgets.IconUpload, theme.MethodPost, formatRate(out))
+		}),
+		layout.Rigid(layout.Spacer{Height: unit.Dp(10)}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			lbl := material.Label(th, unit.Sp(11),
+				fmt.Sprintf("Peak  ↓ %s   ↑ %s", formatRate(peakIn), formatRate(peakOut)))
+			lbl.Color = theme.FgMuted
+			lbl.MaxLines = 1
+			return lbl.Layout(gtx)
+		}),
+	}
+	if ui.Net.scope == netlimit.ScopeApp && ui.Net.hasApp && ui.Net.caps.PerAppSpeed {
+		app := ui.NetMgr.AppSpeed()
+		children = append(children,
+			layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				lbl := material.Label(th, unit.Sp(11),
+					fmt.Sprintf("%s  ↓ %s   ↑ %s", ui.Net.selApp.Name, formatRate(app.InBps), formatRate(app.OutBps)))
+				lbl.Color = theme.FgHint
+				lbl.MaxLines = 1
+				return lbl.Layout(gtx)
+			}),
+		)
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+}
+
+func netNumbersColWidth(gtx layout.Context, th *material.Theme) int {
+	measure := func(w layout.Widget) int {
+		m := op.Record(gtx.Ops)
+		g := gtx
+		g.Constraints = layout.Constraints{Max: image.Pt(1<<20, 1<<20)}
+		d := w(g)
+		m.Stop()
+		return d.Size.X
+	}
+	rowW := measure(func(g layout.Context) layout.Dimensions {
+		return netSpeedRow(g, th, widgets.IconDownload, theme.MethodGet, "1020.90 MB/s")
+	})
+	peakW := measure(func(g layout.Context) layout.Dimensions {
+		lbl := material.Label(th, unit.Sp(11), "Peak  ↓ 1020.90 MB/s   ↑ 1020.90 MB/s")
+		return lbl.Layout(g)
+	})
+	w := rowW
+	if peakW > w {
+		w = peakW
+	}
+	return w + gtx.Dp(unit.Dp(4))
+}
+
+func netTrafficGraph(gtx layout.Context, th *material.Theme, vis []netlimit.TrafficPoint, slots int, peakIn, peakOut int64) layout.Dimensions {
+	w := gtx.Constraints.Max.X
+	if w < gtx.Dp(unit.Dp(120)) {
+		w = gtx.Dp(unit.Dp(120))
+	}
+	h := gtx.Dp(unit.Dp(150))
+	size := image.Pt(w, h)
+	rect := image.Rectangle{Max: size}
+	rr := gtx.Dp(unit.Dp(4))
+
+	paint.FillShape(gtx.Ops, theme.Bg, clip.UniformRRect(rect, rr).Op(gtx.Ops))
+	widgets.PaintBorder1px(gtx, size, theme.BorderLight)
+
+	maxVal := peakIn
+	if peakOut > maxVal {
+		maxVal = peakOut
+	}
+	floor := int64(64 * 1024)
+	if maxVal < floor {
+		maxVal = floor
+	}
+	maxVal = niceCeil(maxVal)
+
+	pad := gtx.Dp(unit.Dp(4))
+	left := float32(pad)
+	right := float32(w - pad)
+	top := float32(gtx.Dp(unit.Dp(16)))
+	bottom := float32(h - pad)
+
+	func() {
+		defer clip.Rect(rect).Push(gtx.Ops).Pop()
+
+		grid := theme.BorderSubtle
+		for i := 1; i < 4; i++ {
+			y := top + (bottom-top)*float32(i)/4
+			var gp clip.Path
+			gp.Begin(gtx.Ops)
+			gp.MoveTo(f32.Pt(left, y))
+			gp.LineTo(f32.Pt(right, y))
+			paint.FillShape(gtx.Ops, grid, clip.Stroke{Path: gp.End(), Width: 1}.Op())
+		}
+
+		xAt := func(idx int) float32 {
+			if slots <= 1 {
+				return right
+			}
+			return left + (right-left)*float32(idx)/float32(slots-1)
+		}
+		yAt := func(v int64) float32 {
+			if maxVal <= 0 {
+				return bottom
+			}
+			frac := float32(v) / float32(maxVal)
+			if frac > 1 {
+				frac = 1
+			}
+			return bottom - (bottom-top)*frac
+		}
+
+		drawSeries := func(get func(netlimit.TrafficPoint) int64, line, fill color.NRGBA) {
+			if len(vis) < 2 {
+				return
+			}
+			off := slots - len(vis)
+			var area clip.Path
+			area.Begin(gtx.Ops)
+			area.MoveTo(f32.Pt(xAt(off), bottom))
+			for j, p := range vis {
+				area.LineTo(f32.Pt(xAt(off+j), yAt(get(p))))
+			}
+			area.LineTo(f32.Pt(xAt(off+len(vis)-1), bottom))
+			area.Close()
+			paint.FillShape(gtx.Ops, fill, clip.Outline{Path: area.End()}.Op())
+
+			var ln clip.Path
+			ln.Begin(gtx.Ops)
+			ln.MoveTo(f32.Pt(xAt(off), yAt(get(vis[0]))))
+			for j, p := range vis {
+				ln.LineTo(f32.Pt(xAt(off+j), yAt(get(p))))
+			}
+			paint.FillShape(gtx.Ops, line, clip.Stroke{Path: ln.End(), Width: float32(gtx.Dp(unit.Dp(1.5)))}.Op())
+		}
+
+		inFill := theme.MethodGet
+		inFill.A = 48
+		outFill := theme.MethodPost
+		outFill.A = 48
+		drawSeries(func(p netlimit.TrafficPoint) int64 { return p.OutBps }, theme.MethodPost, outFill)
+		drawSeries(func(p netlimit.TrafficPoint) int64 { return p.InBps }, theme.MethodGet, inFill)
+	}()
+
+	func() {
+		defer op.Offset(image.Pt(pad+gtx.Dp(unit.Dp(2)), gtx.Dp(unit.Dp(2)))).Push(gtx.Ops).Pop()
+		lbl := material.Label(th, unit.Sp(10), formatRate(maxVal))
+		lbl.Color = theme.FgMuted
+		lbl.Layout(gtx)
+	}()
+
+	return layout.Dimensions{Size: size}
+}
+
+func niceCeil(v int64) int64 {
+	if v <= 0 {
+		return 1
+	}
+	mag := int64(1)
+	for mag*10 <= v {
+		mag *= 10
+	}
+	for _, f := range []int64{1, 2, 5, 10} {
+		if f*mag >= v {
+			return f * mag
+		}
+	}
+	return 10 * mag
+}
+
+func (ui *AppUI) netDiagCard(gtx layout.Context) layout.Dimensions {
+	th := ui.Theme
+	ui.Net.mu.Lock()
+	running := ui.Net.diagRunning
+	lines := ui.Net.diagLines
+	ui.Net.mu.Unlock()
+
+	return netBox(gtx, theme.BgDark, theme.Border, func(gtx layout.Context) layout.Dimensions {
+		return layout.UniformInset(unit.Dp(12)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			rows := []layout.FlexChild{
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return netSectionLabel(gtx, th, "DIAGNOSTICS")
+						}),
+						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+							return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, 0)}
+						}),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							label := "Run test"
+							if running {
+								label = "Testing…"
+							}
+							return netChip(gtx, th, &ui.Net.diagBtn, label, running)
+						}),
+					)
+				}),
+			}
+
+			if len(lines) == 0 {
+				rows = append(rows,
+					layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						lbl := material.Label(th, unit.Sp(11), "Run a connectivity test to check the link, privileges and backend.")
+						lbl.Color = theme.FgMuted
+						return lbl.Layout(gtx)
+					}),
+				)
+			}
+			for _, ln := range lines {
+				ln := ln
+				rows = append(rows,
+					layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return netDiagRow(gtx, th, ln)
+					}),
+				)
+			}
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, rows...)
+		})
+	})
+}
+
+func netDiagRow(gtx layout.Context, th *material.Theme, ln netDiagLine) layout.Dimensions {
+	col := theme.Fg
+	switch ln.ok {
+	case 1:
+		col = theme.MethodGet
+	case -1:
+		col = theme.Danger
+	}
+	return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			lbl := material.Label(th, unit.Sp(12), ln.label)
+			lbl.Color = theme.FgMuted
+			return lbl.Layout(gtx)
+		}),
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, 0)}
+		}),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			lbl := material.Label(th, unit.Sp(12), ln.value)
+			lbl.Color = col
+			lbl.MaxLines = 1
+			return lbl.Layout(gtx)
+		}),
+	)
+}
+
+func (ui *AppUI) buildDiagnostics() []netDiagLine {
+	caps := ui.Net.caps
+	var out []netDiagLine
+
+	if caps.Available {
+		out = append(out, netDiagLine{"Limiter backend", "available", 1})
+	} else {
+		out = append(out, netDiagLine{"Limiter backend", "unavailable", -1})
+	}
+
+	if caps.NeedsElevation {
+		if netlimit.IsElevated() {
+			out = append(out, netDiagLine{"Privileges", "elevated", 1})
+		} else {
+			out = append(out, netDiagLine{"Privileges", "not elevated", -1})
+		}
+	}
+
+	if caps.PerAppSpeed {
+		out = append(out, netDiagLine{"Per-app monitoring", "supported", 1})
+	} else {
+		out = append(out, netDiagLine{"Per-app monitoring", "unsupported", 0})
+	}
+
+	for _, t := range []string{"1.1.1.1:443", "8.8.8.8:53"} {
+		r := netlimit.TCPPing(t, 3*time.Second)
+		if r.OK {
+			out = append(out, netDiagLine{"Ping " + t, fmt.Sprintf("%d ms", r.Latency.Milliseconds()), 1})
+		} else {
+			out = append(out, netDiagLine{"Ping " + t, "no response", -1})
+		}
+	}
+
+	if ifaces, err := net.Interfaces(); err == nil {
+		active := 0
+		for _, in := range ifaces {
+			if in.Flags&net.FlagUp != 0 && in.Flags&net.FlagLoopback == 0 {
+				if addrs, _ := in.Addrs(); len(addrs) > 0 {
+					active++
+				}
+			}
+		}
+		out = append(out, netDiagLine{"Active interfaces", strconv.Itoa(active), 0})
+	}
+
+	hist := ui.NetMgr.History()
+	var pIn, pOut int64
+	for _, p := range hist {
+		if p.InBps > pIn {
+			pIn = p.InBps
+		}
+		if p.OutBps > pOut {
+			pOut = p.OutBps
+		}
+	}
+	out = append(out, netDiagLine{"Session peak ↓", formatRate(pIn), 0})
+	out = append(out, netDiagLine{"Session peak ↑", formatRate(pOut), 0})
+
+	return out
 }
 
 func netSpeedRow(gtx layout.Context, th *material.Theme, ic *widget.Icon, col color.NRGBA, value string) layout.Dimensions {
@@ -739,6 +1166,35 @@ func netButton(gtx layout.Context, th *material.Theme, clk *widget.Clickable, la
 						lbl.Alignment = 1
 						return lbl.Layout(gtx)
 					})
+				})
+			}),
+		)
+	})
+}
+
+func netChip(gtx layout.Context, th *material.Theme, clk *widget.Clickable, label string, active bool) layout.Dimensions {
+	bg := theme.BgField
+	fg := theme.FgMuted
+	if active {
+		bg = theme.Accent
+		fg = theme.AccentFg
+	}
+	return clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		if !active && clk.Hovered() {
+			bg = netLighten(bg)
+		}
+		return layout.Stack{Alignment: layout.Center}.Layout(gtx,
+			layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+				sz := gtx.Constraints.Min
+				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: sz}, gtx.Dp(unit.Dp(4))).Op(gtx.Ops))
+				return layout.Dimensions{Size: sz}
+			}),
+			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					lbl := material.Label(th, unit.Sp(11), label)
+					lbl.Color = fg
+					lbl.MaxLines = 1
+					return lbl.Layout(gtx)
 				})
 			}),
 		)
