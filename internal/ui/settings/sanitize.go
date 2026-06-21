@@ -140,6 +140,16 @@ func Sanitize(s model.AppSettings) model.AppSettings {
 		s.DefaultSidebarWidthPx = 1000
 	}
 
+	if s.MaxTabRows == 0 {
+		s.MaxTabRows = 3
+	}
+	if s.MaxTabRows < 1 {
+		s.MaxTabRows = 1
+	}
+	if s.MaxTabRows > 10 {
+		s.MaxTabRows = 10
+	}
+
 	if s.StickyMaxLines == 0 {
 		s.StickyMaxLines = 5
 	}

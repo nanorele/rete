@@ -10,6 +10,7 @@ import (
 	strings "strings"
 )
 
+// suppress unused package warning
 var (
 	_ *json.RawMessage
 	_ *jlexer.Lexer
@@ -147,22 +148,26 @@ func easyjson31a05f68EncodeTractoInternalModel(out *jwriter.Writer, in ExtReques
 	out.RawByte('}')
 }
 
+// MarshalJSON supports json.Marshaler interface
 func (v ExtRequest) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjson31a05f68EncodeTractoInternalModel(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
+// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v ExtRequest) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjson31a05f68EncodeTractoInternalModel(w, v)
 }
 
+// UnmarshalJSON supports json.Unmarshaler interface
 func (v *ExtRequest) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjson31a05f68DecodeTractoInternalModel(&r, v)
 	return r.Error()
 }
 
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *ExtRequest) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjson31a05f68DecodeTractoInternalModel(l, v)
 }
@@ -251,22 +256,26 @@ func easyjson31a05f68EncodeTractoInternalModel1(out *jwriter.Writer, in ExtKVPar
 	out.RawByte('}')
 }
 
+// MarshalJSON supports json.Marshaler interface
 func (v ExtKVPart) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjson31a05f68EncodeTractoInternalModel1(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
+// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v ExtKVPart) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjson31a05f68EncodeTractoInternalModel1(w, v)
 }
 
+// UnmarshalJSON supports json.Unmarshaler interface
 func (v *ExtKVPart) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjson31a05f68DecodeTractoInternalModel1(&r, v)
 	return r.Error()
 }
 
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *ExtKVPart) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjson31a05f68DecodeTractoInternalModel1(l, v)
 }
@@ -412,22 +421,26 @@ func easyjson31a05f68EncodeTractoInternalModel2(out *jwriter.Writer, in ExtItem)
 	out.RawByte('}')
 }
 
+// MarshalJSON supports json.Marshaler interface
 func (v ExtItem) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjson31a05f68EncodeTractoInternalModel2(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
+// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v ExtItem) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjson31a05f68EncodeTractoInternalModel2(w, v)
 }
 
+// UnmarshalJSON supports json.Unmarshaler interface
 func (v *ExtItem) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjson31a05f68DecodeTractoInternalModel2(&r, v)
 	return r.Error()
 }
 
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *ExtItem) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjson31a05f68DecodeTractoInternalModel2(l, v)
 }
@@ -564,22 +577,26 @@ func easyjson31a05f68EncodeTractoInternalModel3(out *jwriter.Writer, in ExtFormP
 	out.RawByte('}')
 }
 
+// MarshalJSON supports json.Marshaler interface
 func (v ExtFormPart) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjson31a05f68EncodeTractoInternalModel3(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
+// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v ExtFormPart) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjson31a05f68EncodeTractoInternalModel3(w, v)
 }
 
+// UnmarshalJSON supports json.Unmarshaler interface
 func (v *ExtFormPart) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjson31a05f68DecodeTractoInternalModel3(&r, v)
 	return r.Error()
 }
 
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *ExtFormPart) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjson31a05f68DecodeTractoInternalModel3(l, v)
 }
@@ -634,22 +651,26 @@ func easyjson31a05f68EncodeTractoInternalModel4(out *jwriter.Writer, in ExtColle
 	out.RawByte('}')
 }
 
+// MarshalJSON supports json.Marshaler interface
 func (v ExtCollectionInfo) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjson31a05f68EncodeTractoInternalModel4(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
+// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v ExtCollectionInfo) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjson31a05f68EncodeTractoInternalModel4(w, v)
 }
 
+// UnmarshalJSON supports json.Unmarshaler interface
 func (v *ExtCollectionInfo) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjson31a05f68DecodeTractoInternalModel4(&r, v)
 	return r.Error()
 }
 
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *ExtCollectionInfo) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjson31a05f68DecodeTractoInternalModel4(l, v)
 }
@@ -774,22 +795,26 @@ func easyjson31a05f68EncodeTractoInternalModel5(out *jwriter.Writer, in ExtColle
 	out.RawByte('}')
 }
 
+// MarshalJSON supports json.Marshaler interface
 func (v ExtCollection) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjson31a05f68EncodeTractoInternalModel5(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
+// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v ExtCollection) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjson31a05f68EncodeTractoInternalModel5(w, v)
 }
 
+// UnmarshalJSON supports json.Unmarshaler interface
 func (v *ExtCollection) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjson31a05f68DecodeTractoInternalModel5(&r, v)
 	return r.Error()
 }
 
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *ExtCollection) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjson31a05f68DecodeTractoInternalModel5(l, v)
 }
@@ -867,22 +892,26 @@ func easyjson31a05f68EncodeTractoInternalModel6(out *jwriter.Writer, in ExtBodyF
 	out.RawByte('}')
 }
 
+// MarshalJSON supports json.Marshaler interface
 func (v ExtBodyFile) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjson31a05f68EncodeTractoInternalModel6(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
+// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v ExtBodyFile) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjson31a05f68EncodeTractoInternalModel6(w, v)
 }
 
+// UnmarshalJSON supports json.Unmarshaler interface
 func (v *ExtBodyFile) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjson31a05f68DecodeTractoInternalModel6(&r, v)
 	return r.Error()
 }
 
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *ExtBodyFile) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjson31a05f68DecodeTractoInternalModel6(l, v)
 }
@@ -1252,22 +1281,26 @@ func easyjson31a05f68EncodeTractoInternalModel7(out *jwriter.Writer, in ExtBody)
 	out.RawByte('}')
 }
 
+// MarshalJSON supports json.Marshaler interface
 func (v ExtBody) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjson31a05f68EncodeTractoInternalModel7(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
+// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v ExtBody) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjson31a05f68EncodeTractoInternalModel7(w, v)
 }
 
+// UnmarshalJSON supports json.Unmarshaler interface
 func (v *ExtBody) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjson31a05f68DecodeTractoInternalModel7(&r, v)
 	return r.Error()
 }
 
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *ExtBody) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjson31a05f68DecodeTractoInternalModel7(l, v)
 }

@@ -48,5 +48,5 @@ func (ui *AppUI) closeTab(idx int) {
 }
 
 func (ui *AppUI) layoutTabBar(gtx layout.Context) layout.Dimensions {
-	return ui.TabBar.Layout(gtx, ui.Theme, &ui.Tabs, &ui.ActiveIdx, ui.revealLinkedNode, ui.saveState)
+	return ui.TabBar.Layout(gtx, ui.Theme, &ui.Tabs, &ui.ActiveIdx, ui.Settings.LimitTabRows, ui.Settings.MaxTabRows, ui.revealLinkedNode, ui.saveState)
 }

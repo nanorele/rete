@@ -150,7 +150,7 @@ func TestLayout_EmptyTabs(t *testing.T) {
 	var tabs []*workspace.RequestTab
 	active := 0
 
-	dims := s.Layout(gtx, th, &tabs, &active, nil, nil)
+	dims := s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 	if dims.Size.X <= 0 || dims.Size.Y <= 0 {
 		t.Errorf("expected positive dims even for empty tabs, got %+v", dims.Size)
 	}
@@ -164,7 +164,7 @@ func TestLayout_SingleTab(t *testing.T) {
 	tabs := []*workspace.RequestTab{tab}
 	active := 0
 
-	dims := s.Layout(gtx, th, &tabs, &active, nil, nil)
+	dims := s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 	if dims.Size.Y <= 0 {
 		t.Error("expected non-zero height")
 	}
@@ -184,7 +184,7 @@ func TestLayout_SingleRow_DistributesExtraSpace(t *testing.T) {
 	tabs := []*workspace.RequestTab{a, b}
 	active := 0
 
-	s.Layout(gtx, th, &tabs, &active, nil, nil)
+	s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 
 	if len(s.rowsBuf) != 1 {
 		t.Fatalf("expected 1 row, got %d", len(s.rowsBuf))
@@ -208,7 +208,7 @@ func TestLayout_NarrowWrapsToMultipleRows(t *testing.T) {
 	}
 	active := 0
 
-	s.Layout(gtx, th, &tabs, &active, nil, nil)
+	s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 
 	if len(s.rowsBuf) < 2 {
 		t.Errorf("expected multiple rows for narrow layout, got %d", len(s.rowsBuf))
@@ -231,7 +231,7 @@ func TestLayout_AddBtnWrapsToOwnRow(t *testing.T) {
 	addBtn := gtxMeasure.Dp(unit.Dp(36))
 
 	gtx := makeGtx(totalTabs+addBtn-1+2, 400)
-	s.Layout(gtx, th, &tabs, &active, nil, nil)
+	s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 
 	if len(s.rowsBuf) != 2 {
 		t.Fatalf("expected 2 rows (tabs row + addBtn row), got %d", len(s.rowsBuf))
@@ -250,10 +250,10 @@ func TestLayout_CacheReusedOnReLayout(t *testing.T) {
 	tabs := []*workspace.RequestTab{tab}
 	active := 0
 
-	s.Layout(gtx, th, &tabs, &active, nil, nil)
+	s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 	w1 := s.widthCache[tab].width
 
-	s.Layout(gtx, th, &tabs, &active, nil, nil)
+	s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 	w2 := s.widthCache[tab].width
 	if w1 != w2 {
 		t.Errorf("cache should be stable across re-layouts: %d vs %d", w1, w2)
@@ -268,14 +268,14 @@ func TestLayout_CacheInvalidatedOnTitleChange(t *testing.T) {
 	tabs := []*workspace.RequestTab{tab}
 	active := 0
 
-	s.Layout(gtx, th, &tabs, &active, nil, nil)
+	s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 	cached := s.widthCache[tab]
 	if cached.title != "short" {
 		t.Fatalf("expected cached title 'short', got %q", cached.title)
 	}
 
 	tab.Title = "this is a much longer title with many words to measure"
-	s.Layout(gtx, th, &tabs, &active, nil, nil)
+	s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 	updated := s.widthCache[tab]
 	if updated.title != tab.Title {
 		t.Errorf("expected cache title %q after rename, got %q", tab.Title, updated.title)
@@ -290,14 +290,14 @@ func TestLayout_CacheInvalidatedOnPxPerDpChange(t *testing.T) {
 	active := 0
 
 	gtx1 := makeGtxScaled(2000, 200, 1)
-	s.Layout(gtx1, th, &tabs, &active, nil, nil)
+	s.Layout(gtx1, th, &tabs, &active, false, 0, nil, nil)
 	w1 := s.widthCache[tab].width
 	if s.widthCache[tab].ppdp != 1 {
 		t.Errorf("expected ppdp=1 cached, got %v", s.widthCache[tab].ppdp)
 	}
 
 	gtx2 := makeGtxScaled(4000, 200, 2)
-	s.Layout(gtx2, th, &tabs, &active, nil, nil)
+	s.Layout(gtx2, th, &tabs, &active, false, 0, nil, nil)
 	w2 := s.widthCache[tab].width
 	if s.widthCache[tab].ppdp != 2 {
 		t.Errorf("expected ppdp=2 cached after metric change, got %v", s.widthCache[tab].ppdp)
@@ -322,7 +322,7 @@ func TestLayout_OnRevealLinkedNodeCallback(t *testing.T) {
 	saved := false
 	save := func() { saved = true }
 
-	s.Layout(gtx, th, &tabs, &active, reveal, save)
+	s.Layout(gtx, th, &tabs, &active, false, 0, reveal, save)
 	if called {
 		t.Error("reveal callback should not fire without a tab click")
 	}
@@ -348,7 +348,7 @@ func TestLayout_DragGhostRendersWhenDragging(t *testing.T) {
 	s.TabDragOriginX = 0
 	s.TabDragOriginY = 0
 
-	dims := s.Layout(gtx, th, &tabs, &active, nil, nil)
+	dims := s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 	if dims.Size.Y <= 0 {
 		t.Error("expected non-zero height while drag ghost is rendered")
 	}
@@ -366,7 +366,7 @@ func TestLayout_DragGhostWithDirtyAndEmptyTitle(t *testing.T) {
 	s.TabDragging = true
 	s.TabDragIdx = 0
 
-	s.Layout(gtx, th, &tabs, &active, nil, nil)
+	s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 }
 
 func TestLayout_ActiveIdxStyling(t *testing.T) {
@@ -381,7 +381,7 @@ func TestLayout_ActiveIdxStyling(t *testing.T) {
 
 	for i := range tabs {
 		active := i
-		s.Layout(gtx, th, &tabs, &active, nil, nil)
+		s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 	}
 }
 
@@ -394,7 +394,7 @@ func TestLayout_DirtyTabRendersBullet(t *testing.T) {
 	tabs := []*workspace.RequestTab{tab}
 	active := 0
 
-	s.Layout(gtx, th, &tabs, &active, nil, nil)
+	s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 }
 
 func TestLayout_ManyTabsSmoke(t *testing.T) {
@@ -406,7 +406,7 @@ func TestLayout_ManyTabsSmoke(t *testing.T) {
 		tabs = append(tabs, workspace.NewRequestTab("tab name "+string(rune('a'+i))))
 	}
 	active := 3
-	s.Layout(gtx, th, &tabs, &active, nil, nil)
+	s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 
 	if len(s.rowsBuf) < 2 {
 		t.Errorf("expected wrapping across multiple rows, got %d row(s)", len(s.rowsBuf))
@@ -423,7 +423,7 @@ func TestLayout_ZeroMaxWidthDegenerate(t *testing.T) {
 		workspace.NewRequestTab("b"),
 	}
 	active := 0
-	s.Layout(gtx, th, &tabs, &active, nil, nil)
+	s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 }
 
 func rightClickTabBar(t *testing.T, titles []string, pos f32.Point, w, h int) *Strip {
@@ -445,7 +445,7 @@ func rightClickTabBar(t *testing.T, titles []string, pos f32.Point, w, h int) *S
 		Source:      router.Source(),
 	}
 
-	s.Layout(gtx, th, &tabs, &active, nil, nil)
+	s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 	router.Frame(ops)
 	router.Queue(
 		pointer.Event{Kind: pointer.Press, Position: pos, Buttons: pointer.ButtonSecondary, Source: pointer.Mouse},
@@ -453,7 +453,7 @@ func rightClickTabBar(t *testing.T, titles []string, pos f32.Point, w, h int) *S
 	)
 	ops.Reset()
 	gtx.Ops = ops
-	s.Layout(gtx, th, &tabs, &active, nil, nil)
+	s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
 	return s
 }
 
@@ -488,5 +488,49 @@ func TestTabContextMenu_PicksSecondTab(t *testing.T) {
 	}
 	if s.TabCtxMenuIdx != 1 {
 		t.Errorf("expected TabCtxMenuIdx=1, got %d", s.TabCtxMenuIdx)
+	}
+}
+
+func TestOverflowButton_ExpandsRowsOnClick(t *testing.T) {
+	th := newTestTheme()
+	s := NewStrip()
+	var tabs []*workspace.RequestTab
+	for i := 0; i < 30; i++ {
+		tabs = append(tabs, workspace.NewRequestTab("tab"))
+	}
+	active := 0
+
+	var router input.Router
+	ops := new(op.Ops)
+	gtx := layout.Context{
+		Ops:         ops,
+		Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
+		Constraints: layout.Constraints{Max: image.Pt(300, 800)},
+		Source:      router.Source(),
+	}
+
+	collapsed := s.Layout(gtx, th, &tabs, &active, true, 3, nil, nil)
+	if len(s.rowsBuf) <= 3 {
+		t.Fatalf("precondition: expected more than 3 rows to overflow, got %d", len(s.rowsBuf))
+	}
+
+	router.Frame(ops)
+	router.Queue(
+		pointer.Event{Kind: pointer.Press, Position: f32.Pt(18, 18), Buttons: pointer.ButtonPrimary, Source: pointer.Mouse},
+		pointer.Event{Kind: pointer.Release, Position: f32.Pt(18, 18), Buttons: pointer.ButtonPrimary, Source: pointer.Mouse},
+	)
+	ops.Reset()
+	gtx.Ops = ops
+
+	s.Layout(gtx, th, &tabs, &active, true, 3, nil, nil)
+	if !s.ExpandRows {
+		t.Fatal("clicking the … button must set ExpandRows=true so hidden rows appear")
+	}
+
+	ops.Reset()
+	gtx.Ops = ops
+	expanded := s.Layout(gtx, th, &tabs, &active, true, 3, nil, nil)
+	if expanded.Size.Y <= collapsed.Size.Y {
+		t.Errorf("expanded tab bar must be taller than collapsed: collapsed=%d expanded=%d", collapsed.Size.Y, expanded.Size.Y)
 	}
 }

@@ -118,6 +118,27 @@ func sceneList() []scene {
 			}
 			ui.ActiveIdx = 1
 		}},
+		{"tabbar-limited-rows", func(ui *AppUI) {
+			ui.SidebarSection = "requests"
+			ui.Settings.LimitTabRows = true
+			ui.Settings.MaxTabRows = 3
+			ui.Tabs = nil
+			for i := 0; i < 40; i++ {
+				ui.Tabs = append(ui.Tabs, workspace.NewRequestTab(fmt.Sprintf("Request number %d", i+1)))
+			}
+			ui.ActiveIdx = 38
+		}},
+		{"tabbar-expanded-rows", func(ui *AppUI) {
+			ui.SidebarSection = "requests"
+			ui.Settings.LimitTabRows = true
+			ui.Settings.MaxTabRows = 3
+			ui.Tabs = nil
+			for i := 0; i < 40; i++ {
+				ui.Tabs = append(ui.Tabs, workspace.NewRequestTab(fmt.Sprintf("Request number %d", i+1)))
+			}
+			ui.ActiveIdx = 2
+			ui.TabBar.ExpandRows = true
+		}},
 	}
 }
 

@@ -37,6 +37,8 @@ type tabInfo struct {
 
 type Strip struct {
 	AddTabBtn        widget.Clickable
+	OverflowBtn      widget.Clickable
+	ExpandRows       bool
 	tabDragTag       struct{}
 	TabDragIdx       int
 	TabDragging      bool
@@ -99,6 +101,53 @@ func renderAddCell(th *material.Theme, clk *widget.Clickable, label string, sp u
 	}
 }
 
+func renderIconCell(clk *widget.Clickable, ic *widget.Icon, w, h int, drawTop, drawLeft bool) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min.X = w
+		gtx.Constraints.Max.X = w
+		gtx.Constraints.Min.Y = h
+		gtx.Constraints.Max.Y = h
+		return layout.Stack{}.Layout(gtx,
+			layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+				bg := theme.BgDark
+				if clk.Hovered() {
+					bg = theme.BgHover
+				}
+				paint.FillShape(gtx.Ops, bg, clip.Rect{Max: gtx.Constraints.Min}.Op())
+				return layout.Dimensions{Size: gtx.Constraints.Min}
+			}),
+			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min = gtx.Constraints.Max
+				defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+				pointer.CursorPointer.Add(gtx.Ops)
+				return material.Clickable(gtx, clk, func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Min = gtx.Constraints.Max
+					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						sz := gtx.Dp(unit.Dp(18))
+						gtx.Constraints.Min = image.Pt(sz, sz)
+						gtx.Constraints.Max = gtx.Constraints.Min
+						return ic.Layout(gtx, theme.FgMuted)
+					})
+				})
+			}),
+			layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+				maxX := gtx.Constraints.Min.X
+				maxY := gtx.Constraints.Min.Y
+				t := max(gtx.Dp(1), 1)
+				paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(0, maxY-t), Max: image.Pt(maxX, maxY)}.Op())
+				paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(maxX-t, 0), Max: image.Pt(maxX, maxY)}.Op())
+				if drawTop {
+					paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(maxX, t)}.Op())
+				}
+				if drawLeft {
+					paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(t, maxY)}.Op())
+				}
+				return layout.Dimensions{Size: gtx.Constraints.Min}
+			}),
+		)
+	}
+}
+
 func NewStrip() *Strip {
 	return &Strip{
 		TabDragIdx: -1,
@@ -141,6 +190,8 @@ func (s *Strip) Layout(
 	th *material.Theme,
 	tabs *[]*workspace.RequestTab,
 	activeIdx *int,
+	limitRows bool,
+	maxRows int,
 	onRevealLinkedNode func(*workspace.RequestTab),
 	onSave func(),
 ) layout.Dimensions {
@@ -191,6 +242,16 @@ func (s *Strip) Layout(
 		s.rowsBuf = rows
 		s.rowBuf = currentRow
 
+		overflowBtnW := addBtnW
+		overflowActive := limitRows && maxRows > 0 && len(rows) > maxRows
+		firstVisible := 0
+		if overflowActive && !s.ExpandRows {
+			firstVisible = len(rows) - maxRows
+		}
+		if !overflowActive {
+			s.ExpandRows = false
+		}
+
 		for rIdx, row := range rows {
 			isLastRow := rIdx == len(rows)-1
 
@@ -207,6 +268,9 @@ func (s *Strip) Layout(
 			rowTotalNatW := rowTabsNatW
 			if rowHasAddBtn {
 				rowTotalNatW += addBtnW
+			}
+			if overflowActive && rIdx == firstVisible {
+				rowTotalNatW += overflowBtnW
 			}
 
 			if isLastRow {
@@ -250,6 +314,31 @@ func (s *Strip) Layout(
 			}
 		}
 
+		var vrows [][]int
+		if overflowActive {
+			vrows = make([][]int, 0, maxRows)
+			first := make([]int, 0, len(rows[firstVisible])+1)
+			first = append(first, -2)
+			first = append(first, rows[firstVisible]...)
+			vrows = append(vrows, first)
+			for r := firstVisible + 1; r < len(rows); r++ {
+				vrows = append(vrows, rows[r])
+			}
+		} else {
+			vrows = rows
+		}
+
+		cellW := func(idx int) int {
+			switch idx {
+			case -1:
+				return addBtnW
+			case -2:
+				return overflowBtnW
+			default:
+				return infos[idx].FinalWidth
+			}
+		}
+
 		thf := float32(tabHeight)
 
 		tabIdxAtXY := func(x, y float32, strict bool) int {
@@ -257,18 +346,13 @@ func (s *Strip) Layout(
 			if rowIdx < 0 {
 				rowIdx = 0
 			}
-			if rowIdx >= len(rows) {
-				rowIdx = len(rows) - 1
+			if rowIdx >= len(vrows) {
+				rowIdx = len(vrows) - 1
 			}
-			row := rows[rowIdx]
+			row := vrows[rowIdx]
 			acc := float32(0)
 			for _, tIdx := range row {
-				var w float32
-				if tIdx < 0 {
-					w = float32(addBtnW)
-				} else {
-					w = float32(infos[tIdx].FinalWidth)
-				}
+				w := float32(cellW(tIdx))
 				if x < acc+w {
 					return tIdx
 				}
@@ -276,7 +360,7 @@ func (s *Strip) Layout(
 			}
 			if !strict && len(row) > 0 {
 				last := row[len(row)-1]
-				if last == -1 && len(row) > 1 {
+				if last < 0 && len(row) > 1 {
 					last = row[len(row)-2]
 				}
 				if last >= 0 {
@@ -287,14 +371,14 @@ func (s *Strip) Layout(
 		}
 
 		tabPosInRow := func(idx int) (row int, xOff float32) {
-			for r, rr := range rows {
+			for r, rr := range vrows {
 				x := float32(0)
 				for _, tIdx := range rr {
 					if tIdx == idx {
 						return r, x
 					}
-					if tIdx >= 0 {
-						x += float32(infos[tIdx].FinalWidth)
+					if tIdx >= 0 || tIdx == -2 {
+						x += float32(cellW(tIdx))
 					}
 				}
 			}
@@ -325,6 +409,10 @@ func (s *Strip) Layout(
 				case pointer.Press:
 					if pe.Buttons.Contain(pointer.ButtonPrimary) {
 						hit := tabIdxAtXY(pe.Position.X, pe.Position.Y, true)
+						if hit == -2 {
+							s.ExpandRows = !s.ExpandRows
+							break
+						}
 						if hit >= 0 {
 							hitRow, xOff := tabPosInRow(hit)
 							s.TabDragIdx = hit
@@ -383,7 +471,7 @@ func (s *Strip) Layout(
 			}
 		}
 
-		tabBarHeight := len(rows) * tabHeight
+		tabBarHeight := len(vrows) * tabHeight
 		clipStack := clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, tabBarHeight)}.Push(gtx.Ops)
 		passStack := pointer.PassOp{}.Push(gtx.Ops)
 		event.Op(gtx.Ops, &s.tabDragTag)
@@ -391,10 +479,10 @@ func (s *Strip) Layout(
 		var dragTabOX, dragTabOY int
 		var dragTabW int
 
-		rowChildren := make([]layout.FlexChild, len(rows))
-		for i := range rows {
+		rowChildren := make([]layout.FlexChild, len(vrows))
+		for i := range vrows {
 			rIdx := i
-			row := rows[rIdx]
+			row := vrows[rIdx]
 			rowChildren[rIdx] = layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				children := make([]layout.FlexChild, 0, len(row))
 
@@ -517,6 +605,12 @@ func (s *Strip) Layout(
 								}),
 							)
 						}))
+					} else if tIdx == -2 {
+						ic := widgets.IconExpandMore
+						if s.ExpandRows {
+							ic = widgets.IconExpandLess
+						}
+						children = append(children, layout.Rigid(renderIconCell(&s.OverflowBtn, ic, overflowBtnW, tabHeight, rIdx == 0, j == 0)))
 					} else {
 						children = append(children, layout.Rigid(renderAddCell(th, &s.AddTabBtn, "+", unit.Sp(16), addBtnW, tabHeight, rIdx == 0, j == 0)))
 					}
