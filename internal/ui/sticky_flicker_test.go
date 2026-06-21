@@ -541,3 +541,270 @@ func TestStickySeamlessTransition(t *testing.T) {
 		})
 	}
 }
+
+// TestStickyNonFirstSubfolderSwap is the regression test for the user's report that
+// the smooth move "doesn't always work" — specifically for "Получение файлов", a
+// subfolder that is NOT the first child of its parent. Leaving the first subfolder
+// into a later sibling subfolder (a depth-2+ swap) used to make the band DIP: the
+// leaving subfolder slid out (band shrank to root+parent) and then the successor
+// POPPED in a row taller. The successor must instead slide into the slot as the
+// predecessor leaves, so while the top row is inside the parent's depth-2 subtree
+// the band keeps its depth-2 row (never dips to just root+parent).
+func TestStickyNonFirstSubfolderSwap(t *testing.T) {
+	for _, seed := range []int64{1, 2, 3, 7, 13, 42, 99, 2024} {
+		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
+			setupTestConfigDir(t)
+			ui := NewAppUI()
+			ui.Window = new(app.Window)
+			ui.Tabs = nil
+			ui.SidebarSection = "requests"
+			ui.ColsExpanded = true
+
+			rng := rand.New(rand.NewSource(seed))
+			mkReq := func() *collections.CollectionNode {
+				return &collections.CollectionNode{Name: randStickyName(rng), Request: &model.ParsedRequest{Method: "GET"}}
+			}
+			root := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
+			// A d1 folder P with TWO subfolders A (first) and B (NOT first) — the
+			// "Получение" > ["Получение уведомлений", "Получение файлов"] shape.
+			p := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
+			a := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
+			b := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
+			for i := 0; i < 2+rng.Intn(3); i++ {
+				a.Children = append(a.Children, mkReq())
+			}
+			for i := 0; i < 2+rng.Intn(3); i++ {
+				b.Children = append(b.Children, mkReq())
+			}
+			p.Children = append(p.Children, a, b)
+			for i := 0; i < 2; i++ {
+				p.Children = append(p.Children, mkReq())
+			}
+			root.Children = append(root.Children, p)
+			// A trailing d1 sibling so P has somewhere to exit into.
+			q := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
+			for i := 0; i < 6; i++ {
+				q.Children = append(q.Children, mkReq())
+			}
+			root.Children = append(root.Children, q)
+
+			col := &collections.ParsedCollection{ID: "c1", Name: root.Name, Root: root}
+			collections.AssignParents(root, nil, col)
+			ui.Collections = []*collections.CollectionUI{{Data: col}}
+			ui.updateVisibleCols()
+
+			aIdx, bIdx := -1, -1
+			for i, n := range ui.VisibleCols {
+				switch n {
+				case a:
+					aIdx = i
+				case b:
+					bIdx = i
+				}
+			}
+
+			var names []string
+			var bottom int
+			sidebar.DebugBandGeom = func(n []string, _ []int, bt int) {
+				names = append(names[:0], n...)
+				bottom = bt
+			}
+			defer func() { sidebar.DebugBandGeom = nil }()
+
+			sz := image.Pt(900, 480)
+			now := time.Unix(1700000000, 0)
+			r := new(input.Router)
+			frame := func() {
+				ops := new(op.Ops)
+				ui.layoutApp(layout.Context{Ops: ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(sz), Now: now, Source: r.Source()})
+				r.Frame(ops)
+			}
+			for i := 0; i < 3; i++ {
+				frame()
+			}
+			ui.ColList.Position.First = 0
+			ui.ColList.Position.Offset = 0
+			frame()
+
+			const rowH = 24
+			depthOf := func(n *collections.CollectionNode) int { return stickyDepthOf(n) }
+			bVisible := false
+			dips, dipDesc := 0, ""
+			for step := 0; step < 4000; step++ {
+				before := ui.ColList.Position.First*100000 + ui.ColList.Position.Offset
+				names, bottom = names[:0], 0
+				r.Queue(pointer.Event{Kind: pointer.Scroll, Source: pointer.Mouse, Position: f32.Pt(120, 130), Scroll: f32.Pt(0, 6)})
+				now = now.Add(16 * time.Millisecond)
+				frame()
+				f := ui.ColList.Position.First
+				if f < 0 || f >= len(ui.VisibleCols) {
+					continue
+				}
+				top := ui.VisibleCols[f]
+				for _, nm := range names {
+					if nm == b.Name {
+						bVisible = true
+					}
+				}
+				// While the top row is strictly inside the parent's depth-2 subtree
+				// (depth >= 3: root + P + a depth-2 subfolder), the band must keep its
+				// depth-2 row — bottom stays at least 3 rows. A dip to 2 rows is the
+				// leaving-subfolder-slid-out-before-successor-arrived bug.
+				if depthOf(top) >= 3 && bottom < 3*rowH-2 {
+					dips++
+					if dipDesc == "" {
+						dipDesc = fmt.Sprintf("step %d First=%d(%q) depth=%d bottom=%d names=%v", step, f, top.Name, depthOf(top), bottom, names)
+					}
+				}
+				if ui.ColList.Position.First*100000+ui.ColList.Position.Offset == before {
+					break
+				}
+			}
+			if aIdx < 0 || bIdx < 0 {
+				t.Fatalf("could not locate subfolders A=%d B=%d", aIdx, bIdx)
+			}
+			if !bVisible {
+				t.Fatal("the non-first subfolder B never appeared in the band")
+			}
+			if dips > 0 {
+				t.Fatalf("band dipped below depth-2 while inside a depth-2 subtree in %d frame(s) (subfolder swap not smooth): %s", dips, dipDesc)
+			}
+		})
+	}
+}
+
+// TestStickyDeepChainSlidesInNotPops is the regression test for the user's report
+// that the transition into a deeply-nested chain — "Webhooks > Отправленные
+// сообщения > Отправленные сообщения с телефона" — was not seamless. Entering a
+// successor folder that is itself a deep first-child chain used to make the whole
+// chain POP in at once: while the predecessor sibling's last rows were still on
+// screen, only the successor's OUTERMOST row pre-loaded, then its inner d3/d4 rows
+// all appeared in a single frame (band grew several rows at once). The chain must
+// instead STAGGER in — each nested header revealed only after its parent docks — so
+// the band never gains the whole chain in one frame.
+//
+// Note: with uniform row heights (synthetic single-line names), the deepest two
+// rows are geometrically forced to settle on the same frame (slot spacing equals
+// row spacing), so the achievable floor is a 2-row step, not 1. On real data, whose
+// folder names wrap to taller rows, the chain spreads further and lands one row per
+// frame. The invariant asserted here — never a 3+ row single-frame jump for a
+// 3-level chain — is exactly what separates the staggered slide from the old pop.
+func TestStickyDeepChainSlidesInNotPops(t *testing.T) {
+	for _, seed := range []int64{1, 2, 3, 7, 13, 42, 99, 2024} {
+		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
+			setupTestConfigDir(t)
+			ui := NewAppUI()
+			ui.Window = new(app.Window)
+			ui.Tabs = nil
+			ui.SidebarSection = "requests"
+			ui.ColsExpanded = true
+
+			rng := rand.New(rand.NewSource(seed))
+			mkReq := func() *collections.CollectionNode {
+				return &collections.CollectionNode{Name: randStickyName(rng), Request: &model.ParsedRequest{Method: "GET"}}
+			}
+			folder := func() *collections.CollectionNode {
+				return &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
+			}
+			root := folder()
+			// W (d1) holds a sibling subtree SIB (d2, several leaves) followed by a
+			// deeply-nested successor chain SUCC (d2) > INNER (d3) > DEEP (d4) > leaves
+			// — the "Webhooks > Отправленное сообщение > …с телефона > Медиа" shape.
+			w := folder()
+			sib := folder()
+			for i := 0; i < 4+rng.Intn(3); i++ {
+				sib.Children = append(sib.Children, mkReq())
+			}
+			succ := folder()
+			inner := folder()
+			deep := folder()
+			for i := 0; i < 3+rng.Intn(3); i++ {
+				deep.Children = append(deep.Children, mkReq())
+			}
+			inner.Children = append(inner.Children, deep)
+			for i := 0; i < 2+rng.Intn(2); i++ {
+				inner.Children = append(inner.Children, mkReq())
+			}
+			succ.Children = append(succ.Children, inner)
+			for i := 0; i < 2+rng.Intn(2); i++ {
+				succ.Children = append(succ.Children, mkReq())
+			}
+			w.Children = append(w.Children, sib, succ)
+			root.Children = append(root.Children, w)
+			// A trailing d1 sibling so the chain has somewhere to exit into.
+			tail := folder()
+			for i := 0; i < 6; i++ {
+				tail.Children = append(tail.Children, mkReq())
+			}
+			root.Children = append(root.Children, tail)
+
+			col := &collections.ParsedCollection{ID: "c1", Name: root.Name, Root: root}
+			collections.AssignParents(root, nil, col)
+			ui.Collections = []*collections.CollectionUI{{Data: col}}
+			ui.updateVisibleCols()
+
+			var names []string
+			sidebar.DebugBandGeom = func(n []string, _ []int, _ int) {
+				names = append(names[:0], n...)
+			}
+			defer func() { sidebar.DebugBandGeom = nil }()
+
+			sz := image.Pt(900, 520)
+			now := time.Unix(1700000000, 0)
+			r := new(input.Router)
+			frame := func() {
+				ops := new(op.Ops)
+				ui.layoutApp(layout.Context{Ops: ops, Metric: unit.Metric{PxPerDp: 1, PxPerSp: 1}, Constraints: layout.Exact(sz), Now: now, Source: r.Source()})
+				r.Frame(ops)
+			}
+			for i := 0; i < 3; i++ {
+				frame()
+			}
+			ui.ColList.Position.First = 0
+			ui.ColList.Position.Offset = 0
+			frame()
+
+			seen := map[string]bool{}
+			prev := -1
+			worstJump, jumpDesc := 0, ""
+			for step := 0; step < 4000; step++ {
+				before := ui.ColList.Position.First*100000 + ui.ColList.Position.Offset
+				names = names[:0]
+				r.Queue(pointer.Event{Kind: pointer.Scroll, Source: pointer.Mouse, Position: f32.Pt(120, 130), Scroll: f32.Pt(0, 6)})
+				now = now.Add(16 * time.Millisecond)
+				frame()
+				cur := len(names)
+				for _, nm := range names {
+					seen[nm] = true
+				}
+				// Track the worst single-frame GROWTH. Shrink (rows docking and the chain
+				// leaving) is fine; only sudden growth is the non-seamless pop. A 3-level
+				// chain appearing in one frame (growth >= 3) is the bug; the staggered
+				// slide grows at most 2 (the uniform-height deepest-pair floor).
+				if prev >= 0 && cur-prev > worstJump {
+					worstJump = cur - prev
+					f := ui.ColList.Position.First
+					nm := "?"
+					if f < len(ui.VisibleCols) {
+						nm = ui.VisibleCols[f].Name
+					}
+					jumpDesc = fmt.Sprintf("step %d First=%d(%q) rows %d->%d names=%v", step, f, nm, prev, cur, names)
+				}
+				prev = cur
+				if ui.ColList.Position.First*100000+ui.ColList.Position.Offset == before {
+					break
+				}
+			}
+			// The deep chain must genuinely appear (otherwise the no-pop assertion is
+			// vacuously true): every level of the SUCC > INNER > DEEP chain was pinned.
+			for _, n := range []*collections.CollectionNode{succ, inner, deep} {
+				if !seen[n.Name] {
+					t.Fatalf("deep-chain folder %q never appeared in the band", n.Name)
+				}
+			}
+			if worstJump > 2 {
+				t.Fatalf("sticky band grew by %d rows in a single frame (deep chain popped instead of staggering in): %s", worstJump, jumpDesc)
+			}
+		})
+	}
+}

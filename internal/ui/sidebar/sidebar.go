@@ -1137,9 +1137,8 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	}
 
 	// stickySolidH carries the OPAQUE contiguous band height (filled background)
-	// out to colsArea's DebugBand call, distinct from *host.StickyBandH which is the
-	// FULL band height (down to a still-rising entering/leaving header). They differ
-	// only mid-transition; the gap between them is transparent (real rows show).
+	// out to colsArea's DebugBand call. stickyReserve is the height the LIST is
+	// pushed DOWN by, so the band never covers content (VS Code list-offset model).
 	stickySolidH := 0
 	stickyHeaders := func(gtx layout.Context) layout.Dimensions {
 		host.StickyRows = host.StickyRows[:0]
@@ -1239,10 +1238,8 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 		maxRows := gtx.Constraints.Max.Y/max(1, gtx.Dp(unit.Dp(24))) - 2
 
-		// bandFor returns the rows that should be pinned if `i` is the first row the
-		// overlay does NOT hide: its ancestors, plus `i` itself when it is a folder
-		// you are scrolling into (its header is covered, but its children show under
-		// the band, so it must be pinned — otherwise the band lags by one).
+		// bandFor returns the rows pinned when `i` is the top row: its ancestors, plus
+		// `i` itself when it is a folder being entered (header at top, children below).
 		bandFor := func(i int) []*collections.CollectionNode {
 			a := ancestorsOf(snap[i])
 			n := snap[i]
@@ -1283,14 +1280,9 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			return false
 		}
 
-		// VS Code reach-UP sticky model. The pinned chain is the ancestor chain of
-		// the TOP row (`first`) — the scope the user is actually inside — NOT a row
-		// found by looking DOWN past the band. Looking down made the band jump ahead
-		// into the next sibling/subfolder and cover it (e.g. pinning "Получение
-		// файлов" and covering "Очереди" while the top row was still in the previous
-		// subfolder). bandFor includes `first` itself when it is a folder being
-		// entered (its header is at the top, its children show below), so the band
-		// never lags the content by one row.
+		// Overlay reach-up model: the band pins the ancestor chain of the TOP row
+		// (`first`) plus `first` itself when it is a folder being entered. The list is
+		// drawn under the band (not offset), so content scrolls 1:1 with no jump.
 		chain := bandFor(first)
 		if len(chain) == 0 {
 			return layout.Dimensions{}
@@ -1300,8 +1292,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		}
 		m := len(chain)
 
-		// screenAt = the real (overlay) top Y of the row at any visible index (the
-		// list is not offset by the band, so this is just the scroll geometry).
 		screenAt := func(idx int) int {
 			y := -offset
 			if idx >= first {
@@ -1323,10 +1313,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			}
 			return -1
 		}
-		// endYAbs = the screen Y where folder c's subtree ends (the top of the first
-		// row after c's subtree), independent of `first`. found is false when the
-		// subtree runs to the end of the list — there is no next section, so c is not
-		// pushed out (it stays pinned at the bottom).
+		// endYAbs = the screen Y where folder c's subtree ends, independent of `first`.
 		endYAbs := func(c *collections.CollectionNode) (int, bool) {
 			i := idxOf(c)
 			if i < 0 {
@@ -1340,12 +1327,9 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			}
 			return screenAt(i), true
 		}
-		// place = the Y at which folder F sits when pinned at slot s (VS Code): it
-		// rides its real row until that row reaches the docked slot (s*bandRowH) where
-		// it sticks (entering slide-in, no duplicate — while riding the pinned copy
-		// sits over the real row; once docked the real row is hidden behind the lines
-		// above). When F's own scope ends, the next section's boundary row pushes it up
-		// and out (leaving slide-out). Both fall out of one clamp.
+		// place = the Y at which folder F sits when pinned at slot s: it rides its real
+		// row until that row reaches the docked slot (s*bandRowH) where it sticks; when
+		// F's own scope ends, the next section's boundary row pushes it up and out.
 		place := func(F *collections.CollectionNode, s int) int {
 			dock := s * bandRowH
 			y := screenAt(idxOf(F))
@@ -1360,10 +1344,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			return y
 		}
 
-		// Reported (logical) pinned chain — the reach-up ancestor chain (the scope the
-		// user is inside). The incoming folder rendered below for a seamless transition
-		// is VISUAL ONLY and is not reported, so the band never *claims* to pin a
-		// folder the top row is not inside (the "covers the next sibling" bug).
 		host.StickyRows = append(host.StickyRows[:0], chain...)
 		if DebugSticky != nil {
 			names := make([]string, len(chain))
@@ -1373,13 +1353,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			DebugSticky(first, names)
 		}
 
-		// Build the drawn lines: the current chain (each placed/clamped) PLUS the
-		// incoming swap. The incoming = the chain of the NEXT row (first+1). Where it
-		// differs from the current chain at a slot, that folder is taking the slot —
-		// render it rising INTO the slot so the slot is never empty while the outgoing
-		// folder slides out (the root-only gap the user saw between two short folders).
-		// Looking only ONE row ahead, and applying the same scope-end push clamp, keeps
-		// the band from ever covering a sibling header that is further down.
+		// Drawn lines = the current chain plus the incoming descending chain (the next
+		// row's first-child folder path), so a nested subfolder chain shows together
+		// with the folder being entered (no per-level lag). Each rides at its real row
+		// until it docks, so it does not opaquely cover the content below.
 		type bandLine struct {
 			node *collections.CollectionNode
 			y    int
@@ -1389,44 +1366,141 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		for k := 0; k < m; k++ {
 			lines = append(lines, bandLine{chain[k], place(chain[k], k), k})
 		}
-		// Look ahead: the chain of the next row, following the descending first-child
-		// folder path so a nested subfolder chain docks together with its parent (no
-		// per-level "lag by one node" for 2nd level and deeper).
-		ni := first + 1
-		if ni >= len(snap) {
-			ni = len(snap) - 1
-		}
-		for ni+1 < len(snap) {
-			n := snap[ni]
-			entered := (n.IsFolder || n.Depth == 0) && n.Expanded
-			child := snap[ni+1]
-			childFolder := (child.IsFolder || child.Depth == 0) && child.Expanded
-			if entered && child.Parent == n && childFolder {
-				ni++
-				continue
+		inLine := func(n *collections.CollectionNode) bool {
+			for _, ln := range lines {
+				if ln.node == n {
+					return true
+				}
 			}
-			break
+			return false
 		}
-		if next := bandFor(ni); ni > first {
+		// slotDocked reports whether some already-placed line occupies slot s AT its
+		// dock (y == s*bandRowH) — i.e. that level has fully settled into the band.
+		slotDocked := func(s int) bool {
+			for _, ln := range lines {
+				if ln.slot == s && ln.y == s*bandRowH {
+					return true
+				}
+			}
+			return false
+		}
+		// addIncoming renders the folders of bandFor(src) that differ from the current
+		// chain, each riding into its slot — but only once each has risen to within a
+		// row of its slot (rawY check), so a far-off folder is never shown early.
+		addIncoming := func(src int) {
+			if src <= first || src >= len(snap) {
+				return
+			}
+			next := bandFor(src)
 			if maxRows >= 1 && len(next) > maxRows {
 				next = next[len(next)-maxRows:]
 			}
 			for k := 0; k < len(next); k++ {
 				if k < m && next[k] == chain[k] {
-					continue // stable slot — already drawn
+					continue // stable slot
+				}
+				if inLine(next[k]) {
+					continue // already drawn from another source
 				}
 				rawY := screenAt(idxOf(next[k]))
 				if rawY > k*bandRowH+bandRowH {
-					continue // not yet risen to within a row of its slot — far off
+					continue // not yet risen to its slot
+				}
+				// Reveal nested headers strictly top-down: a deeper incoming row must
+				// not appear before the row directly above it has DOCKED at its slot.
+				// This matches VS Code (a child sticky header never shows without its
+				// parent stuck first) and staggers a deep chain — each row waits for its
+				// parent to settle, instead of the whole chain crossing its rise
+				// thresholds together in a single frame (the multi-row pop). Rows must be
+				// added top-down (k ascending, which this loop does) for the check to see
+				// the parent already placed.
+				if k > 0 && !slotDocked(k-1) {
+					continue
 				}
 				lines = append(lines, bandLine{next[k], place(next[k], k), k})
 			}
 		}
+		// descendFirstChildChain follows the first-child folder path down from x: while
+		// snap[x] is an entered folder whose immediately-following row is its own child
+		// folder, step into that child. Returns the deepest such index, so addIncoming
+		// pins the whole nested first-child chain (not just the outermost folder).
+		descendFirstChildChain := func(x int) int {
+			for x+1 < len(snap) {
+				n := snap[x]
+				entered := (n.IsFolder || n.Depth == 0) && n.Expanded
+				child := snap[x+1]
+				childFolder := (child.IsFolder || child.Depth == 0) && child.Expanded
+				if entered && child.Parent == n && childFolder {
+					x++
+					continue
+				}
+				break
+			}
+			return x
+		}
+		// (a) The descending first-child folder chain of the next row, so a nested
+		// subfolder chain shows together with the folder being entered (no per-level
+		// lag for the FIRST child at each level).
+		addIncoming(descendFirstChildChain(first + 1))
+		// (a') Early pre-load for a DEEP upcoming chain: scan a little ahead for the
+		// nearest folder that begins a multi-level chain (its first-child descent goes
+		// deeper than the folder itself) and pre-load it, so its rows have lead time to
+		// rise and STAGGER into the band instead of popping in all at once at the single
+		// frame the top row reaches the folder (the non-seamless deep transition — e.g.
+		// entering "Сервисные методы > Webhooks > Входящее сообщение > …"). addIncoming's
+		// per-row rawY gate keeps rows hidden until each has risen to its slot, so this
+		// only widens the band as rows actually approach.
+		//
+		// Restricted to DEEP chains: a FLAT sibling folder docks at its slot immediately
+		// (its real row is already one row below the top), so bringing it in early would
+		// instead grow a top-level band past two rows — it must push out, not grow (see
+		// TestStickySiblingPushOutSlidesNotVanish). The deep-only guard leaves flat
+		// sibling swaps to dock normally.
+		for na := first + 1; na < len(snap); na++ {
+			if screenAt(na) > (m+1)*bandRowH {
+				break // the folder's row is still too far below to pre-load
+			}
+			n := snap[na]
+			entered := (n.IsFolder || n.Depth == 0) && n.Expanded &&
+				na+1 < len(snap) && snap[na+1].Parent == n
+			if !entered {
+				continue
+			}
+			if deep := descendFirstChildChain(na); deep > na {
+				addIncoming(deep)
+			}
+			break // only the nearest upcoming folder section
+		}
+		// (b) The SUCCESSOR of the deepest pinned folder while it is leaving (its header
+		// is above the top, i.e. `first` is strictly inside it). This is the sibling
+		// subfolder swap — e.g. leaving "Получение уведомления" into its sibling
+		// "Получение файлов" — so the slot stays filled (the band does not dip to fewer
+		// rows and then pop back) and the successor slides into the slot smoothly.
+		//
+		// Only for a DEEP deepest folder (slot >= 2, i.e. m >= 3): there the successor's
+		// real row is far above its slot by the time `first` reaches the boundary, so
+		// without this it would POP straight to its slot. A top-level (d1) successor's
+		// real row is already at its slot, so it docks cleanly via (a) — bringing it in
+		// early here would instead make the d1 swap grow to three rows (it must push
+		// out, not grow — see TestStickySiblingPushOutSlidesNotVanish).
+		//
+		// Descend the successor's own first-child chain too: when the successor is itself
+		// a deeply-nested folder (e.g. "Отправленное сообщение" > "…с телефона" > "Медиа
+		// сообщения"), its inner rows must slide in WITH it. Without the descent only the
+		// successor's outermost row pre-loads, and the inner chain pops in all at once at
+		// the step `first` finally reaches the boundary (band jumps several rows in one
+		// frame — the non-seamless d3+ transition the user reported).
+		if m >= 3 {
+			deepest := chain[m-1]
+			if di := idxOf(deepest); di >= 0 && di != first {
+				j := di
+				for j < len(snap) && isAncestorOrSelf(deepest, snap[j]) {
+					j++
+				}
+				addIncoming(descendFirstChildChain(j))
+			}
+		}
 
-		// Band bottom = the lowest visible drawn line. Solid (opaque) height = the
-		// contiguous docked stack from the top; below it (a still-rising header, or
-		// pushed-out lines) the gap stays transparent so the real rows show through —
-		// painting it opaque was the "empty space on top" bug.
 		bandBottom := 0
 		for _, ln := range lines {
 			if b := ln.y + bandRowH; b > bandBottom {
@@ -1454,16 +1528,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 		rg := gtx
 		rg.Constraints.Min.Y = 0
-		// Clip everything to the band region so pushed-out lines vanish at the top
-		// rather than drawing over the list below.
 		bandClip := clip.Rect{Max: image.Pt(w, bandTotalH)}.Push(gtx.Ops)
-		// Opaque background over the contiguous docked stack only.
 		if solidH > 0 {
 			paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: image.Pt(w, solidH)}.Op())
 		}
-		// Draw deepest slot first (and, within a slot, the outgoing line before the
-		// incoming) so outer lines paint on top: a leaving inner line slides up UNDER
-		// its parent and disappears, while the incoming header docks cleanly over it.
 		for s := bandBottom/bandRowH + 1; s >= 0; s-- {
 			for _, ln := range lines {
 				if ln.slot != s {
@@ -1474,14 +1542,13 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				ro.Pop()
 			}
 		}
-		// Separator under the band bottom.
 		bo := op.Offset(image.Pt(0, bandBottom)).Push(gtx.Ops)
 		paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Max: image.Pt(w, borderH)}.Op())
 		bo.Pop()
 		bandClip.Pop()
 
 		dims := layout.Dimensions{Size: image.Pt(w, bandTotalH)}
-		*host.StickyBandH = bandTotalH // band height (overlay: informational, not a list offset)
+		*host.StickyBandH = bandTotalH
 		stickySolidH = solidH
 		if DebugBandGeom != nil {
 			names := make([]string, len(lines))
@@ -1492,11 +1559,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			DebugBandGeom(names, ys, bandBottom)
 		}
 
-		// The band is a pure-visual overlay: it registers NO opaque pointer area.
-		// In this gio build an opaque hit area inside the on-top band blocks input
-		// to the entire list beneath it (only pass-through ops are safe), so pinned
-		// headers are non-interactive — clicks fall through to the covered row. The
-		// block-hover below is added pass-through purely to keep the body fade alive.
 		sp := pointer.PassOp{}.Push(gtx.Ops)
 		hc := clip.Rect{Max: dims.Size}.Push(gtx.Ops)
 		host.ColsBodyHover.Add(gtx.Ops)
@@ -1508,10 +1570,12 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	colsArea := func(gtx layout.Context) layout.Dimensions {
 		total := gtx.Constraints.Max.Y
 
-		// Overlay: the list is laid out at full height and is NOT offset — the
-		// content scrolls 1:1 (no sticky-induced jump, ever). The band is recorded
-		// after the list (so it reads the current Position.First) and painted on
-		// top, occluding the top rows the way VS Code's sticky scroll does.
+		// Overlay (VS Code-style): the list is laid out at full height and is NOT
+		// offset — content scrolls 1:1 (no sticky-induced jump, ever). The band is
+		// recorded after the list (so it reads the current Position.First) and painted
+		// on top, occluding the top rows. (An earlier experiment pushing the list down
+		// by the band height made content lurch ~a row at every folder boundary — see
+		// TestStickyRealCollectionScrollTopToBottom — so the overlay is kept.)
 		lgtx := gtx
 		lgtx.Constraints.Min.Y = 0
 		lgtx.Constraints.Max.Y = total
