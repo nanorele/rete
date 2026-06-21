@@ -21,8 +21,6 @@ import (
 	"github.com/nanorele/gio/unit"
 )
 
-// randStickyName returns a random alphanumeric name (letters + digits). Tests use
-// synthetic random names instead of any real working-directory collection.
 func randStickyName(rng *rand.Rand) string {
 	const al = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
 	b := make([]byte, 6+rng.Intn(8))
@@ -40,8 +38,6 @@ func stickyDepthOf(n *collections.CollectionNode) int {
 	return d
 }
 
-// buildRandomStickyTree builds a folder tree with mixed nesting depths — 2-level,
-// 3-level and deeper — and random alphanumeric names for folders and requests.
 func buildRandomStickyTree(rng *rand.Rand, maxDepths []int) *collections.CollectionNode {
 	root := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
 	var grow func(parent *collections.CollectionNode, depth, maxDepth int)
@@ -67,34 +63,22 @@ func buildRandomStickyTree(rng *rand.Rand, maxDepths []int) *collections.Collect
 	return root
 }
 
-// buildShortTailStickyTree reproduces the user's exact topology with random names:
-// deeply nested folders whose deepest scopes hold only ONE request, immediately
-// followed by a shallower sibling/uncle folder. Scrolling onto that single child
-// is what made the reach-down band jump ahead into the next subfolder and cover
-// the following sibling header ("Получение файлов" covering "Очереди").
 func buildShortTailStickyTree(rng *rand.Rand) *collections.CollectionNode {
 	root := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
-	// A handful of d1 folders; each contains a short-tailed nested chain plus a few
-	// leaf requests, so leaving the chain crosses one or two scope levels into the
-	// next d1 sibling — exactly the boundary that exhibited the bug.
 	for s := 0; s < 5; s++ {
 		d1 := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
 		root.Children = append(root.Children, d1)
-		// nested chain d2 > d3 > ... each with a single request (the "short tail").
-		depth := 2 + rng.Intn(3) // 2..4 extra levels
+		depth := 2 + rng.Intn(3)
 		cur := d1
 		for d := 0; d < depth; d++ {
 			sub := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
 			cur.Children = append(cur.Children, sub)
-			// one or two requests in the intermediate folder, then descend.
 			for i, n := 0, 1+rng.Intn(2); i < n; i++ {
 				sub.Children = append(sub.Children,
 					&collections.CollectionNode{Name: randStickyName(rng), Request: &model.ParsedRequest{Method: "GET"}})
 			}
 			cur = sub
 		}
-		// a couple of trailing leaves directly under d1 so the chain is followed by
-		// shallower content before the next d1 sibling.
 		for i := 0; i < 2+rng.Intn(3); i++ {
 			d1.Children = append(d1.Children,
 				&collections.CollectionNode{Name: randStickyName(rng), Request: &model.ParsedRequest{Method: "GET"}})
@@ -103,7 +87,6 @@ func buildShortTailStickyTree(rng *rand.Rand) *collections.CollectionNode {
 	return root
 }
 
-// stickyIsAncestorOrSelf reports whether a is n or an ancestor of n.
 func stickyIsAncestorOrSelf(a, n *collections.CollectionNode) bool {
 	for p := n; p != nil; p = p.Parent {
 		if p == a {
@@ -113,12 +96,6 @@ func stickyIsAncestorOrSelf(a, n *collections.CollectionNode) bool {
 	return false
 }
 
-// TestStickyBandPinsOnlyAncestors is the direct regression test for the user's
-// report: while the top row is still inside one subfolder, the sticky band must
-// NEVER pin a different folder (and so cover the next sibling). VS Code reach-up:
-// every pinned row is an ancestor-or-self of the TOP row. It also checks the band
-// never overshoots its pinned-row count (which is what made it tall enough to
-// cover the following sibling header). Random alphanumeric names, mixed depths.
 func TestStickyBandPinsOnlyAncestors(t *testing.T) {
 	for _, seed := range []int64{1, 2, 3, 7, 13, 42, 99, 2024} {
 		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
@@ -180,11 +157,6 @@ func TestStickyBandPinsOnlyAncestors(t *testing.T) {
 					continue
 				}
 				top := ui.VisibleCols[first]
-				// Every LOGICALLY pinned row (reported chain) must be an ancestor-or-self
-				// of the top row. A pinned row that is NOT (a different subfolder) is the
-				// bug: the band claims a folder the user has not entered and covers the
-				// real next sibling. (Incoming folders rendered sliding into a slot during
-				// a transition are visual-only and not reported here.)
 				for _, nm := range band {
 					n := nameToNode[nm]
 					if n == nil {
@@ -195,9 +167,6 @@ func TestStickyBandPinsOnlyAncestors(t *testing.T) {
 							step, nm, top.Name, band, first, ui.ColList.Position.Offset)
 					}
 				}
-				// The opaque band must not paint past the rows it actually DRAWS (no
-				// empty-space fill); drawn includes the incoming folder(s) sliding into a
-				// slot during a seamless transition.
 				if drawn > 0 && solidH > drawn*rowH+rowH {
 					t.Fatalf("step %d: opaque band %dpx overshoots its %d drawn rows (band=%v First=%d)", step, solidH, drawn, band, first)
 				}
@@ -209,16 +178,6 @@ func TestStickyBandPinsOnlyAncestors(t *testing.T) {
 	}
 }
 
-// TestStickyNoFlickerOnExit scrolls a deeply/variably nested random tree from top
-// to bottom and asserts the sticky band never "artifacts" while exiting folders:
-//
-//   - No flicker: because the scroll only moves forward and folder names are unique,
-//     each folder must be pinned over a single CONTIGUOUS run of frames. A folder
-//     that drops out of the band and then re-appears is the visual artifact the user
-//     reported when exiting two-level folders (the band momentarily lost its deepest
-//     row and re-rendered an ancestor as a tall sliding header).
-//   - No empty opaque band: the opaque (filled) band height never exceeds the number
-//     of pinned rows by more than a row's slack.
 func TestStickyNoFlickerOnExit(t *testing.T) {
 	for _, seed := range []int64{1, 7, 42, 100, 2024} {
 		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
@@ -234,6 +193,8 @@ func runStickyFlickerScroll(t *testing.T, seed int64) {
 	ui.Tabs = nil
 	ui.SidebarSection = "requests"
 	ui.ColsExpanded = true
+
+	ui.Settings.StickyMaxLines = 64
 
 	rng := rand.New(rand.NewSource(seed))
 	root := buildRandomStickyTree(rng, []int{1, 1, 2, 3, 1, 4, 2, 5})
@@ -269,7 +230,6 @@ func runStickyFlickerScroll(t *testing.T, seed int64) {
 
 	const rowH = 24
 	const gapTol = 12
-	// The exact set of frames each folder was pinned in.
 	seen := map[string]map[int]bool{}
 	gapWorst, gapDesc := 0, ""
 
@@ -288,8 +248,6 @@ func runStickyFlickerScroll(t *testing.T, seed int64) {
 			}
 			seen[nm][step] = true
 		}
-		// The opaque band must never be taller than the rows it DRAWS (no empty space);
-		// drawn includes the incoming folder sliding into a slot during a transition.
 		if rows := drawn; rows > 0 {
 			if over := solidH - (rows*rowH + gapTol); over > gapWorst {
 				gapWorst = over
@@ -297,17 +255,10 @@ func runStickyFlickerScroll(t *testing.T, seed int64) {
 			}
 		}
 		if ui.ColList.Position.First+ui.ColList.Position.Offset == before {
-			break // clamped at the bottom
+			break
 		}
 	}
 
-	// For each folder, the longest run of CONSECUTIVE absent frames between its first
-	// and last pinned frame is its worst flicker gap. A folder dropping out of the
-	// band and re-appearing is the artifact. The reach-up band pins the ancestor
-	// chain of the top row, which is monotone as you scroll, so a folder is pinned
-	// over a single contiguous run — the worst gap is 0. A small bound is kept only
-	// as slack; a SUSTAINED drop is the real bug (the band losing a folder it is
-	// still inside).
 	const maxGap = 10
 	var flick []string
 	worstGap := 0
@@ -353,25 +304,6 @@ func runStickyFlickerScroll(t *testing.T, seed int64) {
 	}
 }
 
-// TestStickySeamlessTransition is the regression test for the user's reports about
-// nested transitions:
-//   - "appears only after scrolling": between two short folders the band briefly
-//     collapsed to root (a gap) before the next folder popped in.
-//   - "nodes of nesting 2 and deeper lag by one node" ("Входящее сообщение",
-//     "Цитирование текстовым"): a nested subfolder chain appeared one level per node
-//     (a staircase) instead of together with the folder being entered.
-//
-// VS Code keeps the slot occupied (the incoming folder slides in as the outgoing
-// slides out) AND, when entering a folder, its nested first-child chain slides in
-// together (the deep rows ride at their real positions, so they do not opaquely
-// cover the content below — verified by the gap/jerk/duplicate tests).
-//
-// The tree (random alphanumeric names) targets the patterns:
-//   - sibling swap:  s1 (1 child) -> s2 (many children)   [d1 -> d1]
-//   - descent:       d1 > d2 > d3 nested first-child subfolders
-//
-// Invariants: never collapse to root-only mid-scope (the gap); and the nested
-// first-child chain (d2, d3) is present as soon as the top row enters d1 (no lag).
 func TestStickySeamlessTransition(t *testing.T) {
 	for _, seed := range []int64{1, 2, 3, 7, 13, 42, 99, 2024} {
 		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
@@ -387,15 +319,11 @@ func TestStickySeamlessTransition(t *testing.T) {
 				return &collections.CollectionNode{Name: randStickyName(rng), Request: &model.ParsedRequest{Method: "GET"}}
 			}
 			root := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
-			// Several adjacent SHORT d1 folders (1 child each) — the sibling-swap worst
-			// case: leaving one immediately enters the next, with no room to spare.
 			for i := 0; i < 4; i++ {
 				f := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
 				f.Children = append(f.Children, mkReq())
 				root.Children = append(root.Children, f)
 			}
-			// A d1 folder whose FIRST child is a d2 subfolder (descent), which in turn
-			// has a first-child d3 subfolder (deeper descent), each with leaves.
 			d1 := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
 			d2 := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
 			d3 := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
@@ -411,7 +339,6 @@ func TestStickySeamlessTransition(t *testing.T) {
 				d1.Children = append(d1.Children, mkReq())
 			}
 			root.Children = append(root.Children, d1)
-			// A final long d1 folder so the descent chain has a sibling to exit into.
 			last := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
 			for i := 0; i < 6; i++ {
 				last.Children = append(last.Children, mkReq())
@@ -494,12 +421,6 @@ func TestStickySeamlessTransition(t *testing.T) {
 						visible++
 					}
 				}
-				// No root-only collapse: while the top row is strictly inside a folder
-				// (depth >= 2: root + at least one folder), the band must keep at least
-				// two visible lines — the outgoing folder slides out only as the incoming
-				// one slides in (this is the sibling-swap gap the user saw between two
-				// short folders). A deepest line may briefly slide out on a last child,
-				// but the root + a folder line are always present.
 				if depthOf(top) >= 2 && visible < 2 {
 					gaps++
 					if worst == "" {
@@ -507,12 +428,6 @@ func TestStickySeamlessTransition(t *testing.T) {
 							step, f, top.Name, depthOf(top), ui.ColList.Position.Offset, visible, ys)
 					}
 				}
-				// Deep descent appears together (no per-level "lag by one node"): the
-				// instant the top row is the d1 folder, its nested first-child chain
-				// d2 > d3 must ALREADY be drawn — sliding in with the parent, not popping
-				// in one (and two) nodes later (the user's report for "Входящее сообщение"
-				// / "Цитирование текстовым"). The deep rows ride at their real positions
-				// (they do not opaquely cover the content below — see the gap/jerk tests).
 				if !d1Checked && f == d1Idx && d2Idx >= 0 && d3Idx >= 0 && ui.ColList.Position.Offset > 0 {
 					d1Checked = true
 					if !inName(d2.Name) || !inName(d3.Name) {
@@ -520,7 +435,6 @@ func TestStickySeamlessTransition(t *testing.T) {
 							d1.Name, d2.Name, d3.Name, names)
 					}
 				}
-				// And once the top row is the d2 folder, d3 is present too.
 				if !d2Checked && f == d2Idx && d3Idx >= 0 && ui.ColList.Position.Offset > 0 {
 					d2Checked = true
 					if !inName(d3.Name) {
@@ -542,14 +456,6 @@ func TestStickySeamlessTransition(t *testing.T) {
 	}
 }
 
-// TestStickyNonFirstSubfolderSwap is the regression test for the user's report that
-// the smooth move "doesn't always work" — specifically for "Получение файлов", a
-// subfolder that is NOT the first child of its parent. Leaving the first subfolder
-// into a later sibling subfolder (a depth-2+ swap) used to make the band DIP: the
-// leaving subfolder slid out (band shrank to root+parent) and then the successor
-// POPPED in a row taller. The successor must instead slide into the slot as the
-// predecessor leaves, so while the top row is inside the parent's depth-2 subtree
-// the band keeps its depth-2 row (never dips to just root+parent).
 func TestStickyNonFirstSubfolderSwap(t *testing.T) {
 	for _, seed := range []int64{1, 2, 3, 7, 13, 42, 99, 2024} {
 		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
@@ -565,8 +471,6 @@ func TestStickyNonFirstSubfolderSwap(t *testing.T) {
 				return &collections.CollectionNode{Name: randStickyName(rng), Request: &model.ParsedRequest{Method: "GET"}}
 			}
 			root := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
-			// A d1 folder P with TWO subfolders A (first) and B (NOT first) — the
-			// "Получение" > ["Получение уведомлений", "Получение файлов"] shape.
 			p := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
 			a := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
 			b := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
@@ -581,7 +485,6 @@ func TestStickyNonFirstSubfolderSwap(t *testing.T) {
 				p.Children = append(p.Children, mkReq())
 			}
 			root.Children = append(root.Children, p)
-			// A trailing d1 sibling so P has somewhere to exit into.
 			q := &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
 			for i := 0; i < 6; i++ {
 				q.Children = append(q.Children, mkReq())
@@ -646,10 +549,6 @@ func TestStickyNonFirstSubfolderSwap(t *testing.T) {
 						bVisible = true
 					}
 				}
-				// While the top row is strictly inside the parent's depth-2 subtree
-				// (depth >= 3: root + P + a depth-2 subfolder), the band must keep its
-				// depth-2 row — bottom stays at least 3 rows. A dip to 2 rows is the
-				// leaving-subfolder-slid-out-before-successor-arrived bug.
 				if depthOf(top) >= 3 && bottom < 3*rowH-2 {
 					dips++
 					if dipDesc == "" {
@@ -673,22 +572,6 @@ func TestStickyNonFirstSubfolderSwap(t *testing.T) {
 	}
 }
 
-// TestStickyDeepChainSlidesInNotPops is the regression test for the user's report
-// that the transition into a deeply-nested chain — "Webhooks > Отправленные
-// сообщения > Отправленные сообщения с телефона" — was not seamless. Entering a
-// successor folder that is itself a deep first-child chain used to make the whole
-// chain POP in at once: while the predecessor sibling's last rows were still on
-// screen, only the successor's OUTERMOST row pre-loaded, then its inner d3/d4 rows
-// all appeared in a single frame (band grew several rows at once). The chain must
-// instead STAGGER in — each nested header revealed only after its parent docks — so
-// the band never gains the whole chain in one frame.
-//
-// Note: with uniform row heights (synthetic single-line names), the deepest two
-// rows are geometrically forced to settle on the same frame (slot spacing equals
-// row spacing), so the achievable floor is a 2-row step, not 1. On real data, whose
-// folder names wrap to taller rows, the chain spreads further and lands one row per
-// frame. The invariant asserted here — never a 3+ row single-frame jump for a
-// 3-level chain — is exactly what separates the staggered slide from the old pop.
 func TestStickyDeepChainSlidesInNotPops(t *testing.T) {
 	for _, seed := range []int64{1, 2, 3, 7, 13, 42, 99, 2024} {
 		t.Run(fmt.Sprintf("seed-%d", seed), func(t *testing.T) {
@@ -707,9 +590,6 @@ func TestStickyDeepChainSlidesInNotPops(t *testing.T) {
 				return &collections.CollectionNode{Name: randStickyName(rng), IsFolder: true, Expanded: true}
 			}
 			root := folder()
-			// W (d1) holds a sibling subtree SIB (d2, several leaves) followed by a
-			// deeply-nested successor chain SUCC (d2) > INNER (d3) > DEEP (d4) > leaves
-			// — the "Webhooks > Отправленное сообщение > …с телефона > Медиа" shape.
 			w := folder()
 			sib := folder()
 			for i := 0; i < 4+rng.Intn(3); i++ {
@@ -731,7 +611,6 @@ func TestStickyDeepChainSlidesInNotPops(t *testing.T) {
 			}
 			w.Children = append(w.Children, sib, succ)
 			root.Children = append(root.Children, w)
-			// A trailing d1 sibling so the chain has somewhere to exit into.
 			tail := folder()
 			for i := 0; i < 6; i++ {
 				tail.Children = append(tail.Children, mkReq())
@@ -777,10 +656,6 @@ func TestStickyDeepChainSlidesInNotPops(t *testing.T) {
 				for _, nm := range names {
 					seen[nm] = true
 				}
-				// Track the worst single-frame GROWTH. Shrink (rows docking and the chain
-				// leaving) is fine; only sudden growth is the non-seamless pop. A 3-level
-				// chain appearing in one frame (growth >= 3) is the bug; the staggered
-				// slide grows at most 2 (the uniform-height deepest-pair floor).
 				if prev >= 0 && cur-prev > worstJump {
 					worstJump = cur - prev
 					f := ui.ColList.Position.First
@@ -795,8 +670,6 @@ func TestStickyDeepChainSlidesInNotPops(t *testing.T) {
 					break
 				}
 			}
-			// The deep chain must genuinely appear (otherwise the no-pop assertion is
-			// vacuously true): every level of the SUCC > INNER > DEEP chain was pinned.
 			for _, n := range []*collections.CollectionNode{succ, inner, deep} {
 				if !seen[n.Name] {
 					t.Fatalf("deep-chain folder %q never appeared in the band", n.Name)

@@ -110,6 +110,7 @@ type AppUI struct {
 	envRowH         int
 	colRowH         int
 	stickyBandH     int
+	stickyScroll    gesture.Scroll
 	colRowYs        map[int]int
 	colAfterLastY   int
 	SidebarEnvDrag  gesture.Drag

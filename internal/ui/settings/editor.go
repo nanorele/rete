@@ -77,6 +77,10 @@ type Editor struct {
 	SidebarWidthInc    widget.Clickable
 	SidebarWidthEditor widget.Editor
 
+	StickyMaxDec    widget.Clickable
+	StickyMaxInc    widget.Clickable
+	StickyMaxEditor widget.Editor
+
 	TimeoutDec           widget.Clickable
 	TimeoutInc           widget.Clickable
 	TimeoutEditor        widget.Editor
@@ -379,6 +383,7 @@ func (e *Editor) Reset() {
 	e.SplitRatioEditor.SetText(strconv.FormatFloat(float64(def.DefaultSplitRatio), 'f', 2, 32))
 	e.StackBpEditor.SetText(strconv.Itoa(def.StackBreakpointDp))
 	e.SidebarWidthEditor.SetText(strconv.Itoa(def.DefaultSidebarWidthPx))
+	e.StickyMaxEditor.SetText(strconv.Itoa(def.StickyMaxLines))
 	e.TimeoutEditor.SetText(strconv.Itoa(def.RequestTimeoutSec))
 	e.ConnectTimeoutEditor.SetText(strconv.Itoa(def.ConnectTimeoutSec))
 	e.TLSTimeoutEditor.SetText(strconv.Itoa(def.TLSHandshakeTimeoutSec))
@@ -720,6 +725,24 @@ func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			changed = true
 		}
 	}
+	for e.StickyMaxDec.Clicked(gtx) {
+		if e.Draft.StickyMaxLines > 1 {
+			e.Draft.StickyMaxLines -= 1
+			if e.Draft.StickyMaxLines < 1 {
+				e.Draft.StickyMaxLines = 1
+			}
+			changed = true
+		}
+	}
+	for e.StickyMaxInc.Clicked(gtx) {
+		if e.Draft.StickyMaxLines < 12 {
+			e.Draft.StickyMaxLines += 1
+			if e.Draft.StickyMaxLines > 12 {
+				e.Draft.StickyMaxLines = 12
+			}
+			changed = true
+		}
+	}
 	for i := range e.AcceptEncodingBtn {
 		for e.AcceptEncodingBtn[i].Clicked(gtx) {
 			if e.Draft.DefaultAcceptEncoding != acceptEncodingOptions[i].Value {
@@ -830,6 +853,10 @@ func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	}
 	if v, ok := intStepperUpdate(gtx, &e.SidebarWidthEditor, e.Draft.DefaultSidebarWidthPx, 160, 1000); ok {
 		e.Draft.DefaultSidebarWidthPx = v
+		changed = true
+	}
+	if v, ok := intStepperUpdate(gtx, &e.StickyMaxEditor, e.Draft.StickyMaxLines, 1, 12); ok {
+		e.Draft.StickyMaxLines = v
 		changed = true
 	}
 	if v, ok := intStepperUpdate(gtx, &e.JSONIndentEditor, e.Draft.JSONIndentSpaces, 0, 8); ok {
@@ -1597,6 +1624,12 @@ func (e *Editor) sectionsSizes(host *Host) []layout.Widget {
 		settingsHint(host.Theme, fmt.Sprintf("Initial width of the collections/environments sidebar on first launch. Existing windows keep their dragged width. Default: %d px.", def.DefaultSidebarWidthPx)),
 		spacerH(8),
 		stepperEditableRow(host.Theme, &e.SidebarWidthDec, &e.SidebarWidthInc, &e.SidebarWidthEditor, "px"),
+		spacerH(20),
+		settingsSectionTitle(host.Theme, "Sticky headers"),
+		spacerH(4),
+		settingsHint(host.Theme, fmt.Sprintf("Maximum number of pinned sticky-scroll header lines in the collections tree. Default: %d.", def.StickyMaxLines)),
+		spacerH(8),
+		stepperEditableRow(host.Theme, &e.StickyMaxDec, &e.StickyMaxInc, &e.StickyMaxEditor, ""),
 	}
 }
 

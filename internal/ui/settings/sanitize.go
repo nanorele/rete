@@ -140,5 +140,15 @@ func Sanitize(s model.AppSettings) model.AppSettings {
 		s.DefaultSidebarWidthPx = 1000
 	}
 
+	if s.StickyMaxLines == 0 {
+		s.StickyMaxLines = 5
+	}
+	if s.StickyMaxLines < 1 {
+		s.StickyMaxLines = 1
+	}
+	if s.StickyMaxLines > 12 {
+		s.StickyMaxLines = 12
+	}
+
 	return s
 }

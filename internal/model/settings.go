@@ -49,6 +49,7 @@ type AppSettings struct {
 	StackBreakpointDp       int     `json:"stack_breakpoint_dp,omitempty"`
 	DefaultSidebarWidthPx   int     `json:"default_sidebar_width_px,omitempty"`
 	RestoreTabsOnStartup    bool    `json:"restore_tabs_on_startup"`
+	StickyMaxLines          int     `json:"sticky_max_lines,omitempty"`
 
 	SyntaxOverrides map[string]ThemeSyntaxOverride `json:"syntax_overrides,omitempty"`
 
@@ -159,5 +160,6 @@ func DefaultSettings() AppSettings {
 		StackBreakpointDp:       700,
 		DefaultSidebarWidthPx:   250,
 		RestoreTabsOnStartup:    true,
+		StickyMaxLines:          5,
 	}
 }

@@ -203,8 +203,6 @@ func TestStickyBandTracksScopeBoundary(t *testing.T) {
 		return &collections.CollectionNode{Name: name, Request: &model.ParsedRequest{Method: "GET"}}
 	}
 	visible := []*collections.CollectionNode{root}
-	// Folders large enough that the overlay band never covers the whole scope, so
-	// the row under the band stays inside the folder you are in.
 	const perFolder = 8
 	for fi, fld := range []*collections.CollectionNode{fldA, fldB} {
 		visible = append(visible, fld)
@@ -221,21 +219,17 @@ func TestStickyBandTracksScopeBoundary(t *testing.T) {
 	*host.Collections = []*collections.CollectionUI{{Data: col}}
 	*host.VisibleCols = visible
 
-	// Overlay model: the band pins the ancestor context of the content shown under
-	// it (plus the entering folder). The innermost pinned header is therefore the
-	// folder you are inside — whether the top row is the folder header itself
-	// (entering) or one of its children.
 	r := new(input.Router)
 	cases := []struct {
 		first int
 		want  *collections.CollectionNode
 	}{
-		{1, fldA},  // entering A (header at top)
-		{2, fldA},  // a0
-		{5, fldA},  // a4 — mid-folder
-		{10, fldB}, // entering B
-		{11, fldB}, // b0
-		{14, fldB}, // b3 — mid-folder
+		{1, fldA},
+		{2, fldA},
+		{5, fldA},
+		{10, fldB},
+		{11, fldB},
+		{14, fldB},
 	}
 	for _, tc := range cases {
 		host.ColList.Position.First = tc.first

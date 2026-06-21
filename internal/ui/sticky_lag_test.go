@@ -55,10 +55,6 @@ func TestStickyBandDoesNotLagList(t *testing.T) {
 		return out
 	}
 
-	// Overlay model: the band pins the ancestors of the first row the overlay does
-	// NOT hide (the row resting at the band's bottom edge), plus that row itself
-	// when it is a folder being scrolled into. This mirrors the production band and
-	// is what makes the pinned context match the content shown beneath it.
 	rowH := func(i int) int {
 		if i >= 0 && i < len(ui.VisibleCols) {
 			if h := ui.VisibleCols[i].RowHeightPx; h > 0 {
@@ -145,11 +141,6 @@ func TestStickyBandDoesNotLagList(t *testing.T) {
 		if first < 0 || first >= len(ui.VisibleCols) {
 			continue
 		}
-		// VS Code reach-up model: the band pins the ancestor chain of the TOP row
-		// (`first`) — the scope the user is inside — plus that row itself when it is a
-		// folder being entered. The band must equal this every frame (it does not look
-		// DOWN past itself, which is what used to make it jump ahead into the next
-		// subfolder and cover it). _ = rowUnderBand keeps the helper referenced.
 		_ = rowUnderBand
 		if bandH > 0 {
 			want := expectedBand(first)
@@ -169,8 +160,6 @@ func TestStickyBandDoesNotLagList(t *testing.T) {
 				}
 			}
 		}
-		// Overlay: the list is never offset (reserve is reported as 0), so the
-		// content position == absScroll and must move strictly with the scroll.
 		effective := absScroll(ui) - reserve
 		if effective < prevEffective-2 {
 			t.Fatalf("step %d: content scrolled BACKWARDS — First=%d Offset=%d reserve=%d: effective %d -> %d",
@@ -184,13 +173,6 @@ func TestStickyBandDoesNotLagList(t *testing.T) {
 	}
 }
 
-// TestStickyBandDoesNotLurchAtSiblingFolder guards the jerk that the deep-chain
-// lag test above structurally cannot see. With sibling folders, scrolling a
-// folder's last child into the *next* folder makes the band's inner row swap
-// (fldA->fldB); the old code restarted that folder's slide-in, dropping a whole
-// band row of reserve in one frame -> the content lurched forward. The three
-// invariants the lag test checks (band names, occlusion, backward scroll) all
-// stayed green through that bug; only a forward-lurch check catches it.
 func TestStickyBandDoesNotLurchAtSiblingFolder(t *testing.T) {
 	setupTestConfigDir(t)
 	ui := NewAppUI()
@@ -252,9 +234,6 @@ func TestStickyBandDoesNotLurchAtSiblingFolder(t *testing.T) {
 	frame()
 
 	const delta = 6
-	// A lurch is the content position jumping by more than the scroll the user
-	// applied. The bug produced ~one whole band row (>>delta); allow delta plus
-	// a few px of band-row rounding.
 	forwardMax := delta + 4
 	prevEffective := absScroll(ui) - reserve
 	seen := map[string]bool{}
@@ -271,7 +250,6 @@ func TestStickyBandDoesNotLurchAtSiblingFolder(t *testing.T) {
 		if len(lastRendered) > 0 {
 			seen[lastRendered[len(lastRendered)-1]] = true
 		}
-		// Overlay: content == absScroll, never jumps in either direction.
 		_ = bandH
 		effective := absScroll(ui) - reserve
 		if effective < prevEffective-4 {
@@ -286,8 +264,6 @@ func TestStickyBandDoesNotLurchAtSiblingFolder(t *testing.T) {
 		prevEffective = effective
 	}
 
-	// The band pins a sibling folder (as innermost ancestor) only while First is
-	// inside that folder's subtree. Confirm we scrolled through several of them.
 	for _, fn := range []string{"fldB", "fldC"} {
 		if !seen[fn] {
 			t.Fatalf("scroll never pinned %q as innermost; sibling boundaries not exercised (seen=%v)", fn, seen)
@@ -295,16 +271,6 @@ func TestStickyBandDoesNotLurchAtSiblingFolder(t *testing.T) {
 	}
 }
 
-// TestStickyNoJumpAtNestedSubfolder guards the 3rd-level bug: a subfolder that
-// is NOT the first child of its parent (sibling requests precede it) was
-// misclassified as a sibling "swap" instead of a "descent", so the band gained a
-// row with a discrete reserve step -> the content jumped backwards when First
-// reached the subfolder. The deep-chain lag test cannot see this because there
-// every folder is the FIRST child of its parent.
-// TestStickySiblingPushOutSlidesNotVanish guards the VS Code–style transition
-// between two SIBLING folders (ordinal, not nesting). The old folder must slide
-// up and out (shown shrinking over several frames) while the band does NOT grow,
-// rather than the band extending and the old folder vanishing in one frame.
 func TestStickySiblingPushOutSlidesNotVanish(t *testing.T) {
 	setupTestConfigDir(t)
 	ui := NewAppUI()
@@ -353,9 +319,8 @@ func TestStickySiblingPushOutSlidesNotVanish(t *testing.T) {
 	if rowH <= 0 {
 		rowH = 24
 	}
-	twoRow := 2*rowH + 4 // root + one folder + border, with tolerance
+	twoRow := 2*rowH + 4
 
-	// Record (deepest pinned folder name, bandH) per frame.
 	type fr struct {
 		deepest string
 		h       int
@@ -376,19 +341,14 @@ func TestStickySiblingPushOutSlidesNotVanish(t *testing.T) {
 		}
 	}
 
-	// Count sibling transitions where the leaving (top-level) folder slid out:
-	// it stayed the deepest pinned row across >=2 frames whose band height was
-	// shrinking and dipped well under the two-row height (a real slide, not an
-	// instant vanish). Also assert the band never extended past two rows for a
-	// top-level folder (no "becomes one node bigger").
 	siblings := map[string]bool{"A": true, "B": true, "C": true, "D": true, "E": true}
 	slidOut := 0
-	run := 0 // consecutive frames with the same top-level deepest folder
+	run := 0
 	minHInRun := 1 << 30
 	prevDeepest := ""
 	flush := func(next string) {
 		if siblings[prevDeepest] && run >= 2 && minHInRun < twoRow-rowH/2 && siblings[next] && next != prevDeepest {
-			slidOut++ // leaving folder shrank to a sliver before its sibling took over
+			slidOut++
 		}
 	}
 	for _, f := range frames {
@@ -426,7 +386,7 @@ func TestStickyNoJumpAtNestedSubfolder(t *testing.T) {
 	root := &collections.CollectionNode{Name: "root", IsFolder: true, Expanded: true}
 	f1 := &collections.CollectionNode{Name: "F1", IsFolder: true, Expanded: true}
 	f1.Children = []*collections.CollectionNode{mkReq("f1-r0"), mkReq("f1-r1"), mkReq("f1-r2")}
-	f2 := &collections.CollectionNode{Name: "F2sub", IsFolder: true, Expanded: true} // subfolder after siblings
+	f2 := &collections.CollectionNode{Name: "F2sub", IsFolder: true, Expanded: true}
 	for i := 0; i < 40; i++ {
 		f2.Children = append(f2.Children, mkReq(fmt.Sprintf("f2-r%d", i)))
 	}
@@ -499,14 +459,6 @@ func TestStickyNoJumpAtNestedSubfolder(t *testing.T) {
 	}
 }
 
-// TestStickyRealCollectionScrollTopToBottom is the reproduction the user asked
-// for: load the real collection from the app's data dir, expand every node, and
-// scroll from the top all the way to the bottom and back. Every frame it asserts
-// the content never jumps — neither backwards nor forwards by more than the
-// scroll the user applied — which is what "дёргается" looks like in numbers.
-//
-// Set STICKY_COLLECTION to a specific .json, else it loads every collection in
-// %APPDATA%/tracto/collections. Skips if none are present (e.g. CI).
 func TestStickyRealCollectionScrollTopToBottom(t *testing.T) {
 	cols := loadRealCollections(t)
 	if len(cols) == 0 {
@@ -574,9 +526,6 @@ func TestStickyRealCollectionScrollTopToBottom(t *testing.T) {
 	frame()
 
 	const delta = 6
-	// A jerk is the content moving against, or far past, the scroll the user
-	// applied. Real rows have varied (sometimes 2-line) heights, so allow a few
-	// px of band-row rounding; a whole-row jump (~24px) is well outside this.
 	const tol = 6
 	topName := func() (string, int, bool) {
 		f := ui.ColList.Position.First
@@ -589,10 +538,6 @@ func TestStickyRealCollectionScrollTopToBottom(t *testing.T) {
 		return n.Name, n.Depth, entering
 	}
 
-	// scrollDir runs frames in one direction until it stops making progress
-	// (clamped at an end), recording every frame whose content jump exceeds the
-	// scroll the user applied. Returns (frames, jerks) instead of failing fast so
-	// the whole collection is exercised and every jerk site is reported.
 	type jerk struct{ msg string }
 	scrollDir := func(dir string, sign int) (int, []jerk) {
 		prevEff := absScroll() - reserve
@@ -608,13 +553,13 @@ func TestStickyRealCollectionScrollTopToBottom(t *testing.T) {
 			d := eff - prevEff
 			name, depth, entering := topName()
 			var bad string
-			if sign > 0 { // down: eff rises ~delta; backward (d<-tol) or forward lurch (d>delta+tol) is a jerk
+			if sign > 0 {
 				if d < -tol {
 					bad = fmt.Sprintf("BACKWARDS d=%d", d)
 				} else if d > delta+tol {
 					bad = fmt.Sprintf("FORWARD-LURCH d=%d (>scroll %d)", d, delta)
 				}
-			} else { // up: eff falls ~delta; forward (d>tol) or backward lurch (d<-(delta+tol)) is a jerk
+			} else {
 				if d > tol {
 					bad = fmt.Sprintf("FORWARD d=%d", d)
 				} else if d < -(delta + tol) {
@@ -628,7 +573,7 @@ func TestStickyRealCollectionScrollTopToBottom(t *testing.T) {
 			prevEff = eff
 			if absScroll() == before {
 				if stall++; stall >= 3 {
-					break // clamped at an end
+					break
 				}
 			} else {
 				stall = 0
@@ -659,12 +604,6 @@ func TestStickyRealCollectionScrollTopToBottom(t *testing.T) {
 	}
 }
 
-// TestStickyRealCollectionBandMatchesContent checks the VS Code reach-up invariant
-// on the real collection: the pinned band always shows the ancestor chain of the
-// TOP row (the scope the user is inside), plus that row itself when it is a folder
-// being entered — never a folder reached by looking DOWN past the band, which is
-// what used to make it jump ahead into the next subfolder and cover the next
-// sibling header.
 func TestStickyRealCollectionBandMatchesContent(t *testing.T) {
 	cols := loadRealCollections(t)
 	if len(cols) == 0 {
@@ -714,8 +653,6 @@ func TestStickyRealCollectionBandMatchesContent(t *testing.T) {
 		}
 		return 24
 	}
-	// The first row whose bottom edge is below the band's bottom — the row the band
-	// rests on (the first the overlay does not fully hide). Returns its index.
 	rowUnderBand := func(bandH int) int {
 		y := -ui.ColList.Position.Offset
 		for i := ui.ColList.Position.First; i < len(ui.VisibleCols); i++ {
@@ -727,9 +664,6 @@ func TestStickyRealCollectionBandMatchesContent(t *testing.T) {
 		}
 		return len(ui.VisibleCols) - 1
 	}
-	// Expected pinned chain for the row the band rests on: its ancestors, plus the
-	// row itself when it is a folder being scrolled into (its header is at the band
-	// edge but its children show beneath, so it is legitimately pinned too).
 	expectedBand := func(i int) []string {
 		n := ui.VisibleCols[i]
 		out := ancestorsOf(n)
@@ -762,10 +696,6 @@ func TestStickyRealCollectionBandMatchesContent(t *testing.T) {
 	ui.ColList.Position.Offset = 0
 	frame()
 
-	// The band can briefly differ from the content beneath it only while a scope
-	// boundary is crossing (the bottom row is sliding out / in over a few frames).
-	// A *persistent* mismatch is the lag bug. Allow short transition streaks but
-	// fail if the band is wrong for more than `maxStreak` consecutive frames.
 	const maxStreak = 10
 	var mism []string
 	checks, streak, worst, mismTotal := 0, 0, 0, 0
@@ -776,7 +706,7 @@ func TestStickyRealCollectionBandMatchesContent(t *testing.T) {
 		frame()
 		if bandH <= 0 {
 			streak = 0
-			continue // nothing pinned (top of a collection)
+			continue
 		}
 		_ = rowUnderBand
 		first := ui.ColList.Position.First
@@ -796,7 +726,7 @@ func TestStickyRealCollectionBandMatchesContent(t *testing.T) {
 			}
 		}
 		if ui.ColList.Position.Offset+ui.ColList.Position.First == before {
-			break // clamped at the bottom
+			break
 		}
 	}
 	t.Logf("compared %d frames; %d mismatched (all transitions); worst consecutive streak = %d", checks, mismTotal, worst)
@@ -808,13 +738,6 @@ func TestStickyRealCollectionBandMatchesContent(t *testing.T) {
 	}
 }
 
-// TestStickyRealCollectionNoDuplicateUnderBand checks the VS Code–style smooth
-// transition: when a folder header docks into the band, it must not appear BOTH
-// pinned in the band AND as a real list row peeking out just beneath it. A
-// duplicate frame is one where the band's innermost pinned node is the very same
-// node whose real row straddles the band's bottom edge (so the user sees it
-// twice). The slide makes the pinned copy cover its own real row, so there are
-// none — except possibly a 1px rounding sliver, which the tolerance absorbs.
 func TestStickyRealCollectionNoDuplicateUnderBand(t *testing.T) {
 	cols := loadRealCollections(t)
 	if len(cols) == 0 {
@@ -857,7 +780,6 @@ func TestStickyRealCollectionNoDuplicateUnderBand(t *testing.T) {
 		}
 		return 24
 	}
-	// screen-top Y of row i (overlay: list is not offset).
 	rowTop := func(i int) int {
 		y := -ui.ColList.Position.Offset
 		for j := ui.ColList.Position.First; j < i && j < len(ui.VisibleCols); j++ {
@@ -865,7 +787,6 @@ func TestStickyRealCollectionNoDuplicateUnderBand(t *testing.T) {
 		}
 		return y
 	}
-	// The node whose row straddles the band's bottom edge.
 	rowUnderBand := func(bandH int) int {
 		y := -ui.ColList.Position.Offset
 		for i := ui.ColList.Position.First; i < len(ui.VisibleCols); i++ {
@@ -914,11 +835,9 @@ func TestStickyRealCollectionNoDuplicateUnderBand(t *testing.T) {
 		}
 		ui_ := rowUnderBand(bandH)
 		under := ui.VisibleCols[ui_]
-		// Is the band's innermost pinned node the same node straddling the band
-		// bottom? If so, its real row peeks out below its own pinned copy.
 		isFolderUnder := (under.IsFolder || under.Depth == 0) && under.Expanded &&
 			ui_+1 < len(ui.VisibleCols) && ui.VisibleCols[ui_+1].Parent == under
-		peek := rowTop(ui_) + rowH(ui_) - bandH // px of `under`'s real row visible below the band
+		peek := rowTop(ui_) + rowH(ui_) - bandH
 		if isFolderUnder && lastRendered[len(lastRendered)-1] == under.Name && peek > 2 {
 			if len(dups) < 20 {
 				dups = append(dups, fmt.Sprintf("step %d: %q pinned AND its real row peeks %dpx below the band (First=%d Off=%d bandH=%d band=%v)",
@@ -937,8 +856,6 @@ func TestStickyRealCollectionNoDuplicateUnderBand(t *testing.T) {
 	}
 }
 
-// loadRealCollections reads the user's real collections from STICKY_COLLECTION
-// (a single file) or every *.json in %APPDATA%/tracto/collections.
 func loadRealCollections(t *testing.T) []*collections.CollectionUI {
 	t.Helper()
 	var paths []string

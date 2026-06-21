@@ -18,12 +18,6 @@ import (
 )
 
 func TestStickyHeaderClick(t *testing.T) {
-	// Overlay sticky model: the band is painted on top of the list and, in this
-	// gio build, ANY opaque pointer area inside the on-top band blocks input to the
-	// whole list beneath it (only pass-through ops are safe). Pinned headers are
-	// therefore visual-only for now; click-to-navigate needs a bounded-hit-area
-	// approach and is tracked as a follow-up. Skipped until then.
-	t.Skip("pinned sticky headers are visual-only in the overlay model (see comment)")
 	host, cleanup := newTestHost()
 	defer cleanup()
 
@@ -81,6 +75,8 @@ func TestStickyHeaderClick(t *testing.T) {
 	frame()
 
 	clickAt := func(y float32) {
+		r.Queue(pointer.Event{Kind: pointer.Move, Position: f32.Pt(120, y), Source: pointer.Mouse})
+		frame()
 		r.Queue(pointer.Event{Kind: pointer.Press, Position: f32.Pt(120, y), Source: pointer.Mouse, Buttons: pointer.ButtonPrimary})
 		frame()
 		r.Queue(pointer.Event{Kind: pointer.Release, Position: f32.Pt(120, y), Source: pointer.Mouse, Buttons: pointer.ButtonPrimary})
@@ -89,20 +85,20 @@ func TestStickyHeaderClick(t *testing.T) {
 	}
 
 	hit := false
-	for y := float32(29); y <= 44; y++ {
+	for y := float32(32); y <= 70 && !hit; y++ {
+		colsExp = true
 		host.ColList.Position.First = 12
 		opened = 0
 		frame()
 		clickAt(y)
-		if host.ColList.Position.First == 1 {
+		if f := host.ColList.Position.First; f == 0 || f == 1 {
 			hit = true
-			break
+		}
+		if opened != 0 {
+			t.Fatalf("sticky click at y=%v leaked through to the row beneath (OpenRequestInTab called %d times)", y, opened)
 		}
 	}
 	if !hit {
-		t.Fatalf("clicking the top sticky header never scrolled to reveal root's contents (First stayed %d)", host.ColList.Position.First)
-	}
-	if opened != 0 {
-		t.Errorf("sticky click leaked through to the row beneath (OpenRequestInTab called %d times)", opened)
+		t.Fatalf("clicking a pinned sticky header never navigated to an ancestor (First stayed %d)", host.ColList.Position.First)
 	}
 }

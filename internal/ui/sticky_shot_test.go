@@ -29,7 +29,7 @@ import (
 func TestStickyScrollShots(t *testing.T) {
 	path := os.Getenv("STICKY_COLLECTION")
 	if path == "" {
-		path = filepath.Join(os.Getenv("APPDATA"), "tracto", "collections", "4d15febd260a92f83773e39f740a1e2a.json")
+		t.Skip("set STICKY_COLLECTION to a collection .json to capture sticky screenshots")
 	}
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -148,9 +148,6 @@ func TestStickyScrollShots(t *testing.T) {
 	}
 }
 
-// TestStickyScrollSynthetic renders a tree with a subfolder that is NOT the
-// first child of its parent (sibling requests precede it) and a deeper level,
-// to reproduce the root-node and 3rd-level-folder problems.
 func TestStickyScrollSynthetic(t *testing.T) {
 	mkReq := func(name string) *collections.CollectionNode {
 		return &collections.CollectionNode{Name: name, Request: &model.ParsedRequest{Method: "GET"}}

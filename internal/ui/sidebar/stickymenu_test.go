@@ -18,10 +18,6 @@ import (
 )
 
 func TestStickyHeaderMenuButton(t *testing.T) {
-	// Overlay sticky model: pinned headers are visual-only (an opaque pointer area
-	// in the on-top band blocks the list beneath in this gio build). The header
-	// menu button is a follow-up. Skipped until header interactivity is restored.
-	t.Skip("pinned sticky headers are visual-only in the overlay model (see TestStickyHeaderClick)")
 	host, cleanup := newTestHost()
 	defer cleanup()
 
@@ -72,6 +68,8 @@ func TestStickyHeaderMenuButton(t *testing.T) {
 	}
 
 	clickAt := func(x, y float32) {
+		r.Queue(pointer.Event{Kind: pointer.Move, Position: f32.Pt(x, y), Source: pointer.Mouse})
+		frame()
 		r.Queue(pointer.Event{Kind: pointer.Press, Position: f32.Pt(x, y), Source: pointer.Mouse, Buttons: pointer.ButtonPrimary})
 		frame()
 		r.Queue(pointer.Event{Kind: pointer.Release, Position: f32.Pt(x, y), Source: pointer.Mouse, Buttons: pointer.ButtonPrimary})
@@ -80,16 +78,17 @@ func TestStickyHeaderMenuButton(t *testing.T) {
 	}
 
 	hit := false
-	for y := float32(29); y <= 46 && !hit; y++ {
-		for x := float32(238); x >= 218; x-- {
+	for y := float32(32); y <= 70 && !hit; y++ {
+		for x := float32(236); x >= 214; x-- {
+			colsExp = true
 			host.ColList.Position.First = 12
 			root.MenuOpen = false
 			fld.MenuOpen = false
 			frame()
 			clickAt(x, y)
-			if root.MenuOpen {
-				if host.ColList.Position.First != 0 {
-					t.Errorf("sticky menu opened but list did not scroll root to top (First=%d)", host.ColList.Position.First)
+			if root.MenuOpen || fld.MenuOpen {
+				if host.ColList.Position.First != 12 {
+					t.Errorf("opening the sticky ⋮ menu should not scroll the list (First=%d, want 12)", host.ColList.Position.First)
 				}
 				hit = true
 				break
@@ -97,6 +96,6 @@ func TestStickyHeaderMenuButton(t *testing.T) {
 		}
 	}
 	if !hit {
-		t.Fatalf("clicking the sticky '...' button never opened the folder menu")
+		t.Fatalf("clicking the sticky ⋮ button never opened a folder menu")
 	}
 }

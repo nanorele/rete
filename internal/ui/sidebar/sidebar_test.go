@@ -127,6 +127,7 @@ func newTestHost() (*Host, func()) {
 
 		ColRowH:       &colRowH,
 		StickyBandH:   new(int),
+		StickyScroll:  &gesture.Scroll{},
 		EnvRowH:       &envRowH,
 		ColRowYs:      &colRowYs,
 		ColAfterLastY: &colAfterLastY,

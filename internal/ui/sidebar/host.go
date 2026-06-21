@@ -54,8 +54,9 @@ type Host struct {
 	ColAfterLastY *int
 	WindowSize    *image.Point
 
-	StickyRows  []*collections.CollectionNode
-	StickyBandH *int
+	StickyRows   []*collections.CollectionNode
+	StickyBandH  *int
+	StickyScroll *gesture.Scroll
 
 	SidebarEnvHeight *int
 	SidebarEnvDrag   *gesture.Drag

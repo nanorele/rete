@@ -10,7 +10,6 @@ import (
 	strings "strings"
 )
 
-// suppress unused package warning
 var (
 	_ *json.RawMessage
 	_ *jlexer.Lexer
@@ -156,26 +155,22 @@ func easyjson59dfaf49EncodeTractoInternalModel(out *jwriter.Writer, in ExtEnviro
 	out.RawByte('}')
 }
 
-// MarshalJSON supports json.Marshaler interface
 func (v ExtEnvironment) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjson59dfaf49EncodeTractoInternalModel(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
-// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v ExtEnvironment) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjson59dfaf49EncodeTractoInternalModel(w, v)
 }
 
-// UnmarshalJSON supports json.Unmarshaler interface
 func (v *ExtEnvironment) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjson59dfaf49DecodeTractoInternalModel(&r, v)
 	return r.Error()
 }
 
-// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *ExtEnvironment) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjson59dfaf49DecodeTractoInternalModel(l, v)
 }
@@ -247,26 +242,22 @@ func easyjson59dfaf49EncodeTractoInternalModel1(out *jwriter.Writer, in ExtEnvVa
 	out.RawByte('}')
 }
 
-// MarshalJSON supports json.Marshaler interface
 func (v ExtEnvVar) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjson59dfaf49EncodeTractoInternalModel1(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
-// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v ExtEnvVar) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjson59dfaf49EncodeTractoInternalModel1(w, v)
 }
 
-// UnmarshalJSON supports json.Unmarshaler interface
 func (v *ExtEnvVar) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjson59dfaf49DecodeTractoInternalModel1(&r, v)
 	return r.Error()
 }
 
-// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *ExtEnvVar) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjson59dfaf49DecodeTractoInternalModel1(l, v)
 }
@@ -338,26 +329,22 @@ func easyjson59dfaf49EncodeTractoInternalModel2(out *jwriter.Writer, in EnvVar) 
 	out.RawByte('}')
 }
 
-// MarshalJSON supports json.Marshaler interface
 func (v EnvVar) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjson59dfaf49EncodeTractoInternalModel2(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
-// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v EnvVar) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjson59dfaf49EncodeTractoInternalModel2(w, v)
 }
 
-// UnmarshalJSON supports json.Unmarshaler interface
 func (v *EnvVar) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjson59dfaf49DecodeTractoInternalModel2(&r, v)
 	return r.Error()
 }
 
-// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *EnvVar) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjson59dfaf49DecodeTractoInternalModel2(l, v)
 }

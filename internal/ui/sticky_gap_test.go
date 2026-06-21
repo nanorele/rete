@@ -19,17 +19,6 @@ import (
 	"github.com/nanorele/gio/unit"
 )
 
-// TestStickyNoEmptyBandGap drives a tree containing both a 2-level-nested folder
-// and several sibling 1-level folders and asserts the sticky band never becomes
-// "twice as big with empty space on top". The OPAQUE band height (what actually
-// covers list rows) must stay close to the number of pinned rows it reports.
-//
-// The bug: the entering slide-dock painted opaque background over the gap between
-// the docked ancestors and the rising folder header. On a sibling transition that
-// gap holds the PREVIOUS folder's tail rows (real content), so covering it produced
-// a band ~twice as tall with an empty strip above the rising folder name. It only
-// happened past the first folder, since the first folder's header docks directly
-// under root with no tail rows in between.
 func TestStickyNoEmptyBandGap(t *testing.T) {
 	setupTestConfigDir(t)
 	ui := NewAppUI()
@@ -47,7 +36,6 @@ func TestStickyNoEmptyBandGap(t *testing.T) {
 	for i := 0; i < perFolder; i++ {
 		n1.Children = append(n1.Children, mkReq(fmt.Sprintf("n1-%d", i)))
 	}
-	// N2 holds a depth-2 subfolder, so leaving it crosses two scope levels at once.
 	n2 := &collections.CollectionNode{Name: "N2", IsFolder: true, Expanded: true}
 	n2a := &collections.CollectionNode{Name: "N2a", IsFolder: true, Expanded: true}
 	for i := 0; i < perFolder; i++ {
@@ -70,9 +58,6 @@ func TestStickyNoEmptyBandGap(t *testing.T) {
 	var band []string
 	sidebar.DebugSticky = func(_ int, n []string) { band = append(band[:0], n...) }
 	defer func() { sidebar.DebugSticky = nil }()
-	// The OPAQUE solid-band height (what actually occludes rows). The empty-space
-	// bug is opaque fill exceeding the number of DRAWN rows (which now includes the
-	// incoming folder sliding into a slot during a seamless transition).
 	var solidH int
 	sidebar.DebugBandSolid = func(s int) { solidH = s }
 	defer func() { sidebar.DebugBandSolid = nil }()
@@ -80,9 +65,6 @@ func TestStickyNoEmptyBandGap(t *testing.T) {
 	sidebar.DebugBandGeom = func(names []string, _ []int, _ int) { drawn = len(names) }
 	defer func() { sidebar.DebugBandGeom = nil }()
 
-	// Tall viewport: the cols body is large enough that the maxRows truncation
-	// (a separate tiny-sidebar edge) never engages, isolating the entering/leaving
-	// transition behaviour the user reported.
 	sz := image.Pt(900, 520)
 	now := time.Unix(1700000000, 0)
 	r := new(input.Router)
@@ -99,7 +81,7 @@ func TestStickyNoEmptyBandGap(t *testing.T) {
 	frame()
 
 	const rowH = 24
-	const tol = 12 // 1px border + slight row-height slack
+	const tol = 12
 	worst := 0
 	worstDesc := ""
 	for step := 0; step < 200; step++ {
