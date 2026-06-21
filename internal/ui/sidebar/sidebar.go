@@ -109,6 +109,15 @@ func recalcDepth(node *collections.CollectionNode, depth int) {
 	}
 }
 
+// menuZoneHovered reports whether the body-local pointer X (px) falls within a
+// row's right-aligned "⋮" button. Every sidebar row lays the button out 18dp
+// wide with 10dp of trailing padding, so the zone is derived from the row width
+// w. Keep these constants in sync with the row layouts.
+func menuZoneHovered(gtx layout.Context, px float32, w int) bool {
+	right := float32(w - gtx.Dp(unit.Dp(10)))
+	return px >= right-float32(gtx.Dp(unit.Dp(18))) && px < right
+}
+
 func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	host.ensureScripts()
 	size := gtx.Constraints.Max
@@ -389,9 +398,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				n.LastClickAt = gtx.Now
 				if n.IsFolder {
 					n.Expanded = !n.Expanded
-					if !n.Expanded {
-						n.ResetSubtreeHover()
-					}
 					updateCols = true
 				}
 				return
@@ -410,9 +416,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			}
 			if n.IsFolder {
 				n.Expanded = !n.Expanded
-				if !n.Expanded {
-					n.ResetSubtreeHover()
-				}
 				updateCols = true
 			} else if n.Request != nil && !flowsMode {
 				host.OpenRequestInTab(n)
@@ -559,17 +562,40 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 		colsSnapshot := *host.VisibleCols
 
+		// Geometric hover: the highlighted row is the one currently under the
+		// pointer, recomputed every frame from the body-local pointer position and
+		// the list geometry. Painting from event-driven hover lagged a content
+		// shift (resize/scroll) by one frame, leaving a phantom highlight on the
+		// wrong row; deriving it from live geometry removes that lag.
 		for _, n := range colsSnapshot {
-			n.Hover.Update(gtx.Source)
+			n.RowHovered = false
+			n.MenuHovered = false
 		}
-		if hoverDebug {
-			labels := make([]string, len(colsSnapshot))
-			hovers := make([]*widgets.Hover, len(colsSnapshot))
-			for i, n := range colsSnapshot {
-				labels[i] = n.Name
-				hovers[i] = &n.Hover
+		if host.ColsBodyHover.Hovered() {
+			pos := host.ColsBodyHover.Pos()
+			// Ignore the region covered by the sticky band (handled separately by
+			// stickyHeaders); *host.StickyBandH is last frame's height, which is
+			// stable enough for hit purposes.
+			if pos.Y >= float32(*host.StickyBandH) {
+				y := float32(-host.ColList.Position.Offset)
+				for idx := host.ColList.Position.First; idx >= 0 && idx < len(colsSnapshot); idx++ {
+					h := colsSnapshot[idx].RowHeightPx
+					if h <= 0 {
+						if h = *host.ColRowH; h <= 0 {
+							h = gtx.Dp(unit.Dp(24))
+						}
+					}
+					if pos.Y < y+float32(h) {
+						if pos.Y >= y {
+							n := colsSnapshot[idx]
+							n.RowHovered = true
+							n.MenuHovered = menuZoneHovered(gtx, pos.X, gtx.Constraints.Max.X)
+						}
+						break
+					}
+					y += float32(h)
+				}
 			}
-			logHoverStates("col", labels, hovers, host.ColList.Position.First, host.ColList.Position.Count)
 		}
 
 		pinnedInBand := make(map[*collections.CollectionNode]bool, len(host.StickyRows))
@@ -847,7 +873,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 					isActiveNode = (*host.Tabs)[*host.ActiveIdx].LinkedNode == node
 				}
 
-				nodeHovered := node.Hover.Update(gtx.Source) || node.MenuBtn.Hovered()
+				nodeHovered := node.RowHovered
 				return layout.Stack{}.Layout(gtx,
 					layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 						size := gtx.Constraints.Min
@@ -879,7 +905,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 							}
 							defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 							node.Drag.Add(gtx.Ops)
-							node.Hover.Add(gtx.Ops)
 						}
 						return layout.Dimensions{Size: size}
 					}),
@@ -975,7 +1000,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 									gtx.Constraints.Min = image.Pt(w, h)
 									gtx.Constraints.Max = gtx.Constraints.Min
 									iconCol := theme.FgMuted
-									if node.MenuBtn.Hovered() {
+									if node.MenuHovered {
 										iconCol = host.Theme.Fg
 									}
 									iconCol.A = uint8(float32(iconCol.A) * fade)
@@ -1167,10 +1192,9 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		goff := gtx.Dp(unit.Dp(7))
 		fade := host.ColsBodyFade.Value()
 
-		renderRow := func(gtx layout.Context, node *collections.CollectionNode, interactive bool) layout.Dimensions {
+		renderRow := func(gtx layout.Context, node *collections.CollectionNode, interactive, hovered, menuHovered bool) layout.Dimensions {
 			gtx.Constraints.Min.X = w
 			gtx.Constraints.Max.X = w
-			hovered := interactive && (node.StickyClick.Hovered() || node.StickyMenuBtn.Hovered())
 			body := func(gtx layout.Context) layout.Dimensions {
 				return layout.Stack{}.Layout(gtx,
 					layout.Expanded(func(gtx layout.Context) layout.Dimensions {
@@ -1232,7 +1256,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 									gtx.Constraints.Max = gtx.Constraints.Min
 									drawMore := func(gtx layout.Context) layout.Dimensions {
 										iconCol := theme.FgMuted
-										if interactive && node.StickyMenuBtn.Hovered() {
+										if interactive && menuHovered {
 											iconCol = host.Theme.Fg
 										} else {
 											iconCol.A = uint8(float32(iconCol.A) * fade)
@@ -1280,7 +1304,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		mgtx := gtx
 		mgtx.Constraints.Min.Y = 0
 		mrec := op.Record(gtx.Ops)
-		bandRowH := renderRow(mgtx, snap[first], false).Size.Y
+		bandRowH := renderRow(mgtx, snap[first], false, false, false).Size.Y
 		mrec.Stop()
 		if bandRowH <= 0 {
 			bandRowH = gtx.Dp(unit.Dp(24))
@@ -1510,9 +1534,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				}
 				if chevronZone {
 					n.Expanded = !n.Expanded
-					if !n.Expanded {
-						n.ResetSubtreeHover()
-					}
 					if idx := idxOf(n); idx >= 0 {
 						host.ColList.Position.First = idx
 						host.ColList.Position.Offset = 0
@@ -1536,13 +1557,36 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		if solidH > 0 {
 			paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: image.Pt(w, solidH)}.Op())
 		}
+		// Geometric band hover (see colsBody): the pinned row under the pointer,
+		// derived from live geometry rather than StickyClick's Enter/Leave state,
+		// so the highlight never lags a scroll/resize content shift. When pinned
+		// rows overlap mid-slide, the frontmost (lowest slot, drawn last) wins.
+		for _, ln := range lines {
+			ln.node.StickyHovered = false
+		}
+		var bandHovNode *collections.CollectionNode
+		bandMenuHov := false
+		if host.ColsBodyHover.Hovered() {
+			bp := host.ColsBodyHover.Pos()
+			bestSlot := 1 << 30
+			for _, ln := range lines {
+				if bp.Y >= float32(ln.y) && bp.Y < float32(ln.y+bandRowH) && ln.slot < bestSlot {
+					bestSlot = ln.slot
+					bandHovNode = ln.node
+				}
+			}
+			if bandHovNode != nil {
+				bandHovNode.StickyHovered = true
+				bandMenuHov = menuZoneHovered(gtx, bp.X, w)
+			}
+		}
 		for s := bandBottom/bandRowH + 1; s >= 0; s-- {
 			for _, ln := range lines {
 				if ln.slot != s {
 					continue
 				}
 				ro := op.Offset(image.Pt(0, ln.y)).Push(gtx.Ops)
-				renderRow(rg, ln.node, true)
+				renderRow(rg, ln.node, true, ln.node == bandHovNode, ln.node == bandHovNode && bandMenuHov)
 				ro.Pop()
 			}
 		}
@@ -1825,17 +1869,26 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 		envSnapshot := (*host.Environments)
 
+		// Geometric hover (see colsBody): the row under the pointer is recomputed
+		// each frame from the body-local pointer position and the uniform row
+		// height, so the highlight never lags a content shift.
 		for _, e := range envSnapshot {
-			e.Hover.Update(gtx.Source)
+			e.RowHovered = false
+			e.MenuHovered = false
 		}
-		if hoverDebug {
-			labels := make([]string, len(envSnapshot))
-			hovers := make([]*widgets.Hover, len(envSnapshot))
-			for i, e := range envSnapshot {
-				labels[i] = e.Data.Name
-				hovers[i] = &e.Hover
+		if host.EnvsBodyHover.Hovered() {
+			rowH := *host.EnvRowH
+			if rowH <= 0 {
+				rowH = gtx.Dp(unit.Dp(30))
 			}
-			logHoverStates("env", labels, hovers, host.EnvList.Position.First, host.EnvList.Position.Count)
+			pos := host.EnvsBodyHover.Pos()
+			rel := pos.Y + float32(host.EnvList.Position.Offset)
+			if rel >= 0 {
+				if idx := host.EnvList.Position.First + int(rel)/rowH; idx >= 0 && idx < len(envSnapshot) {
+					envSnapshot[idx].RowHovered = true
+					envSnapshot[idx].MenuHovered = menuZoneHovered(gtx, pos.X, gtx.Constraints.Max.X)
+				}
+			}
 		}
 
 		var draggingEnv bool
@@ -1972,7 +2025,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 					env.MenuOpen = false
 				}
 
-				envHovered := env.Hover.Update(gtx.Source) || env.MenuBtn.Hovered()
+				envHovered := env.RowHovered
 				bgColor := theme.BgDark
 				if isActive {
 					bgColor = theme.Bg
@@ -2017,7 +2070,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 							}
 							defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 							env.Drag.Add(gtx.Ops)
-							env.Hover.Add(gtx.Ops)
 						}
 						return layout.Dimensions{Size: size}
 					}),
@@ -2081,7 +2133,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 										gtx.Constraints.Min = image.Pt(w, h)
 										gtx.Constraints.Max = gtx.Constraints.Min
 										iconCol := theme.FgMuted
-										if env.MenuBtn.Hovered() {
+										if env.MenuHovered {
 											iconCol = host.Theme.Fg
 										}
 										iconCol.A = uint8(float32(iconCol.A) * fade)

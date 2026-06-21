@@ -19,6 +19,7 @@ import (
 	"tracto/internal/ui/widgets"
 
 	"github.com/nanorele/gio/f32"
+	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/io/system"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
@@ -50,9 +51,10 @@ type netLimitState struct {
 
 	pickBtn    widget.Clickable
 	pickerOpen bool
-	searchEd   widget.Editor
-	procList   widget.List
-	procClicks []widget.Clickable
+	searchEd      widget.Editor
+	procList      widget.List
+	procClicks    []widget.Clickable
+	procListHover widgets.Hover
 	selApp     netlimit.ProcInfo
 	hasApp     bool
 
@@ -562,13 +564,28 @@ func (ui *AppUI) netProcPicker(gtx layout.Context) layout.Dimensions {
 						return lbl.Layout(gtx)
 					})
 				}
-				return material.List(th, &ui.Net.procList).Layout(gtx, len(visible), func(gtx layout.Context, i int) layout.Dimensions {
+				// Geometric hover: the proc list refreshes/reorders live, so an
+				// Enter/Leave-driven highlight would lag a row shift onto the wrong
+				// process. Derive the hovered visible index from the live pointer
+				// position and the uniform 24dp row height instead.
+				ui.Net.procListHover.Update(gtx.Source)
+				rowH := gtx.Dp(unit.Dp(24))
+				hoveredIdx := -1
+				if ui.Net.procListHover.Hovered() && rowH > 0 {
+					rel := ui.Net.procListHover.Pos().Y + float32(ui.Net.procList.Position.Offset)
+					if rel >= 0 {
+						if idx := ui.Net.procList.Position.First + int(rel)/rowH; idx >= 0 && idx < len(visible) {
+							hoveredIdx = idx
+						}
+					}
+				}
+				dim := material.List(th, &ui.Net.procList).Layout(gtx, len(visible), func(gtx layout.Context, i int) layout.Dimensions {
 					r := visible[i]
 					clk := &ui.Net.procClicks[r.idx]
 					return clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						gtx.Constraints.Min.X = gtx.Constraints.Max.X
 						bg := theme.Transparent
-						if clk.Hovered() {
+						if i == hoveredIdx {
 							bg = theme.BgHover
 						}
 						if ui.Net.hasApp && ui.Net.selApp.PID == r.p.PID {
@@ -583,6 +600,12 @@ func (ui *AppUI) netProcPicker(gtx layout.Context) layout.Dimensions {
 						})
 					})
 				})
+				pass := pointer.PassOp{}.Push(gtx.Ops)
+				cl := clip.Rect{Max: dim.Size}.Push(gtx.Ops)
+				ui.Net.procListHover.Add(gtx.Ops)
+				cl.Pop()
+				pass.Pop()
+				return dim
 			}),
 		)
 	})

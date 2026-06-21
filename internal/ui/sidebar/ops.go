@@ -43,9 +43,6 @@ func setAllCollectionsExpanded(host *Host, expanded bool) {
 		}
 		if n.IsFolder {
 			n.Expanded = expanded
-			if !expanded {
-				n.ResetSubtreeHover()
-			}
 		}
 		for _, c := range n.Children {
 			walk(c)

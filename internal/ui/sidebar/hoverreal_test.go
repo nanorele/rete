@@ -7,7 +7,6 @@ import (
 
 	"tracto/internal/model"
 	"tracto/internal/ui/environments"
-	"tracto/internal/ui/widgets"
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/io/input"
@@ -17,10 +16,6 @@ import (
 	"github.com/nanorele/gio/unit"
 	"github.com/nanorele/gio/widget"
 )
-
-func peekHover(h *widgets.Hover) (entered bool, count int) {
-	return h.Hovered(), 0
-}
 
 func TestRealLayoutEnvHoverScroll(t *testing.T) {
 	host, cleanup := newTestHost()
@@ -73,12 +68,9 @@ func TestRealLayoutEnvHoverScroll(t *testing.T) {
 		var idxs []int
 		n := 0
 		for i, e := range envs {
-			ent, cnt := peekHover(&e.Hover)
-			if ent || cnt != 0 {
+			if e.RowHovered {
 				idxs = append(idxs, i)
-				if ent {
-					n++
-				}
+				n++
 			}
 		}
 		t.Logf("%-20s hovered=%v", label, idxs)
@@ -92,7 +84,7 @@ func TestRealLayoutEnvHoverScroll(t *testing.T) {
 		frame()
 		n := 0
 		for _, e := range envs {
-			if ent, _ := peekHover(&e.Hover); ent {
+			if e.RowHovered {
 				n++
 			}
 		}
