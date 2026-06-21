@@ -7,7 +7,6 @@ import (
 	"strings"
 	"time"
 	"tracto/internal/model"
-	"tracto/internal/ui/widgets"
 	"tracto/internal/utils"
 
 	"github.com/nanorele/gio/gesture"
@@ -49,9 +48,16 @@ type CollectionNode struct {
 	ContentHeightPx int
 
 	Drag          gesture.Drag
-	Hover         widgets.Hover
 	StickyClick   widget.Clickable
 	StickyMenuBtn widget.Clickable
+
+	// RowHovered, MenuHovered and StickyHovered are recomputed each frame from
+	// the live pointer position and the list/band geometry (see sidebar.colsBody
+	// and sidebar.stickyHeaders), not from Enter/Leave events, so a highlight
+	// cannot lag a content shift onto the wrong row.
+	RowHovered    bool // list-row background
+	MenuHovered   bool // the list row's "⋮" icon
+	StickyHovered bool // the pinned sticky-band row
 
 	StickyArmed       bool
 	StickyArmedFirst  int
@@ -268,13 +274,6 @@ func CollectSubtree(node *CollectionNode) map[*CollectionNode]struct{} {
 	}
 	walk(node)
 	return seen
-}
-
-func (n *CollectionNode) ResetSubtreeHover() {
-	for _, c := range n.Children {
-		c.Hover = widgets.Hover{}
-		c.ResetSubtreeHover()
-	}
 }
 
 func AssignParents(node *CollectionNode, parent *CollectionNode, col *ParsedCollection) {

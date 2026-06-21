@@ -72,7 +72,7 @@ func TestRealLayoutColHoverScroll(t *testing.T) {
 
 	listHovered := func() bool {
 		for _, n := range append([]*collections.CollectionNode{root}, nodes...) {
-			if ent, _ := peekHover(&n.Hover); ent {
+			if n.RowHovered {
 				return true
 			}
 		}

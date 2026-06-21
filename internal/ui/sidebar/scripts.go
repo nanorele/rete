@@ -25,7 +25,6 @@ type ScriptRow struct {
 	ID   string
 	Name string
 
-	Hover           widgets.Hover
 	NameClick       widget.Clickable
 	MenuBtn         widget.Clickable
 	RenameBtn       widget.Clickable
@@ -37,6 +36,12 @@ type ScriptRow struct {
 	RenamingFocused bool
 	NameEd          widget.Editor
 	LastClickAt     time.Time
+
+	// RowHovered/MenuHovered are recomputed each frame from the live pointer
+	// position and the list geometry (see scriptsBody), not from Enter/Leave
+	// events.
+	RowHovered  bool
+	MenuHovered bool
 }
 
 func (r *ScriptRow) startRename() {
@@ -186,8 +191,26 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 		activeID = host.ActiveScriptID()
 	}
 
+	// Geometric hover (see sidebar.colsBody): the row under the pointer is
+	// recomputed each frame from the body-local pointer position and the uniform
+	// row height, so the highlight never lags a content shift.
 	for _, r := range rows {
-		r.Hover.Update(gtx.Source)
+		r.RowHovered = false
+		r.MenuHovered = false
+	}
+	if host.ScriptsBodyHover.Hovered() {
+		rowH := *host.ScriptRowH
+		if rowH <= 0 {
+			rowH = gtx.Dp(unit.Dp(24))
+		}
+		pos := host.ScriptsBodyHover.Pos()
+		rel := pos.Y + float32(host.ScriptList.Position.Offset)
+		if rel >= 0 {
+			if idx := host.ScriptList.Position.First + int(rel)/rowH; idx >= 0 && idx < len(rows) {
+				rows[idx].RowHovered = true
+				rows[idx].MenuHovered = menuZoneHovered(gtx, pos.X, gtx.Constraints.Max.X)
+			}
+		}
 	}
 
 	list := material.List(host.Theme, host.ScriptList)
@@ -288,7 +311,7 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 			}
 		}
 
-		rowHovered := row.Hover.Update(gtx.Source) || row.MenuBtn.Hovered()
+		rowHovered := row.RowHovered
 
 		rowDim := layout.Inset{}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Stack{}.Layout(gtx,
@@ -303,8 +326,6 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 						case rowHovered:
 							paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: size}.Op())
 						}
-						defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-						row.Hover.Add(gtx.Ops)
 						return layout.Dimensions{Size: size}
 					})
 				}),
@@ -349,7 +370,7 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 									gtx.Constraints.Min = image.Pt(w, h)
 									gtx.Constraints.Max = gtx.Constraints.Min
 									iconCol := theme.FgMuted
-									if row.MenuBtn.Hovered() {
+									if row.MenuHovered {
 										iconCol = host.Theme.Fg
 									}
 									iconCol.A = uint8(float32(iconCol.A) * fade)

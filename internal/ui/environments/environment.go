@@ -46,8 +46,13 @@ type EnvironmentUI struct {
 	LastClickAt     time.Time
 	NameScroll      widgets.ScrollLabel
 	Drag            gesture.Drag
-	Hover           widgets.Hover
 	DragOriginY     float32
+
+	// RowHovered/MenuHovered are recomputed each frame from the live pointer
+	// position and the list geometry (see sidebar.envsBody), not from
+	// Enter/Leave events.
+	RowHovered  bool
+	MenuHovered bool
 }
 
 func (ui *EnvironmentUI) InitEditor() {
