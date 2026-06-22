@@ -72,6 +72,11 @@ type Editor struct {
 	HideTabBar           widget.Bool
 	HideSidebar          widget.Bool
 	RestoreTabsOnStartup widget.Bool
+	LimitTabRows         widget.Bool
+
+	MaxTabRowsDec    widget.Clickable
+	MaxTabRowsInc    widget.Clickable
+	MaxTabRowsEditor widget.Editor
 
 	SidebarWidthDec    widget.Clickable
 	SidebarWidthInc    widget.Clickable
@@ -203,6 +208,7 @@ func NewEditor(current model.AppSettings) *Editor {
 	s.HideTabBar.Value = current.HideTabBar
 	s.HideSidebar.Value = current.HideSidebar
 	s.RestoreTabsOnStartup.Value = current.RestoreTabsOnStartup
+	s.LimitTabRows.Value = current.LimitTabRows
 	s.FollowRedirects.Value = current.FollowRedirects
 	s.VerifySSL.Value = current.VerifySSL
 	s.KeepAlive.Value = current.KeepAlive
@@ -268,6 +274,7 @@ func (e *Editor) Apply(host *Host) {
 	e.Draft.HideTabBar = e.HideTabBar.Value
 	e.Draft.HideSidebar = e.HideSidebar.Value
 	e.Draft.RestoreTabsOnStartup = e.RestoreTabsOnStartup.Value
+	e.Draft.LimitTabRows = e.LimitTabRows.Value
 
 	e.Draft.UserAgent = strings.TrimSpace(e.UserAgentEditor.Text())
 	e.Draft.Proxy = strings.TrimSpace(e.ProxyEditor.Text())
@@ -359,6 +366,7 @@ func (e *Editor) Reset() {
 	e.HideTabBar.Value = def.HideTabBar
 	e.HideSidebar.Value = def.HideSidebar
 	e.RestoreTabsOnStartup.Value = def.RestoreTabsOnStartup
+	e.LimitTabRows.Value = def.LimitTabRows
 
 	e.UserAgentEditor.SetText(def.UserAgent)
 	e.ProxyEditor.SetText(def.Proxy)
@@ -384,6 +392,7 @@ func (e *Editor) Reset() {
 	e.StackBpEditor.SetText(strconv.Itoa(def.StackBreakpointDp))
 	e.SidebarWidthEditor.SetText(strconv.Itoa(def.DefaultSidebarWidthPx))
 	e.StickyMaxEditor.SetText(strconv.Itoa(def.StickyMaxLines))
+	e.MaxTabRowsEditor.SetText(strconv.Itoa(def.MaxTabRows))
 	e.TimeoutEditor.SetText(strconv.Itoa(def.RequestTimeoutSec))
 	e.ConnectTimeoutEditor.SetText(strconv.Itoa(def.ConnectTimeoutSec))
 	e.TLSTimeoutEditor.SetText(strconv.Itoa(def.TLSHandshakeTimeoutSec))
@@ -743,6 +752,18 @@ func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			changed = true
 		}
 	}
+	for e.MaxTabRowsDec.Clicked(gtx) {
+		if e.Draft.MaxTabRows > 1 {
+			e.Draft.MaxTabRows -= 1
+			changed = true
+		}
+	}
+	for e.MaxTabRowsInc.Clicked(gtx) {
+		if e.Draft.MaxTabRows < 10 {
+			e.Draft.MaxTabRows += 1
+			changed = true
+		}
+	}
 	for i := range e.AcceptEncodingBtn {
 		for e.AcceptEncodingBtn[i].Clicked(gtx) {
 			if e.Draft.DefaultAcceptEncoding != acceptEncodingOptions[i].Value {
@@ -857,6 +878,10 @@ func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	}
 	if v, ok := intStepperUpdate(gtx, &e.StickyMaxEditor, e.Draft.StickyMaxLines, 1, 12); ok {
 		e.Draft.StickyMaxLines = v
+		changed = true
+	}
+	if v, ok := intStepperUpdate(gtx, &e.MaxTabRowsEditor, e.Draft.MaxTabRows, 1, 10); ok {
+		e.Draft.MaxTabRows = v
 		changed = true
 	}
 	if v, ok := intStepperUpdate(gtx, &e.JSONIndentEditor, e.Draft.JSONIndentSpaces, 0, 8); ok {
@@ -1032,6 +1057,9 @@ func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		changed = true
 	}
 	if e.RestoreTabsOnStartup.Update(gtx) {
+		changed = true
+	}
+	if e.LimitTabRows.Update(gtx) {
 		changed = true
 	}
 	if e.FollowRedirects.Update(gtx) {
@@ -1325,6 +1353,8 @@ func (e *Editor) sectionsAppearance(host *Host) []layout.Widget {
 	}
 	tabHint := "Hide the row of request tabs above the editor. " + defaultShownHidden(def.HideTabBar)
 	sideHint := "Hide the collections/environments sidebar. " + defaultShownHidden(def.HideSidebar)
+	limitRowsHint := "Cap the request tab strip to a fixed number of rows for the current window size, hiding the top rows behind a […] button. " + defaultOnOff(def.LimitTabRows)
+	maxRowsHint := fmt.Sprintf("Maximum number of tab rows shown when limiting is on. Default: %d.", def.MaxTabRows)
 	restoreHint := "Reopen previously open tabs when the app starts. " + defaultOnOff(def.RestoreTabsOnStartup)
 	activeThemeName := defName
 	for _, t := range theme.Registry {
@@ -1351,6 +1381,17 @@ func (e *Editor) sectionsAppearance(host *Host) []layout.Widget {
 			sw := styledSwitch(host.Theme, &e.HideSidebar)
 			return settingsSwitchRow(host.Theme, "Hide sidebar", sideHint, sw.Layout)(gtx)
 		},
+		spacerH(20),
+		settingsSectionTitle(host.Theme, "Tab rows"),
+		spacerH(8),
+		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(host.Theme, &e.LimitTabRows)
+			return settingsSwitchRow(host.Theme, "Limit tab rows", limitRowsHint, sw.Layout)(gtx)
+		},
+		spacerH(12),
+		settingsHint(host.Theme, maxRowsHint),
+		spacerH(8),
+		stepperEditableRow(host.Theme, &e.MaxTabRowsDec, &e.MaxTabRowsInc, &e.MaxTabRowsEditor, "rows"),
 		spacerH(20),
 		settingsSectionTitle(host.Theme, "Startup"),
 		spacerH(8),

@@ -10,6 +10,7 @@ import (
 	strings "strings"
 )
 
+// suppress unused package warning
 var (
 	_ *json.RawMessage
 	_ *jlexer.Lexer
@@ -355,22 +356,26 @@ func easyjsonB229cf53EncodeTractoInternalModel(out *jwriter.Writer, in ThemeSynt
 	out.RawByte('}')
 }
 
+// MarshalJSON supports json.Marshaler interface
 func (v ThemeSyntaxOverride) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjsonB229cf53EncodeTractoInternalModel(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
+// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v ThemeSyntaxOverride) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjsonB229cf53EncodeTractoInternalModel(w, v)
 }
 
+// UnmarshalJSON supports json.Unmarshaler interface
 func (v *ThemeSyntaxOverride) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjsonB229cf53DecodeTractoInternalModel(&r, v)
 	return r.Error()
 }
 
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *ThemeSyntaxOverride) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjsonB229cf53DecodeTractoInternalModel(l, v)
 }
@@ -1064,22 +1069,26 @@ func easyjsonB229cf53EncodeTractoInternalModel1(out *jwriter.Writer, in ThemeCol
 	out.RawByte('}')
 }
 
+// MarshalJSON supports json.Marshaler interface
 func (v ThemeColorOverride) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjsonB229cf53EncodeTractoInternalModel1(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
+// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v ThemeColorOverride) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjsonB229cf53EncodeTractoInternalModel1(w, v)
 }
 
+// UnmarshalJSON supports json.Unmarshaler interface
 func (v *ThemeColorOverride) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjsonB229cf53DecodeTractoInternalModel1(&r, v)
 	return r.Error()
 }
 
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *ThemeColorOverride) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjsonB229cf53DecodeTractoInternalModel1(l, v)
 }
@@ -1151,22 +1160,26 @@ func easyjsonB229cf53EncodeTractoInternalModel2(out *jwriter.Writer, in DefaultH
 	out.RawByte('}')
 }
 
+// MarshalJSON supports json.Marshaler interface
 func (v DefaultHeader) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjsonB229cf53EncodeTractoInternalModel2(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
+// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v DefaultHeader) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjsonB229cf53EncodeTractoInternalModel2(w, v)
 }
 
+// UnmarshalJSON supports json.Unmarshaler interface
 func (v *DefaultHeader) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjsonB229cf53DecodeTractoInternalModel2(&r, v)
 	return r.Error()
 }
 
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *DefaultHeader) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjsonB229cf53DecodeTractoInternalModel2(l, v)
 }
@@ -1289,22 +1302,26 @@ func easyjsonB229cf53EncodeTractoInternalModel3(out *jwriter.Writer, in CustomTh
 	out.RawByte('}')
 }
 
+// MarshalJSON supports json.Marshaler interface
 func (v CustomTheme) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjsonB229cf53EncodeTractoInternalModel3(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
+// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v CustomTheme) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjsonB229cf53EncodeTractoInternalModel3(w, v)
 }
 
+// UnmarshalJSON supports json.Unmarshaler interface
 func (v *CustomTheme) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjsonB229cf53DecodeTractoInternalModel3(&r, v)
 	return r.Error()
 }
 
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *CustomTheme) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjsonB229cf53DecodeTractoInternalModel3(l, v)
 }
@@ -1357,6 +1374,18 @@ func easyjsonB229cf53DecodeTractoInternalModel4(in *jlexer.Lexer, out *AppSettin
 				in.Skip()
 			} else {
 				out.UIScale = float32(in.Float32())
+			}
+		case "limit_tab_rows":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.LimitTabRows = bool(in.Bool())
+			}
+		case "max_tab_rows":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.MaxTabRows = int(in.Int())
 			}
 		case "request_timeout_sec":
 			if in.IsNull() {
@@ -1683,6 +1712,18 @@ func easyjsonB229cf53DecodeTractoInternalModel4(in *jlexer.Lexer, out *AppSettin
 					in.Skip()
 				} else {
 					out.UIScale = float32(in.Float32())
+				}
+			case "limit_tab_rows":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.LimitTabRows = bool(in.Bool())
+				}
+			case "max_tab_rows":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.MaxTabRows = int(in.Int())
 				}
 			case "request_timeout_sec":
 				if in.IsNull() {
@@ -2018,6 +2059,16 @@ func easyjsonB229cf53EncodeTractoInternalModel4(out *jwriter.Writer, in AppSetti
 		out.Float32(float32(in.UIScale))
 	}
 	{
+		const prefix string = ",\"limit_tab_rows\":"
+		out.RawString(prefix)
+		out.Bool(bool(in.LimitTabRows))
+	}
+	{
+		const prefix string = ",\"max_tab_rows\":"
+		out.RawString(prefix)
+		out.Int(int(in.MaxTabRows))
+	}
+	{
 		const prefix string = ",\"request_timeout_sec\":"
 		out.RawString(prefix)
 		out.Int(int(in.RequestTimeoutSec))
@@ -2243,22 +2294,26 @@ func easyjsonB229cf53EncodeTractoInternalModel4(out *jwriter.Writer, in AppSetti
 	out.RawByte('}')
 }
 
+// MarshalJSON supports json.Marshaler interface
 func (v AppSettings) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
 	easyjsonB229cf53EncodeTractoInternalModel4(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
+// MarshalEasyJSON supports easyjson.Marshaler interface
 func (v AppSettings) MarshalEasyJSON(w *jwriter.Writer) {
 	easyjsonB229cf53EncodeTractoInternalModel4(w, v)
 }
 
+// UnmarshalJSON supports json.Unmarshaler interface
 func (v *AppSettings) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
 	easyjsonB229cf53DecodeTractoInternalModel4(&r, v)
 	return r.Error()
 }
 
+// UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *AppSettings) UnmarshalEasyJSON(l *jlexer.Lexer) {
 	easyjsonB229cf53DecodeTractoInternalModel4(l, v)
 }

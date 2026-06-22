@@ -17,6 +17,9 @@ type AppSettings struct {
 	HideSidebar  bool    `json:"hide_sidebar"`
 	UIScale      float32 `json:"ui_scale"`
 
+	LimitTabRows bool `json:"limit_tab_rows"`
+	MaxTabRows   int  `json:"max_tab_rows"`
+
 	RequestTimeoutSec      int             `json:"request_timeout_sec"`
 	ConnectTimeoutSec      int             `json:"connect_timeout_sec"`
 	TLSHandshakeTimeoutSec int             `json:"tls_handshake_timeout_sec"`
@@ -127,6 +130,9 @@ func DefaultSettings() AppSettings {
 		HideTabBar:   false,
 		HideSidebar:  false,
 		UIScale:      1.0,
+
+		LimitTabRows: true,
+		MaxTabRows:   3,
 
 		RequestTimeoutSec:      0,
 		ConnectTimeoutSec:      0,
