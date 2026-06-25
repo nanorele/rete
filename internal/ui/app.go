@@ -1255,7 +1255,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 	if ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
 		activeTab = ui.Tabs[ui.ActiveIdx]
 	}
-	tabMenuOpen := activeTab != nil && (activeTab.SendMenuOpen || activeTab.MethodListOpen || activeTab.ProtocolListOpen || activeTab.BodyTypeOpen || activeTab.ExampleListOpen)
+	tabMenuOpen := activeTab != nil && (activeTab.SendMenuOpen || activeTab.MethodListOpen || activeTab.ProtocolListOpen || activeTab.BodyTypeOpen || activeTab.ExampleListOpen || activeTab.WSMenuOpen())
 
 	closeAllPopups := func() {
 		ui.TabBar.TabCtxMenuOpen = false
@@ -1269,6 +1269,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 			activeTab.ProtocolListOpen = false
 			activeTab.BodyTypeOpen = false
 			activeTab.ExampleListOpen = false
+			activeTab.CloseWSMenus()
 		}
 	}
 
@@ -1904,59 +1905,15 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{}
 			}
 
-			macro := op.Record(gtx.Ops)
-
-			offX := int(ui.TabBar.TabCtxMenuPos.X) + ui.SidebarWidth + gtx.Dp(unit.Dp(8))
-			offY := int(ui.TabBar.TabCtxMenuPos.Y) + gtx.Dp(unit.Dp(8))
-			op.Offset(image.Pt(offX, offY)).Add(gtx.Ops)
-
-			menuItem := func(gtx layout.Context, clk *widget.Clickable, title string) layout.Dimensions {
-				return material.Clickable(gtx, clk, func(gtx layout.Context) layout.Dimensions {
-					if clk.Hovered() {
-						paint.FillShape(gtx.Ops, theme.BgHover, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
-					}
-					return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(12), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						gtx.Constraints.Min.X = gtx.Dp(unit.Dp(140))
-						lbl := material.Label(ui.Theme, unit.Sp(12), title)
-						return lbl.Layout(gtx)
-					})
-				})
-			}
-
-			rec := op.Record(gtx.Ops)
-			menuGtx := gtx
-			menuGtx.Constraints.Min = image.Point{}
-			menuGtx.Constraints.Max = image.Pt(gtx.Dp(unit.Dp(200)), gtx.Dp(unit.Dp(300)))
-			menuDims := layout.UniformInset(unit.Dp(4)).Layout(menuGtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return menuItem(gtx, &ui.TabCtxClose, "Close")
-					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return menuItem(gtx, &ui.TabCtxCloseOthers, "Close others")
-					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return menuItem(gtx, &ui.TabCtxCloseAll, "Close all")
-					}),
-				)
+			anchor := image.Pt(
+				int(ui.TabBar.TabCtxMenuPos.X)+ui.SidebarWidth+gtx.Dp(unit.Dp(4)),
+				int(ui.TabBar.TabCtxMenuPos.Y)+gtx.Dp(unit.Dp(4)),
+			)
+			widgets.DeferMenu(gtx, ui.Theme, &ui.TabBar.TabCtxMenuOpen, anchor, widgets.MenuMinWidthDp, []widgets.MenuItem{
+				{Label: "Close", Click: &ui.TabCtxClose, Icon: widgets.IconClose},
+				{Label: "Close others", Click: &ui.TabCtxCloseOthers},
+				{Label: "Close all", Click: &ui.TabCtxCloseAll, Icon: widgets.IconClear},
 			})
-			menuCall := rec.Stop()
-
-			sz := menuDims.Size
-			b := 1
-			if gtx.Dp(unit.Dp(1)) > 1 {
-				b = gtx.Dp(unit.Dp(1))
-			}
-			paint.FillShape(gtx.Ops, theme.BorderLight,
-				clip.UniformRRect(image.Rectangle{Max: image.Pt(sz.X+b*2, sz.Y+b*2)}, 4).Op(gtx.Ops))
-			op.Offset(image.Pt(b, b)).Add(gtx.Ops)
-			paint.FillShape(gtx.Ops, theme.BgPopup,
-				clip.UniformRRect(image.Rectangle{Max: sz}, 3).Op(gtx.Ops))
-			op.Offset(image.Pt(-b, -b)).Add(gtx.Ops)
-
-			menuCall.Add(gtx.Ops)
-			call := macro.Stop()
-			op.Defer(gtx.Ops, call)
 
 			return layout.Dimensions{}
 		}),

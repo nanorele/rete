@@ -8,11 +8,9 @@ import (
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/widgets"
 
-	"github.com/nanorele/gio/io/event"
 	"github.com/nanorele/gio/io/key"
 	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
-	"github.com/nanorele/gio/op"
 	"github.com/nanorele/gio/op/clip"
 	"github.com/nanorele/gio/op/paint"
 	"github.com/nanorele/gio/text"
@@ -133,29 +131,10 @@ func scriptsHeader(gtx layout.Context, host *Host) layout.Dimensions {
 	})
 
 	if *host.ScriptsMenuOpen {
-		macro := op.Record(gtx.Ops)
-		op.Offset(image.Pt(headerDims.Size.X, 0)).Add(gtx.Ops)
-
-		menuGtx := gtx
-		menuGtx.Constraints.Min = image.Point{}
-		rec := op.Record(gtx.Ops)
-		menuDims := material.Clickable(menuGtx, host.ImportScriptBtn, func(gtx layout.Context) layout.Dimensions {
-			if host.ImportScriptBtn.Hovered() {
-				paint.FillShape(gtx.Ops, theme.BgHover, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
-			}
-			pointer.CursorPointer.Add(gtx.Ops)
-			return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(20), Right: unit.Dp(20)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return material.Label(host.Theme, unit.Sp(12), "Import").Layout(gtx)
-			})
+		anchor := image.Pt(headerDims.Size.X, headerDims.Size.Y+gtx.Dp(unit.Dp(2)))
+		widgets.DeferMenu(gtx, host.Theme, host.ScriptsMenuOpen, anchor, widgets.MenuMinWidthDp, []widgets.MenuItem{
+			{Label: "Import", Click: host.ImportScriptBtn, Icon: widgets.IconDownload},
 		})
-		menuCall := rec.Stop()
-
-		paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(image.Rectangle{Max: menuDims.Size}, 4).Op(gtx.Ops))
-		b := max(1, gtx.Dp(unit.Dp(1)))
-		paint.FillShape(gtx.Ops, theme.BorderLight, clip.Stroke{Path: clip.UniformRRect(image.Rectangle{Max: menuDims.Size}, 4).Path(gtx.Ops), Width: float32(b)}.Op())
-		menuCall.Add(gtx.Ops)
-
-		op.Defer(gtx.Ops, macro.Stop())
 	}
 
 	return headerDims
@@ -389,55 +368,23 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 					if !row.MenuOpen {
 						return layout.Dimensions{}
 					}
-					macro := op.Record(gtx.Ops)
-					menuWidth := gtx.Dp(unit.Dp(128))
 					menuHeight := gtx.Dp(unit.Dp(90))
-					menuX := gtx.Constraints.Max.X - menuWidth
-					if menuX < 0 {
-						menuX = 0
-					}
 					menuY := gtx.Dp(unit.Dp(24))
 					windowH := host.WindowSize.Y
 					if windowH > 0 && int(row.MenuClickY)+menuHeight > windowH {
 						menuY = -menuHeight - gtx.Dp(unit.Dp(4))
 					}
-					op.Offset(image.Pt(menuX, menuY)).Add(gtx.Ops)
-					widget.Border{
-						Color:        theme.BorderLight,
-						CornerRadius: unit.Dp(4),
-						Width:        unit.Dp(1),
-					}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return layout.Stack{}.Layout(gtx,
-							layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-								paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
-								defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
-								event.Op(gtx.Ops, &row.MenuOpen)
-								for {
-									_, ok := gtx.Event(pointer.Filter{Target: &row.MenuOpen, Kinds: pointer.Press})
-									if !ok {
-										break
-									}
-								}
-								return layout.Dimensions{Size: gtx.Constraints.Min}
-							}),
-							layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-								return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-									return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-											return widgets.MenuOptionCompact(gtx, host.Theme, &row.RenameBtn, "Rename", widgets.IconRename)
-										}),
-										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-											return widgets.MenuOptionCompact(gtx, host.Theme, &row.DupBtn, "Duplicate", widgets.IconDup)
-										}),
-										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-											return widgets.MenuOptionDangerCompact(gtx, host.Theme, &row.DelBtn, "Delete", widgets.IconDel)
-										}),
-									)
-								})
-							}),
-						)
+					anchor := widgets.MenuAnchor{
+						Pt:         image.Pt(gtx.Constraints.Max.X, menuY),
+						AlignRight: true,
+						Clamp:      image.Pt(gtx.Constraints.Max.X, 0),
+					}
+					widgets.DeferMenuAt(gtx, host.Theme, &row.MenuOpen, anchor, widgets.MenuMinWidthDp, []widgets.MenuItem{
+						{Label: "Rename", Click: &row.RenameBtn, Icon: widgets.IconRename},
+						{Label: "Duplicate", Click: &row.DupBtn, Icon: widgets.IconDup},
+						{Separator: true},
+						{Label: "Delete", Click: &row.DelBtn, Icon: widgets.IconDel, Danger: true},
 					})
-					op.Defer(gtx.Ops, macro.Stop())
 					return layout.Dimensions{}
 				}),
 			)

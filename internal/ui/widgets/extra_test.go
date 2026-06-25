@@ -219,7 +219,7 @@ func TestMenuOptionDanger(t *testing.T) {
 	gtx := makeGtx(300, 60)
 	var clk widget.Clickable
 	ic, _ := widget.NewIcon(icons.ActionDelete)
-	MenuOptionDanger(gtx, th, &clk, "Delete", ic)
+	MenuRow(gtx, th, MenuItem{Label: "Delete", Click: &clk, Icon: ic, Danger: true})
 }
 
 func TestInlineRenameField(t *testing.T) {

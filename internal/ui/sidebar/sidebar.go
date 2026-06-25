@@ -62,21 +62,6 @@ func sectionCount(th *material.Theme, n int) layout.Widget {
 	}
 }
 
-func headerMenuItem(gtx layout.Context, th *material.Theme, clk *widget.Clickable, label string) layout.Dimensions {
-	return clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Min.X = gtx.Dp(unit.Dp(150))
-		if clk.Hovered() {
-			paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: gtx.Constraints.Min}.Op())
-		}
-		pointer.CursorPointer.Add(gtx.Ops)
-		return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(16), Right: unit.Dp(16)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			lbl := material.Label(th, unit.Sp(12), label)
-			lbl.LineHeightScale = 1.0
-			return lbl.Layout(gtx)
-		})
-	})
-}
-
 func collectionMethodSet(n *collections.CollectionNode, set map[string]bool) {
 	if n == nil {
 		return
@@ -224,95 +209,43 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		})
 
 		if *host.ColsMenuOpen {
-			macro := op.Record(gtx.Ops)
-			op.Offset(image.Pt(headerDims.Size.X, 0)).Add(gtx.Ops)
-
-			menuGtx := gtx
-			menuGtx.Constraints.Min = image.Point{}
-			rec := op.Record(gtx.Ops)
-			menuDims := layout.Flex{Axis: layout.Vertical}.Layout(menuGtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return headerMenuItem(gtx, host.Theme, host.ImportBtn, "Import")
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return headerMenuItem(gtx, host.Theme, host.ColsExpandAll, "Expand all")
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return headerMenuItem(gtx, host.Theme, host.ColsCollapseAll, "Collapse all")
-				}),
-			)
-			menuCall := rec.Stop()
-
-			paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(image.Rectangle{Max: menuDims.Size}, 4).Op(gtx.Ops))
-			b := max(1, gtx.Dp(unit.Dp(1)))
-			paint.FillShape(gtx.Ops, theme.BorderLight, clip.Stroke{Path: clip.UniformRRect(image.Rectangle{Max: menuDims.Size}, 4).Path(gtx.Ops), Width: float32(b)}.Op())
-			menuCall.Add(gtx.Ops)
-
-			op.Defer(gtx.Ops, macro.Stop())
+			anchor := image.Pt(headerDims.Size.X, headerDims.Size.Y+gtx.Dp(unit.Dp(2)))
+			widgets.DeferMenu(gtx, host.Theme, host.ColsMenuOpen, anchor, widgets.MenuMinWidthDp, []widgets.MenuItem{
+				{Label: "Import", Click: host.ImportBtn, Icon: widgets.IconDownload},
+				{Label: "Expand all", Click: host.ColsExpandAll, Icon: widgets.IconExpandMore},
+				{Label: "Collapse all", Click: host.ColsCollapseAll, Icon: widgets.IconExpandLess},
+			})
 		}
 
 		return headerDims
 	}
 
 	drawNodeMenu := func(gtx layout.Context, node *collections.CollectionNode, anchorY, rowH int) {
-		macro := op.Record(gtx.Ops)
-		menuWidth := gtx.Dp(unit.Dp(166))
-		menuX := gtx.Constraints.Max.X - menuWidth
-		if menuX < 0 {
-			menuX = 0
-		}
 		menuOffsetY := anchorY + rowH
 		if rowH <= 0 {
 			menuOffsetY = anchorY + gtx.Dp(unit.Dp(18))
 		}
-		op.Offset(image.Pt(menuX, menuOffsetY)).Add(gtx.Ops)
-		widget.Border{
-			Color:        theme.BorderLight,
-			CornerRadius: unit.Dp(4),
-			Width:        unit.Dp(1),
-		}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Stack{}.Layout(gtx,
-				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-					paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
-					defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
-					event.Op(gtx.Ops, &node.MenuOpen)
-					for {
-						_, ok := gtx.Event(pointer.Filter{Target: &node.MenuOpen, Kinds: pointer.Press})
-						if !ok {
-							break
-						}
-					}
-					return layout.Dimensions{Size: gtx.Constraints.Min}
-				}),
-				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-					return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						actions := make([]layout.FlexChild, 0, 5)
-						if node.IsFolder || node.Depth == 0 {
-							actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return widgets.MenuOption(gtx, host.Theme, &node.AddReqBtn, "Add Request", widgets.IconAddReq)
-							}))
-							actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return widgets.MenuOption(gtx, host.Theme, &node.AddFldBtn, "Add Folder", widgets.IconAddFld)
-							}))
-						}
-						actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return widgets.MenuOption(gtx, host.Theme, &node.EditBtn, "Rename", widgets.IconRename)
-						}))
-						if node.Depth > 0 {
-							actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return widgets.MenuOption(gtx, host.Theme, &node.DupBtn, "Duplicate", widgets.IconDup)
-							}))
-						}
-						actions = append(actions, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return widgets.MenuOption(gtx, host.Theme, &node.DelBtn, "Delete", widgets.IconDel)
-						}))
-						return layout.Flex{Axis: layout.Vertical}.Layout(gtx, actions...)
-					})
-				}),
+		items := make([]widgets.MenuItem, 0, 6)
+		if node.IsFolder || node.Depth == 0 {
+			items = append(items,
+				widgets.MenuItem{Label: "Add Request", Click: &node.AddReqBtn, Icon: widgets.IconAddReq},
+				widgets.MenuItem{Label: "Add Folder", Click: &node.AddFldBtn, Icon: widgets.IconAddFld},
 			)
-		})
-		call := macro.Stop()
-		op.Defer(gtx.Ops, call)
+		}
+		items = append(items, widgets.MenuItem{Label: "Rename", Click: &node.EditBtn, Icon: widgets.IconRename})
+		if node.Depth > 0 {
+			items = append(items, widgets.MenuItem{Label: "Duplicate", Click: &node.DupBtn, Icon: widgets.IconDup})
+		}
+		items = append(items,
+			widgets.MenuItem{Separator: true},
+			widgets.MenuItem{Label: "Delete", Click: &node.DelBtn, Icon: widgets.IconDel, Danger: true},
+		)
+		anchor := widgets.MenuAnchor{
+			Pt:         image.Pt(gtx.Constraints.Max.X, menuOffsetY),
+			AlignRight: true,
+			Clamp:      image.Pt(gtx.Constraints.Max.X, 0),
+		}
+		widgets.DeferMenuAt(gtx, host.Theme, &node.MenuOpen, anchor, widgets.MenuMinWidthDp, items)
 	}
 
 	colsBody := func(gtx layout.Context) layout.Dimensions {
@@ -1748,32 +1681,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		})
 
 		if *host.EnvsMenuOpen {
-			macro := op.Record(gtx.Ops)
-			menuX := headerDims.Size.X
-			menuY := 0
-			op.Offset(image.Pt(menuX, menuY)).Add(gtx.Ops)
-
-			menuGtx := gtx
-			menuGtx.Constraints.Min = image.Point{}
-			rec := op.Record(gtx.Ops)
-			menuDims := material.Clickable(menuGtx, host.ImportEnvBtn, func(gtx layout.Context) layout.Dimensions {
-				if host.ImportEnvBtn.Hovered() {
-					paint.FillShape(gtx.Ops, theme.BgHover, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
-				}
-				pointer.CursorPointer.Add(gtx.Ops)
-				return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(20), Right: unit.Dp(20)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					lbl := material.Label(host.Theme, unit.Sp(12), "Import")
-					return lbl.Layout(gtx)
-				})
+			anchor := image.Pt(headerDims.Size.X, headerDims.Size.Y+gtx.Dp(unit.Dp(2)))
+			widgets.DeferMenu(gtx, host.Theme, host.EnvsMenuOpen, anchor, widgets.MenuMinWidthDp, []widgets.MenuItem{
+				{Label: "Import", Click: host.ImportEnvBtn, Icon: widgets.IconDownload},
 			})
-			menuCall := rec.Stop()
-
-			paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(image.Rectangle{Max: menuDims.Size}, 4).Op(gtx.Ops))
-			b := max(1, gtx.Dp(unit.Dp(1)))
-			paint.FillShape(gtx.Ops, theme.BorderLight, clip.Stroke{Path: clip.UniformRRect(image.Rectangle{Max: menuDims.Size}, 4).Path(gtx.Ops), Width: float32(b)}.Op())
-			menuCall.Add(gtx.Ops)
-
-			op.Defer(gtx.Ops, macro.Stop())
 		}
 
 		return headerDims
@@ -2152,59 +2063,24 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						if !env.MenuOpen {
 							return layout.Dimensions{}
 						}
-						macro := op.Record(gtx.Ops)
-						menuWidth := gtx.Dp(unit.Dp(158))
 						menuHeight := gtx.Dp(unit.Dp(150))
-						menuX := gtx.Constraints.Max.X - menuWidth
-						if menuX < 0 {
-							menuX = 0
-						}
 						menuY := gtx.Dp(unit.Dp(24))
 						windowH := host.WindowSize.Y
 						if windowH > 0 && int(env.MenuClickY)+menuHeight > windowH {
 							menuY = -menuHeight - gtx.Dp(unit.Dp(4))
 						}
-						op.Offset(image.Pt(menuX, menuY)).Add(gtx.Ops)
-						widget.Border{
-							Color:        theme.BorderLight,
-							CornerRadius: unit.Dp(4),
-							Width:        unit.Dp(1),
-						}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return layout.Stack{}.Layout(gtx,
-								layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-									paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
-									defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
-									event.Op(gtx.Ops, &env.MenuOpen)
-									for {
-										_, ok := gtx.Event(pointer.Filter{Target: &env.MenuOpen, Kinds: pointer.Press})
-										if !ok {
-											break
-										}
-									}
-									return layout.Dimensions{Size: gtx.Constraints.Min}
-								}),
-								layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-									return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												return widgets.MenuOption(gtx, host.Theme, &env.EditBtn, "Edit", widgets.IconSettings)
-											}),
-											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												return widgets.MenuOption(gtx, host.Theme, &env.RenameBtn, "Rename", widgets.IconRename)
-											}),
-											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												return widgets.MenuOption(gtx, host.Theme, &env.DupBtn, "Duplicate", widgets.IconDup)
-											}),
-											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												return widgets.MenuOptionDanger(gtx, host.Theme, &env.DelBtn, "Delete", widgets.IconDel)
-											}),
-										)
-									})
-								}),
-							)
+						anchor := widgets.MenuAnchor{
+							Pt:         image.Pt(gtx.Constraints.Max.X, menuY),
+							AlignRight: true,
+							Clamp:      image.Pt(gtx.Constraints.Max.X, 0),
+						}
+						widgets.DeferMenuAt(gtx, host.Theme, &env.MenuOpen, anchor, widgets.MenuMinWidthDp, []widgets.MenuItem{
+							{Label: "Edit", Click: &env.EditBtn, Icon: widgets.IconSettings},
+							{Label: "Rename", Click: &env.RenameBtn, Icon: widgets.IconRename},
+							{Label: "Duplicate", Click: &env.DupBtn, Icon: widgets.IconDup},
+							{Separator: true},
+							{Label: "Delete", Click: &env.DelBtn, Icon: widgets.IconDel, Danger: true},
 						})
-						call := macro.Stop()
-						op.Defer(gtx.Ops, call)
 						return layout.Dimensions{}
 					}),
 				)

@@ -525,49 +525,11 @@ func (t *RequestTab) layoutWSOpcodeSelector(gtx layout.Context, th *material.The
 			if !s.OpcodeMenuOpen {
 				return layout.Dimensions{}
 			}
-			macro := op.Record(gtx.Ops)
-			layout.Inset{Top: unit.Dp(28)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return widget.Border{
-					Color:        theme.BorderLight,
-					CornerRadius: unit.Dp(2),
-					Width:        unit.Dp(1),
-				}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.Stack{}.Layout(gtx,
-						layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-							rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2)
-							paint.FillShape(gtx.Ops, theme.BgMenu, rect.Op(gtx.Ops))
-							return layout.Dimensions{Size: gtx.Constraints.Min}
-						}),
-						layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-							rowW := gtx.Dp(unit.Dp(120))
-							menuItem := func(clk *widget.Clickable, name string, active bool) layout.FlexChild {
-								return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									gtx.Constraints.Min.X = rowW
-									gtx.Constraints.Max.X = rowW
-									return material.Clickable(gtx, clk, func(gtx layout.Context) layout.Dimensions {
-										if clk.Hovered() {
-											paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: image.Pt(rowW, gtx.Dp(unit.Dp(28)))}.Op())
-										}
-										pointer.CursorPointer.Add(gtx.Ops)
-										return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											display := "  " + name
-											if active {
-												display = "✓ " + name
-											}
-											return widgets.MonoLabel(th, unit.Sp(11), display).Layout(gtx)
-										})
-									})
-								})
-							}
-							return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-								menuItem(&s.OpcodeTextChoice, "TEXT", s.OpcodeText),
-								menuItem(&s.OpcodeBinChoice, "BIN", !s.OpcodeText),
-							)
-						}),
-					)
-				})
+			anchor := widgets.MenuAnchor{Pt: image.Pt(0, gtx.Dp(unit.Dp(28)))}
+			widgets.DeferMenuAt(gtx, th, &s.OpcodeMenuOpen, anchor, 120, []widgets.MenuItem{
+				{Label: "TEXT", Click: &s.OpcodeTextChoice, Checked: s.OpcodeText, Mono: true},
+				{Label: "BIN", Click: &s.OpcodeBinChoice, Checked: !s.OpcodeText, Mono: true},
 			})
-			op.Defer(gtx.Ops, macro.Stop())
 			return layout.Dimensions{}
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
@@ -703,53 +665,14 @@ func (t *RequestTab) layoutWSFilterMenu(gtx layout.Context, th *material.Theme) 
 			if !s.FilterMenuOpen {
 				return layout.Dimensions{}
 			}
-			macro := op.Record(gtx.Ops)
-			dropGtx := gtx
-			dropGtx.Constraints.Min = image.Point{}
-			dropGtx.Constraints.Max.Y = 1 << 24
-			layout.Inset{Top: unit.Dp(28)}.Layout(dropGtx, func(gtx layout.Context) layout.Dimensions {
-				return widget.Border{
-					Color:        theme.BorderLight,
-					CornerRadius: unit.Dp(2),
-					Width:        unit.Dp(1),
-				}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.Stack{}.Layout(gtx,
-						layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-							rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2)
-							paint.FillShape(gtx.Ops, theme.BgMenu, rect.Op(gtx.Ops))
-							return layout.Dimensions{Size: gtx.Constraints.Min}
-						}),
-						layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-							rowW := gtx.Dp(unit.Dp(140))
-							menuToggle := func(clk *widget.Clickable, name string, on bool) layout.FlexChild {
-								return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									gtx.Constraints.Min.X = rowW
-									gtx.Constraints.Max.X = rowW
-									return material.Clickable(gtx, clk, func(gtx layout.Context) layout.Dimensions {
-										if clk.Hovered() {
-											paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: image.Pt(rowW, gtx.Dp(unit.Dp(28)))}.Op())
-										}
-										pointer.CursorPointer.Add(gtx.Ops)
-										return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											mark := "  "
-											if on {
-												mark = "✓ "
-											}
-											return widgets.MonoLabel(th, unit.Sp(11), mark+"Show "+name).Layout(gtx)
-										})
-									})
-								})
-							}
-							return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-								menuToggle(&s.FilterPingBtn, "PING", !s.Filter.HidePing),
-								menuToggle(&s.FilterPongBtn, "PONG", !s.Filter.HidePong),
-								menuToggle(&s.FilterCloseBtn, "CLOSE", !s.Filter.HideClose),
-							)
-						}),
-					)
-				})
+			// Checkbox-style filter toggles: clicking flips a check and keeps the
+			// menu open so several can be toggled; an outside click dismisses it.
+			anchor := widgets.MenuAnchor{Pt: image.Pt(0, gtx.Dp(unit.Dp(28)))}
+			widgets.DeferMenuAt(gtx, th, &s.FilterMenuOpen, anchor, 160, []widgets.MenuItem{
+				{Label: "Show PING", Click: &s.FilterPingBtn, Checked: !s.Filter.HidePing, Mono: true},
+				{Label: "Show PONG", Click: &s.FilterPongBtn, Checked: !s.Filter.HidePong, Mono: true},
+				{Label: "Show CLOSE", Click: &s.FilterCloseBtn, Checked: !s.Filter.HideClose, Mono: true},
 			})
-			op.Defer(gtx.Ops, macro.Stop())
 			return layout.Dimensions{}
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {

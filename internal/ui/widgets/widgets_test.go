@@ -116,7 +116,7 @@ func TestUIWidgetsLayout(t *testing.T) {
 	ic, _ := widget.NewIcon(icons.ActionBuild)
 	SquareBtn(gtx, &btn, ic, th)
 
-	MenuOption(gtx, th, &btn, "Option", ic)
+	MenuRow(gtx, th, MenuItem{Label: "Option", Click: &btn, Icon: ic})
 
 	HandleEditorShortcuts(gtx, &ed)
 
@@ -340,5 +340,5 @@ func TestSquareBtn_Layout(t *testing.T) {
 
 	SquareBtn(gtx, &btn, ic, th)
 
-	MenuOption(gtx, th, &btn, "Option", ic)
+	MenuRow(gtx, th, MenuItem{Label: "Option", Click: &btn, Icon: ic})
 }
