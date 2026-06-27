@@ -55,6 +55,10 @@ type WSTabState struct {
 	OptionsExpanded    bool          `json:"options_expanded,omitempty"`
 	SubprotosAbsHeight int           `json:"subprotos_abs_height,omitempty"`
 	OfferDeflate       bool          `json:"offer_deflate,omitempty"`
+	UseMsgpackProto    bool          `json:"use_msgpack_proto,omitempty"`
+	ProtoCmd           string        `json:"proto_cmd,omitempty"`
+	ProtoSeq           string        `json:"proto_seq,omitempty"`
+	ProtoOpcode        string        `json:"proto_opcode,omitempty"`
 	InsecureSkipVerify bool          `json:"insecure_skip_verify,omitempty"`
 	UseTractoCA        bool          `json:"use_tracto_ca,omitempty"`
 	SavedSends         []WSSavedSend `json:"saved_sends,omitempty"`

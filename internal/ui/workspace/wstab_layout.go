@@ -203,13 +203,32 @@ func (t *RequestTab) handleWSButtons(gtx layout.Context) {
 	for s.OptionsBtn.Clicked(gtx) {
 		s.OptionsExpanded = !s.OptionsExpanded
 	}
-	for s.AddSubprotoBtn.Clicked(gtx) {
-		s.AddSubprotocol("")
+	for s.HeadersTabBtn.Clicked(gtx) {
+		s.ListMode = wsListHeaders
+	}
+	for s.SubprotosTabBtn.Clicked(gtx) {
+		s.ListMode = wsListSubprotos
+	}
+	for s.ListAddBtn.Clicked(gtx) {
 		s.OptionsExpanded = true
-		s.FitSubprotos = true
+		if s.ListMode == wsListSubprotos {
+			s.AddSubprotocol("")
+			s.FitSubprotos = true
+		} else {
+			t.AddHeader("", "")
+		}
 	}
 	for s.OfferDeflateBtn.Clicked(gtx) {
 		s.OfferDeflate = !s.OfferDeflate
+	}
+	for s.MsgpackProtoBtn.Clicked(gtx) {
+		s.UseMsgpackProto = !s.UseMsgpackProto
+	}
+	for i := 0; i < len(t.Headers); i++ {
+		if t.Headers[i].DelBtn.Clicked(gtx) {
+			t.Headers = append(t.Headers[:i], t.Headers[i+1:]...)
+			i--
+		}
 	}
 	for s.InsecureBtn.Clicked(gtx) {
 		s.InsecureSkipVerify = !s.InsecureSkipVerify
@@ -276,6 +295,10 @@ func (t *RequestTab) handleWSButtons(gtx layout.Context) {
 func (t *RequestTab) SendFromComposer() {
 	s := t.EnsureWS()
 	txt := s.ComposerEditor.Text()
+	if s.UseMsgpackProto {
+		t.WSSendProto(txt)
+		return
+	}
 	if s.OpcodeText {
 		t.WSSendText(txt)
 		return
@@ -339,6 +362,42 @@ func (t *RequestTab) layoutWSComposerPane(gtx layout.Context, th *material.Theme
 		})
 	}
 
+	headersBody := func(gtx layout.Context) layout.Dimensions {
+		bdr := gtx.Dp(unit.Dp(1))
+		sz := gtx.Constraints.Max
+		paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Max: sz}.Op())
+		inner := image.Rect(bdr, 0, sz.X-bdr, sz.Y-bdr)
+		paint.FillShape(gtx.Ops, theme.BgField, clip.Rect(inner).Op())
+		gtx.Constraints.Min = image.Pt(inner.Dx(), inner.Dy())
+		gtx.Constraints.Max = gtx.Constraints.Min
+		op.Offset(image.Pt(bdr, 0)).Add(gtx.Ops)
+		if len(t.Headers) == 0 {
+			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				lbl := widgets.MonoLabel(th, unit.Sp(11), "No headers — add Origin, Cookie, etc.")
+				lbl.Color = theme.FgMuted
+				return lbl.Layout(gtx)
+			})
+		}
+		return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return t.HeadersList.Layout(gtx, len(t.Headers), func(gtx layout.Context, i int) layout.Dimensions {
+				hd := t.Headers[i]
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{Top: unit.Dp(1), Left: unit.Dp(1), Right: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return kvRow(gtx, th, &hd.Key, &hd.Value, &hd.DelBtn, t.HeaderSplitRatio, activeEnv)
+						})
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if i >= len(t.Headers)-1 {
+							return layout.Dimensions{}
+						}
+						return wsHLine(gtx)
+					}),
+				)
+			})
+		})
+	}
+
 	composeBody := func(gtx layout.Context) layout.Dimensions {
 		bdr := gtx.Dp(unit.Dp(1))
 		sz := gtx.Constraints.Max
@@ -369,13 +428,19 @@ func (t *RequestTab) layoutWSComposerPane(gtx layout.Context, th *material.Theme
 				layout.Rigid(wsHLine),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSOptions(gtx, th) }),
 				layout.Rigid(wsHLine),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSListHeader(gtx, th) }),
+				layout.Rigid(wsHLine),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					minH := gtx.Dp(unit.Dp(60))
 					if s.SubprotosAbsHeight <= 0 {
 						s.SubprotosAbsHeight = 120
 					}
 					if s.FitSubprotos {
-						fit := len(s.Subprotocols)*28 + 11
+						n := len(s.Subprotocols)
+						if s.ListMode == wsListHeaders {
+							n = len(t.Headers)
+						}
+						fit := n*28 + 11
 						if fit > s.SubprotosAbsHeight {
 							s.SubprotosAbsHeight = fit
 						}
@@ -398,11 +463,15 @@ func (t *RequestTab) layoutWSComposerPane(gtx layout.Context, th *material.Theme
 					}
 					gtx.Constraints.Min.Y = h
 					gtx.Constraints.Max.Y = h
-					return subprotosBody(gtx)
+					if s.ListMode == wsListSubprotos {
+						return subprotosBody(gtx)
+					}
+					return headersBody(gtx)
 				}),
 				layout.Rigid(wsHLine),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSComposerHeader(gtx, th) }),
 				layout.Rigid(wsHLine),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSProtoFields(gtx, th) }),
 				layout.Flexed(1, composeBody),
 			)
 		}
@@ -411,9 +480,98 @@ func (t *RequestTab) layoutWSComposerPane(gtx layout.Context, th *material.Theme
 			layout.Rigid(wsHLine),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSComposerHeader(gtx, th) }),
 			layout.Rigid(wsHLine),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSProtoFields(gtx, th) }),
 			layout.Flexed(1, composeBody),
 		)
 	})
+}
+
+func (t *RequestTab) layoutWSListHeader(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	s := t.EnsureWS()
+	tab := func(clk *widget.Clickable, label string, active bool) layout.FlexChild {
+		return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return material.Clickable(gtx, clk, func(gtx layout.Context) layout.Dimensions {
+				if !active {
+					pointer.CursorPointer.Add(gtx.Ops)
+				}
+				return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(6), Right: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					lbl := widgets.MonoLabel(th, unit.Sp(12), label)
+					if active {
+						lbl.Font.Weight = font.Bold
+						lbl.Color = theme.Fg
+					} else {
+						lbl.Color = theme.FgMuted
+					}
+					return lbl.Layout(gtx)
+				})
+			})
+		})
+	}
+	return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
+			tab(&s.HeadersTabBtn, "Headers", s.ListMode == wsListHeaders),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				lbl := widgets.MonoLabel(th, unit.Sp(12), "|")
+				lbl.Color = theme.Border
+				return lbl.Layout(gtx)
+			}),
+			tab(&s.SubprotosTabBtn, "Subprotocols", s.ListMode == wsListSubprotos),
+			layout.Flexed(1, layout.Spacer{Width: unit.Dp(1)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return widgets.SquareBtn(gtx, &s.ListAddBtn, widgets.IconAdd, th)
+			}),
+		)
+	})
+}
+
+func (t *RequestTab) layoutWSProtoFields(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	s := t.EnsureWS()
+	if !s.UseMsgpackProto {
+		return layout.Dimensions{}
+	}
+	field := func(label string, ed *widget.Editor, w int) layout.FlexChild {
+		return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					lbl := widgets.MonoLabel(th, unit.Sp(11), label)
+					lbl.Color = theme.FgMuted
+					return lbl.Layout(gtx)
+				}),
+				layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					fw := gtx.Dp(unit.Dp(float32(w)))
+					fh := gtx.Dp(unit.Dp(22))
+					gtx.Constraints.Min = image.Pt(fw, fh)
+					gtx.Constraints.Max = image.Pt(fw, fh)
+					return widget.Border{Color: theme.Border, CornerRadius: unit.Dp(2), Width: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						paint.FillShape(gtx.Ops, theme.BgField, clip.Rect{Max: gtx.Constraints.Min}.Op())
+						return layout.UniformInset(unit.Dp(3)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							e := material.Editor(th, ed, "0")
+							e.TextSize = unit.Sp(11)
+							e.Font.Typeface = widgets.MonoTypeface
+							e.HintColor = theme.FgMuted
+							return e.Layout(gtx)
+						})
+					})
+				}),
+			)
+		})
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+					field("cmd", &s.ProtoCmdEditor, 48),
+					layout.Rigid(layout.Spacer{Width: unit.Dp(10)}.Layout),
+					field("seq", &s.ProtoSeqEditor, 64),
+					layout.Rigid(layout.Spacer{Width: unit.Dp(10)}.Layout),
+					field("opcode", &s.ProtoOpcodeEditor, 64),
+				)
+			})
+		}),
+		layout.Rigid(wsHLine),
+	)
 }
 
 func (t *RequestTab) layoutWSSubprotocolsHeader(gtx layout.Context, th *material.Theme) layout.Dimensions {
@@ -422,15 +580,12 @@ func (t *RequestTab) layoutWSSubprotocolsHeader(gtx layout.Context, th *material
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Left: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					lbl := widgets.MonoLabel(th, unit.Sp(12), "Subprotocols")
+					lbl := widgets.MonoLabel(th, unit.Sp(12), "Connection")
 					lbl.Font.Weight = font.Bold
 					return lbl.Layout(gtx)
 				})
 			}),
 			layout.Flexed(1, layout.Spacer{Width: unit.Dp(1)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return widgets.SquareBtn(gtx, &s.AddSubprotoBtn, widgets.IconAdd, th)
-			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				toggleIcon := widgets.IconExpandMore
 				if s.OptionsExpanded {
@@ -448,6 +603,10 @@ func (t *RequestTab) layoutWSOptions(gtx layout.Context, th *material.Theme) lay
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return wsOptionToggle(gtx, th, &s.OfferDeflateBtn, "permessage-deflate", s.OfferDeflate)
+			}),
+			layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return wsOptionToggle(gtx, th, &s.MsgpackProtoBtn, "lz4+msgpack", s.UseMsgpackProto)
 			}),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -927,6 +1086,9 @@ func wsCellOp(th *material.Theme, op ws.Opcode, w int) layout.FlexChild {
 func wsCellPreview(th *material.Theme, m WSDisplayMessage) layout.FlexChild {
 	return layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 		preview := previewPayload(m.Payload, m.Opcode)
+		if m.Proto != nil {
+			preview = previewProto(m.Proto)
+		}
 		lbl := widgets.MonoLabel(th, unit.Sp(11), preview)
 		lbl.MaxLines = 1
 		lbl.Truncator = "…"
@@ -960,6 +1122,37 @@ func previewPayload(p []byte, op ws.Opcode) string {
 		s = s[:cut] + "…"
 	}
 	return s
+}
+
+func previewProto(p *ProtoView) string {
+	head := fmt.Sprintf("cmd=%d seq=%d op=%d", p.Cmd, p.Seq, p.Opcode)
+	if p.Cof > 0 {
+		head += " lz4"
+	}
+	if p.DecodeErr != "" {
+		return head + " ⚠ " + p.DecodeErr
+	}
+	body := strings.Join(strings.Fields(p.JSON), " ")
+	if body == "" {
+		return head
+	}
+	return head + "  " + body
+}
+
+func protoDetailText(p *ProtoView) string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "cmd=%d  seq=%d  opcode=%d\n", p.Cmd, p.Seq, p.Opcode)
+	if p.Cof > 0 {
+		fmt.Fprintf(&b, "lz4 cof=%d  wire=%dB  msgpack=%dB\n\n", p.Cof, p.BodyLen, p.RawLen)
+	} else {
+		fmt.Fprintf(&b, "uncompressed  msgpack=%dB\n\n", p.RawLen)
+	}
+	if p.DecodeErr != "" {
+		b.WriteString("decode error: " + p.DecodeErr)
+		return b.String()
+	}
+	b.WriteString(p.JSON)
+	return b.String()
 }
 
 func humanBytes(n int64) string {
@@ -999,6 +1192,9 @@ func (s *WSSession) refreshDetail() {
 }
 
 func detailText(m WSDisplayMessage, asHex bool) string {
+	if m.Proto != nil && !asHex {
+		return protoDetailText(m.Proto)
+	}
 	if m.Opcode == ws.OpClose && len(m.Payload) >= 2 && !asHex {
 		code, reason := ws.ParseClosePayload(m.Payload)
 		return fmt.Sprintf("code=%d\nreason=%s", code, reason)

@@ -1555,7 +1555,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 				}
 			case "F":
 				if ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
-					ui.Tabs[ui.ActiveIdx].SearchOpen = !ui.Tabs[ui.ActiveIdx].SearchOpen
+					ui.Tabs[ui.ActiveIdx].HandleSearchShortcut(gtx)
 				}
 			case "Z":
 				if ui.SidebarSection == "flows" && ui.Flow != nil {

@@ -54,10 +54,11 @@ type Strip struct {
 	TabCtxMenuIdx  int
 	TabCtxMenuPos  f32.Point
 
-	widthCache map[*workspace.RequestTab]cachedTab
-	infoBuf    []tabInfo
-	rowsBuf    [][]int
-	rowBuf     []int
+	widthCache   map[*workspace.RequestTab]cachedTab
+	infoBuf      []tabInfo
+	rowsBuf      [][]int
+	rowBuf       []int
+	rowWidthsBuf []int
 }
 
 func renderAddCell(th *material.Theme, clk *widget.Clickable, label string, sp unit.Sp, w, h int, drawTop, drawLeft bool) layout.Widget {
@@ -282,8 +283,9 @@ func (s *Strip) Layout(
 				continue
 			}
 
+			isChevronRow := overflowActive && rIdx == firstVisible
 			extraSpace := maxWidth - rowTotalNatW
-			if extraSpace > 0 && rowTabsNatW > 0 {
+			if rowTabsNatW > 0 && (extraSpace > 0 || isChevronRow) {
 				allocated := 0
 				lastTabInRowIdx := -1
 				for j, i := range row {
@@ -302,7 +304,11 @@ func (s *Strip) Layout(
 							add = int(float32(extraSpace) * share)
 						}
 						allocated += add
-						infos[i].FinalWidth = infos[i].NatWidth + add
+						fw := infos[i].NatWidth + add
+						if fw < 1 {
+							fw = 1
+						}
+						infos[i].FinalWidth = fw
 					}
 				}
 			} else {
@@ -338,6 +344,16 @@ func (s *Strip) Layout(
 				return infos[idx].FinalWidth
 			}
 		}
+
+		rowWidths := s.rowWidthsBuf[:0]
+		for _, row := range vrows {
+			w := 0
+			for _, tIdx := range row {
+				w += cellW(tIdx)
+			}
+			rowWidths = append(rowWidths, w)
+		}
+		s.rowWidthsBuf = rowWidths
 
 		thf := float32(tabHeight)
 

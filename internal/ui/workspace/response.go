@@ -80,6 +80,8 @@ type ResponseViewer struct {
 	highlightStart int
 	highlightEnd   int
 
+	searchSpans []matchSpan
+
 	selStart   int
 	selEnd     int
 	dragActive bool
@@ -164,6 +166,7 @@ func (v *ResponseViewer) SetText(s string) {
 	v.maxLineWidth = 0
 	v.highlightStart = 0
 	v.highlightEnd = 0
+	v.searchSpans = nil
 	v.selStart = 0
 	v.selEnd = 0
 	v.dragActive = false
@@ -249,6 +252,8 @@ func (v *ResponseViewer) SetCaret(start, end int) {
 	v.selEnd = end
 	v.scrollToByteOffset(start)
 }
+
+func (v *ResponseViewer) SetSearchSpans(spans []matchSpan) { v.searchSpans = spans }
 
 func (v *ResponseViewer) SetScrollCaret(bool) {}
 
@@ -444,11 +449,12 @@ type ResponseViewerStyle struct {
 	Shaper         *text.Shaper
 	Font           font.Font
 	TextSize       unit.Sp
-	Color          color.NRGBA
-	HighlightColor color.NRGBA
-	SelectionColor color.NRGBA
-	Wrap           bool
-	Padding        unit.Dp
+	Color           color.NRGBA
+	HighlightColor  color.NRGBA
+	SearchMatchColor color.NRGBA
+	SelectionColor  color.NRGBA
+	Wrap            bool
+	Padding         unit.Dp
 
 	Lang syntax.Lang
 
@@ -873,6 +879,16 @@ func (v *ResponseViewer) paintChunk(
 		glyphs = widgets.ShapeChunkForWrap(s.Shaper, s.Font, s.TextSize, gtx, v.text[absStart:absEnd], innerW)
 	}
 
+	if len(v.searchSpans) > 0 {
+		i := sort.Search(len(v.searchSpans), func(i int) bool { return v.searchSpans[i].end > absStart })
+		for ; i < len(v.searchSpans); i++ {
+			m := v.searchSpans[i]
+			if m.start >= absEnd {
+				break
+			}
+			v.paintHighlight(gtx, absStart, absEnd, chunkH, yOff, charAdv, s.Wrap, innerW, s.SearchMatchColor, m.start, m.end, glyphs)
+		}
+	}
 	if hasHL && v.highlightEnd > absStart && v.highlightStart < absEnd {
 		v.paintHighlight(gtx, absStart, absEnd, chunkH, yOff, charAdv, s.Wrap, innerW, s.HighlightColor, v.highlightStart, v.highlightEnd, glyphs)
 	}

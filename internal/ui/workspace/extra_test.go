@@ -521,16 +521,16 @@ func TestPerformSearch_RegexSpecialChars(t *testing.T) {
 	tab := NewRequestTab("t")
 	tab.RespEditor.SetText("price: $5.00 + $3.00 = $8.00")
 	tab.invalidateSearchCache()
-	tab.SearchEditor.SetText("$5.00")
-	tab.performSearch()
-	if len(tab.searchResults) != 1 {
-		t.Errorf("expected literal dollar match, got %d", len(tab.searchResults))
+	tab.RespSearch.Editor.SetText("$5.00")
+	tab.RespSearch.recompute(tab.RespEditor.Text())
+	if len(tab.RespSearch.spans) != 1 {
+		t.Errorf("expected literal dollar match, got %d", len(tab.RespSearch.spans))
 	}
 
-	tab.SearchEditor.SetText(".00")
-	tab.performSearch()
-	if len(tab.searchResults) != 3 {
-		t.Errorf("expected literal '.00' to find 3, got %d", len(tab.searchResults))
+	tab.RespSearch.Editor.SetText(".00")
+	tab.RespSearch.recompute(tab.RespEditor.Text())
+	if len(tab.RespSearch.spans) != 3 {
+		t.Errorf("expected literal '.00' to find 3, got %d", len(tab.RespSearch.spans))
 	}
 }
 
@@ -538,9 +538,9 @@ func TestPerformSearch_QueryLongerThanText(t *testing.T) {
 	tab := NewRequestTab("t")
 	tab.RespEditor.SetText("hi")
 	tab.invalidateSearchCache()
-	tab.SearchEditor.SetText("longer than text")
-	tab.performSearch()
-	if len(tab.searchResults) != 0 {
+	tab.RespSearch.Editor.SetText("longer than text")
+	tab.RespSearch.recompute(tab.RespEditor.Text())
+	if len(tab.RespSearch.spans) != 0 {
 		t.Errorf("expected no matches")
 	}
 }
@@ -549,24 +549,24 @@ func TestPerformSearch_OverlappingNoDuplicate(t *testing.T) {
 	tab := NewRequestTab("t")
 	tab.RespEditor.SetText("aaaa")
 	tab.invalidateSearchCache()
-	tab.SearchEditor.SetText("aa")
-	tab.performSearch()
+	tab.RespSearch.Editor.SetText("aa")
+	tab.RespSearch.recompute(tab.RespEditor.Text())
 
-	if len(tab.searchResults) != 2 {
-		t.Errorf("expected 2 non-overlapping matches, got %d: %v", len(tab.searchResults), tab.searchResults)
+	if len(tab.RespSearch.spans) != 2 {
+		t.Errorf("expected 2 non-overlapping matches, got %d: %v", len(tab.RespSearch.spans), tab.RespSearch.spans)
 	}
 }
 
 func TestSearchNavigate_DirZero(t *testing.T) {
 	tab := NewRequestTab("t")
 	tab.RespEditor.SetText("hello hello")
-	tab.SearchEditor.SetText("hello")
+	tab.RespSearch.Editor.SetText("hello")
 	tab.invalidateSearchCache()
-	tab.performSearch()
-	tab.searchCurrent = 0
-	tab.searchNavigate(0)
-	if tab.searchCurrent != 0 {
-		t.Errorf("dir=0 should stay at 0, got %d", tab.searchCurrent)
+	tab.RespSearch.recompute(tab.RespEditor.Text())
+	tab.RespSearch.current = 0
+	tab.RespSearch.navigate(0, tab.RespEditor)
+	if tab.RespSearch.current != 0 {
+		t.Errorf("dir=0 should stay at 0, got %d", tab.RespSearch.current)
 	}
 }
 

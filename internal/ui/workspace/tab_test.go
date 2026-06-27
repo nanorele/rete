@@ -176,48 +176,48 @@ func TestSearch(t *testing.T) {
 	tab.RespEditor.SetText("Hello world! This is a test. Hello again!")
 
 	tab.invalidateSearchCache()
-	if !tab.searchCacheDirty {
-		t.Errorf("expected searchCacheDirty to be true")
+	if !tab.RespSearch.cacheDirty {
+		t.Errorf("expected cacheDirty to be true")
 	}
 
-	tab.SearchEditor.SetText("")
-	tab.performSearch()
-	if len(tab.searchResults) != 0 {
+	tab.RespSearch.Editor.SetText("")
+	tab.RespSearch.recompute(tab.RespEditor.Text())
+	if len(tab.RespSearch.spans) != 0 {
 		t.Errorf("expected empty results for empty search")
 	}
 
-	tab.SearchEditor.SetText("hello")
-	tab.performSearch()
-	if tab.searchCacheDirty {
-		t.Errorf("expected searchCacheDirty to be false after search")
+	tab.RespSearch.Editor.SetText("hello")
+	tab.RespSearch.recompute(tab.RespEditor.Text())
+	if tab.RespSearch.cacheDirty {
+		t.Errorf("expected cacheDirty to be false after search")
 	}
-	if len(tab.searchResults) != 2 {
-		t.Fatalf("expected 2 results, got %d", len(tab.searchResults))
+	if len(tab.RespSearch.spans) != 2 {
+		t.Fatalf("expected 2 results, got %d", len(tab.RespSearch.spans))
 	}
-	if tab.searchResults[0] != 0 || tab.searchResults[1] != 29 {
-		t.Errorf("unexpected search results: %v", tab.searchResults)
-	}
-
-	tab.searchCurrent = 0
-	tab.searchNavigate(1)
-	if tab.searchCurrent != 1 {
-		t.Errorf("expected current to be 1, got %d", tab.searchCurrent)
+	if tab.RespSearch.spans[0].start != 0 || tab.RespSearch.spans[1].start != 29 {
+		t.Errorf("unexpected search results: %v", tab.RespSearch.spans)
 	}
 
-	tab.searchNavigate(1)
-	if tab.searchCurrent != 0 {
-		t.Errorf("expected current to wrap to 0, got %d", tab.searchCurrent)
+	tab.RespSearch.current = 0
+	tab.RespSearch.navigate(1, tab.RespEditor)
+	if tab.RespSearch.current != 1 {
+		t.Errorf("expected current to be 1, got %d", tab.RespSearch.current)
 	}
 
-	tab.searchNavigate(-1)
-	if tab.searchCurrent != 1 {
-		t.Errorf("expected current to wrap to 1, got %d", tab.searchCurrent)
+	tab.RespSearch.navigate(1, tab.RespEditor)
+	if tab.RespSearch.current != 0 {
+		t.Errorf("expected current to wrap to 0, got %d", tab.RespSearch.current)
 	}
 
-	tab.searchResults = nil
-	tab.searchCurrent = 5
-	tab.searchNavigate(1)
-	if tab.searchCurrent != 5 {
+	tab.RespSearch.navigate(-1, tab.RespEditor)
+	if tab.RespSearch.current != 1 {
+		t.Errorf("expected current to wrap to 1, got %d", tab.RespSearch.current)
+	}
+
+	tab.RespSearch.spans = nil
+	tab.RespSearch.current = 5
+	tab.RespSearch.navigate(1, tab.RespEditor)
+	if tab.RespSearch.current != 5 {
 		t.Errorf("expected current to remain unchanged when empty")
 	}
 }
@@ -258,26 +258,26 @@ func TestSearchUnicode(t *testing.T) {
 	tab.RespEditor.SetText("Привет мир! Это тест. Привет снова!")
 	tab.invalidateSearchCache()
 
-	tab.SearchEditor.SetText("привет")
-	tab.performSearch()
-	if len(tab.searchResults) != 2 {
-		t.Errorf("expected 2 unicode-case-insensitive matches, got %d (%v)", len(tab.searchResults), tab.searchResults)
+	tab.RespSearch.Editor.SetText("привет")
+	tab.RespSearch.recompute(tab.RespEditor.Text())
+	if len(tab.RespSearch.spans) != 2 {
+		t.Errorf("expected 2 unicode-case-insensitive matches, got %d (%v)", len(tab.RespSearch.spans), tab.RespSearch.spans)
 	}
 
 	tab.RespEditor.SetText("Hello 🚀 World 🚀 End")
 	tab.invalidateSearchCache()
-	tab.SearchEditor.SetText("🚀")
-	tab.performSearch()
-	if len(tab.searchResults) != 2 {
-		t.Errorf("expected 2 emoji matches, got %d (%v)", len(tab.searchResults), tab.searchResults)
+	tab.RespSearch.Editor.SetText("🚀")
+	tab.RespSearch.recompute(tab.RespEditor.Text())
+	if len(tab.RespSearch.spans) != 2 {
+		t.Errorf("expected 2 emoji matches, got %d (%v)", len(tab.RespSearch.spans), tab.RespSearch.spans)
 	}
 
 	tab.RespEditor.SetText("你好世界 你好朋友")
 	tab.invalidateSearchCache()
-	tab.SearchEditor.SetText("你好")
-	tab.performSearch()
-	if len(tab.searchResults) != 2 {
-		t.Errorf("expected 2 CJK matches, got %d (%v)", len(tab.searchResults), tab.searchResults)
+	tab.RespSearch.Editor.SetText("你好")
+	tab.RespSearch.recompute(tab.RespEditor.Text())
+	if len(tab.RespSearch.spans) != 2 {
+		t.Errorf("expected 2 CJK matches, got %d (%v)", len(tab.RespSearch.spans), tab.RespSearch.spans)
 	}
 }
 

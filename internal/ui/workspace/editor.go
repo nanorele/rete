@@ -60,6 +60,8 @@ type RequestEditor struct {
 	highlightStart int
 	highlightEnd   int
 
+	searchSpans []matchSpan
+
 	selStart   int
 	selEnd     int
 	dragActive bool
@@ -180,6 +182,7 @@ func (v *RequestEditor) SetText(s string) bool {
 	v.maxLineWidth = 0
 	v.highlightStart = 0
 	v.highlightEnd = 0
+	v.searchSpans = nil
 	v.selStart = 0
 	v.selEnd = 0
 	v.dragActive = false
@@ -847,6 +850,8 @@ func (v *RequestEditor) SetCaret(start, end int) {
 	v.scrollToByteOffset(start)
 }
 
+func (v *RequestEditor) SetSearchSpans(spans []matchSpan) { v.searchSpans = spans }
+
 func (v *RequestEditor) SetScrollCaret(bool) {}
 
 func (v *RequestEditor) GetScrollY() int { return v.scrollY }
@@ -1000,11 +1005,12 @@ type RequestEditorStyle struct {
 	Shaper         *text.Shaper
 	Font           font.Font
 	TextSize       unit.Sp
-	Color          color.NRGBA
-	HighlightColor color.NRGBA
-	SelectionColor color.NRGBA
-	Wrap           bool
-	ReadOnly       bool
+	Color           color.NRGBA
+	HighlightColor  color.NRGBA
+	SearchMatchColor color.NRGBA
+	SelectionColor  color.NRGBA
+	Wrap            bool
+	ReadOnly        bool
 	Padding        unit.Dp
 	Env            map[string]string
 
@@ -1612,6 +1618,17 @@ func (v *RequestEditor) paintChunk(
 	var glyphs []widgets.WrapGlyph
 	if s.Wrap && absEnd > absStart {
 		glyphs = widgets.ShapeChunkForWrap(s.Shaper, s.Font, s.TextSize, gtx, v.text[absStart:absEnd], innerW)
+	}
+
+	if len(v.searchSpans) > 0 {
+		i := sort.Search(len(v.searchSpans), func(i int) bool { return v.searchSpans[i].end > absStart })
+		for ; i < len(v.searchSpans); i++ {
+			m := v.searchSpans[i]
+			if m.start >= absEnd {
+				break
+			}
+			v.paintHighlight(gtx, absStart, absEnd, chunkH, yOff, charAdv, s.Wrap, innerW, s.SearchMatchColor, m.start, m.end, glyphs)
+		}
 	}
 
 	if hasHL && v.highlightEnd > absStart && v.highlightStart < absEnd {

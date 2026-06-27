@@ -534,3 +534,44 @@ func TestOverflowButton_ExpandsRowsOnClick(t *testing.T) {
 		t.Errorf("expanded tab bar must be taller than collapsed: collapsed=%d expanded=%d", collapsed.Size.Y, expanded.Size.Y)
 	}
 }
+
+func TestOverflowRow_FirstRowWidthMatchesOthers(t *testing.T) {
+	th := newTestTheme()
+	s := NewStrip()
+	var tabs []*workspace.RequestTab
+	for i := 0; i < 30; i++ {
+		tabs = append(tabs, workspace.NewRequestTab("tab"))
+	}
+	active := 0
+
+	// warm-up layout to learn the actual cached natural tab width
+	s.Layout(makeGtx(2000, 200), th, &tabs, &active, false, 0, nil, nil)
+	natW := s.widthCache[tabs[0]].width
+
+	// window where 5 tabs fill a row with only 10px to spare — smaller than the
+	// chevron cell, so the first row would overflow unless its tabs are shrunk
+	perRow := 5
+	maxWidth := perRow*natW + 10
+	winW := maxWidth + 2
+
+	gtx := layout.Context{
+		Ops:         new(op.Ops),
+		Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
+		Constraints: layout.Constraints{Max: image.Pt(winW, 800)},
+	}
+	s.ExpandRows = true
+	s.Layout(gtx, th, &tabs, &active, true, 3, nil, nil)
+
+	if len(s.rowWidthsBuf) < 3 {
+		t.Fatalf("expected several visible rows, got %d", len(s.rowWidthsBuf))
+	}
+	ref := s.rowWidthsBuf[1] // a non-chevron, non-last visible row
+	for i := 0; i < len(s.rowWidthsBuf)-1; i++ {
+		if s.rowWidthsBuf[i] != ref {
+			t.Errorf("visible row %d width = %d, want %d; the chevron row must not be wider than the others", i, s.rowWidthsBuf[i], ref)
+		}
+	}
+	if ref > maxWidth {
+		t.Errorf("row width %d exceeds maxWidth %d", ref, maxWidth)
+	}
+}

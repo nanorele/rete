@@ -14,6 +14,11 @@ import (
 
 const MethodWS = "WS"
 
+const (
+	wsListHeaders = iota
+	wsListSubprotos
+)
+
 type WSState int32
 
 const (
@@ -48,6 +53,18 @@ type WSDisplayMessage struct {
 	Session int
 	Note    string
 	Error   string
+	Proto   *ProtoView
+}
+
+type ProtoView struct {
+	Cmd       uint8
+	Seq       int16
+	Opcode    int16
+	Cof       uint8
+	BodyLen   int
+	RawLen    int
+	JSON      string
+	DecodeErr string
 }
 
 type WSSavedSend struct {
@@ -81,10 +98,19 @@ type WSSession struct {
 	SubprotosAbsHeight int
 	FitSubprotos       bool
 	AddSubprotoBtn     widget.Clickable
+	ListMode           int
+	HeadersTabBtn      widget.Clickable
+	SubprotosTabBtn    widget.Clickable
+	ListAddBtn         widget.Clickable
 	OptionsExpanded    bool
 	OptionsBtn         widget.Clickable
 	OfferDeflate       bool
 	OfferDeflateBtn    widget.Clickable
+	UseMsgpackProto    bool
+	MsgpackProtoBtn    widget.Clickable
+	ProtoCmdEditor     widget.Editor
+	ProtoSeqEditor     widget.Editor
+	ProtoOpcodeEditor  widget.Editor
 	InsecureSkipVerify bool
 	InsecureBtn        widget.Clickable
 	UseTractoCA        bool
@@ -155,6 +181,12 @@ func newWSSession() *WSSession {
 	s.DetailEditor.ReadOnly = true
 	s.SubprotosList.Axis = layout.Vertical
 	s.MessagesList.Axis = layout.Vertical
+	s.ProtoCmdEditor.SingleLine = true
+	s.ProtoSeqEditor.SingleLine = true
+	s.ProtoOpcodeEditor.SingleLine = true
+	s.ProtoCmdEditor.SetText("0")
+	s.ProtoSeqEditor.SetText("0")
+	s.ProtoOpcodeEditor.SetText("0")
 	return s
 }
 

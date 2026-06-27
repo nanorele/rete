@@ -82,6 +82,37 @@ func sceneList() []scene {
 	return []scene{
 		{"requests-empty", func(ui *AppUI) { ui.SidebarSection = "requests" }},
 		{"requests-tab", func(ui *AppUI) { ui.SidebarSection = "requests"; withTab(ui) }},
+		{"search-response", func(ui *AppUI) {
+			ui.SidebarSection = "requests"
+			withTab(ui)
+			tab := ui.Tabs[0]
+			tab.RespEditor.SetText("{\n  \"users\": [\n    {\"id\": 1, \"name\": \"alice\"},\n    {\"id\": 2, \"name\": \"bob\"},\n    {\"id\": 3, \"name\": \"carol\"}\n  ],\n  \"count\": 3\n}")
+			tab.RespSearch.Open = true
+			tab.RespSearch.Editor.SetText("name")
+		}},
+		{"search-request", func(ui *AppUI) {
+			ui.SidebarSection = "requests"
+			withTab(ui)
+			tab := ui.Tabs[0]
+			tab.ReqEditor.SetText("{\n  \"name\": \"alice\",\n  \"role\": \"name-holder\",\n  \"nickname\": \"ally\"\n}")
+			tab.ReqSearch.Open = true
+			tab.ReqSearch.Editor.SetText("name")
+		}},
+		{"ws-tab", func(ui *AppUI) {
+			ui.SidebarSection = "requests"
+			ui.Tabs = []*workspace.RequestTab{workspace.NewRequestTab("WS")}
+			ui.ActiveIdx = 0
+			tab := ui.Tabs[0]
+			tab.Method = workspace.MethodWS
+			tab.URLInput.SetText("wss://api.oneme.ru/websocket")
+			tab.AddHeader("Origin", "https://web.max.ru")
+			s := tab.EnsureWS()
+			s.OptionsExpanded = true
+			s.UseMsgpackProto = true
+			s.AddSubprotocol("graphql-transport-ws")
+			s.ProtoCmdEditor.SetText("6")
+			s.ComposerEditor.SetText("{\n  \"hello\": \"world\"\n}")
+		}},
 		{"flows", func(ui *AppUI) { ui.SidebarSection = "flows" }},
 		{"mitm", func(ui *AppUI) { ui.SidebarSection = "mitm" }},
 		{"netlimit", func(ui *AppUI) { ui.SidebarSection = "netlimit" }},

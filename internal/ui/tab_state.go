@@ -80,6 +80,16 @@ func (ui *AppUI) loadTabFromState(ts persist.TabState) *workspace.RequestTab {
 		ws.OptionsExpanded = ts.WS.OptionsExpanded
 		ws.SubprotosAbsHeight = ts.WS.SubprotosAbsHeight
 		ws.OfferDeflate = ts.WS.OfferDeflate
+		ws.UseMsgpackProto = ts.WS.UseMsgpackProto
+		if ts.WS.ProtoCmd != "" {
+			ws.ProtoCmdEditor.SetText(ts.WS.ProtoCmd)
+		}
+		if ts.WS.ProtoSeq != "" {
+			ws.ProtoSeqEditor.SetText(ts.WS.ProtoSeq)
+		}
+		if ts.WS.ProtoOpcode != "" {
+			ws.ProtoOpcodeEditor.SetText(ts.WS.ProtoOpcode)
+		}
 		ws.InsecureSkipVerify = ts.WS.InsecureSkipVerify
 		ws.UseTractoCA = ts.WS.UseTractoCA
 		if ts.WS.SplitRatio > 0 {
@@ -166,6 +176,10 @@ func (ui *AppUI) tabStateFromTab(rt *workspace.RequestTab) persist.TabState {
 			OptionsExpanded:    rt.WS.OptionsExpanded,
 			SubprotosAbsHeight: rt.WS.SubprotosAbsHeight,
 			OfferDeflate:       rt.WS.OfferDeflate,
+			UseMsgpackProto:    rt.WS.UseMsgpackProto,
+			ProtoCmd:           rt.WS.ProtoCmdEditor.Text(),
+			ProtoSeq:           rt.WS.ProtoSeqEditor.Text(),
+			ProtoOpcode:        rt.WS.ProtoOpcodeEditor.Text(),
 			InsecureSkipVerify: rt.WS.InsecureSkipVerify,
 			UseTractoCA:        rt.WS.UseTractoCA,
 			SplitRatio:         rt.WS.SplitRatio,

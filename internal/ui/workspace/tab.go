@@ -198,17 +198,10 @@ type RequestTab struct {
 	HeaderSplitDrag  gesture.Drag
 	HeaderSplitDragX float32
 
-	SearchOpen       bool
-	SearchEditor     widget.Editor
-	SearchBtn        widget.Clickable
-	SearchNextBtn    widget.Clickable
-	SearchPrevBtn    widget.Clickable
-	SearchCloseBtn   widget.Clickable
-	searchQuery      string
-	searchResults    []int
-	searchCurrent    int
-	searchCache      string
-	searchCacheDirty bool
+	SearchBtn     widget.Clickable
+	ReqSearchBtn  widget.Clickable
+	ReqSearch     SearchBox
+	RespSearch    SearchBox
 
 	URLSubmitted      bool
 	FileSaveChan      chan io.WriteCloser
@@ -299,8 +292,10 @@ func NewRequestTab(title string) *RequestTab {
 	t.HeadersList.Axis = layout.Vertical
 	t.RespListH.Axis = layout.Horizontal
 	t.ReqListH.Axis = layout.Horizontal
-	t.SearchEditor.SingleLine = true
-	t.SearchEditor.Submit = true
+	t.ReqSearch.Editor.SingleLine = true
+	t.ReqSearch.Editor.Submit = true
+	t.RespSearch.Editor.SingleLine = true
+	t.RespSearch.Editor.Submit = true
 	return t
 }
 
@@ -777,7 +772,7 @@ func processTemplate(input string, env map[string]string) string {
 }
 
 func (t *RequestTab) invalidateSearchCache() {
-	t.searchCacheDirty = true
+	t.RespSearch.invalidate()
 }
 
 func asciiToLower(s string) string {
@@ -808,47 +803,6 @@ func asciiToLower(s string) string {
 		b[i] = c
 	}
 	return string(b)
-}
-
-func (t *RequestTab) performSearch() {
-	query := t.SearchEditor.Text()
-	t.searchQuery = query
-	t.searchResults = t.searchResults[:0]
-	t.searchCurrent = -1
-	if query == "" {
-		return
-	}
-	if t.searchCacheDirty || t.searchCache == "" {
-		t.searchCache = asciiToLower(t.RespEditor.Text())
-		t.searchCacheDirty = false
-	}
-	q := asciiToLower(query)
-	qLen := len(q)
-	text := t.searchCache
-	offset := 0
-	for offset <= len(text)-qLen {
-		idx := strings.Index(text[offset:], q)
-		if idx < 0 {
-			break
-		}
-		t.searchResults = append(t.searchResults, offset+idx)
-		offset += idx + qLen
-	}
-}
-
-func (t *RequestTab) searchNavigate(dir int) {
-	if len(t.searchResults) == 0 {
-		return
-	}
-	t.searchCurrent += dir
-	if t.searchCurrent >= len(t.searchResults) {
-		t.searchCurrent = 0
-	}
-	if t.searchCurrent < 0 {
-		t.searchCurrent = len(t.searchResults) - 1
-	}
-	pos := t.searchResults[t.searchCurrent]
-	t.RespEditor.SetCaret(pos, pos+len(t.searchQuery))
 }
 
 func (t *RequestTab) AddHeader(k, v string) {
@@ -1288,6 +1242,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 	if t.ReqEditor.Changed() {
 		t.UpdateSystemHeaders()
 		t.dirtyCheckNeeded = true
+		t.ReqSearch.invalidate()
 	}
 
 	select {
@@ -1368,31 +1323,13 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		t.pendingReqWidth = 0
 	}
 	for t.SearchBtn.Clicked(gtx) {
-		t.SearchOpen = !t.SearchOpen
+		t.toggleSearch(gtx, &t.RespSearch, t.RespEditor)
 	}
-	for t.SearchCloseBtn.Clicked(gtx) {
-		t.SearchOpen = false
-		t.searchResults = nil
+	for t.ReqSearchBtn.Clicked(gtx) {
+		t.toggleSearch(gtx, &t.ReqSearch, &t.ReqEditor)
 	}
-	for t.SearchNextBtn.Clicked(gtx) {
-		t.searchNavigate(1)
-	}
-	for t.SearchPrevBtn.Clicked(gtx) {
-		t.searchNavigate(-1)
-	}
-	for {
-		ev, ok := t.SearchEditor.Update(gtx)
-		if !ok {
-			break
-		}
-		if _, ok := ev.(widget.SubmitEvent); ok {
-			t.performSearch()
-			t.searchNavigate(1)
-		}
-	}
-	if t.SearchOpen && t.SearchEditor.Text() != t.searchQuery {
-		t.performSearch()
-	}
+	t.updateSearch(gtx, &t.RespSearch, t.RespEditor)
+	t.updateSearch(gtx, &t.ReqSearch, &t.ReqEditor)
 
 	for t.MethodBtn.Clicked(gtx) {
 		t.MethodListOpen = !t.MethodListOpen
@@ -2266,6 +2203,12 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 																	return widgets.SquareBtn(gtx, &t.ReqWrapBtn, iconWrap, th)
 																}),
 																layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+																	if t.BodyType != model.BodyRaw {
+																		return layout.Dimensions{}
+																	}
+																	return widgets.SquareBtn(gtx, &t.ReqSearchBtn, widgets.IconSearch, th)
+																}),
+																layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 																	return widgets.SquareBtn(gtx, &t.ReqCopyBtn, iconCopy, th)
 																}),
 															)
@@ -2288,14 +2231,15 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 															return layout.Stack{}.Layout(gtx,
 																layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 																	style := RequestEditorStyle{
-																		Viewer:         &t.ReqEditor,
-																		Shaper:         th.Shaper,
-																		Font:           widgets.MonoFont,
-																		TextSize:       settings.BodyTextSize,
-																		Color:          theme.Fg,
-																		HighlightColor: theme.AccentDim,
-																		SelectionColor: theme.Selection,
-																		Wrap:           t.ReqWrapEnabled,
+																		Viewer:           &t.ReqEditor,
+																		Shaper:           th.Shaper,
+																		Font:             widgets.MonoFont,
+																		TextSize:         settings.BodyTextSize,
+																		Color:            theme.Fg,
+																		HighlightColor:   theme.WithAlpha(theme.Accent, 150),
+																		SearchMatchColor: theme.WithAlpha(theme.Accent, 60),
+																		SelectionColor:   theme.Selection,
+																		Wrap:             t.ReqWrapEnabled,
 																		Padding:        settings.RespBodyPad,
 																		Env:            activeEnv,
 																		Lang:           t.requestLang(),
@@ -2315,6 +2259,9 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 																}),
 																layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 																	return t.layoutOversizeBanner(gtx, th)
+																}),
+																layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+																	return t.layoutSearchOverlay(gtx, th, &t.ReqSearch)
 																}),
 															)
 														}
@@ -2464,59 +2411,20 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 												})
 											}),
 											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												if !t.SearchOpen {
-													return layout.Dimensions{}
-												}
-												return layout.Inset{Left: unit.Dp(4), Right: unit.Dp(4), Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-													return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-														layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-															return widgets.TextField(gtx, th, &t.SearchEditor, "Search...", true, nil, 0, unit.Sp(11))
-														}),
-														layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
-														layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-															cur := 0
-															if len(t.searchResults) > 0 {
-																cur = t.searchCurrent + 1
-															}
-															lbl := widgets.MonoLabel(th, unit.Sp(10), strconv.Itoa(cur)+"/"+strconv.Itoa(len(t.searchResults)))
-															lbl.Color = theme.FgDim
-															return lbl.Layout(gtx)
-														}),
-														layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
-														layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-															btn := widgets.MonoButton(th, &t.SearchPrevBtn, "▲")
-															btn.TextSize = unit.Sp(8)
-															btn.Background = theme.BgSecondary
-															btn.Inset = layout.UniformInset(unit.Dp(4))
-															return btn.Layout(gtx)
-														}),
-														layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
-														layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-															btn := widgets.MonoButton(th, &t.SearchNextBtn, "▼")
-															btn.TextSize = unit.Sp(8)
-															btn.Background = theme.BgSecondary
-															btn.Inset = layout.UniformInset(unit.Dp(4))
-															return btn.Layout(gtx)
-														}),
-														layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
-														layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-															btn := widgets.MonoButton(th, &t.SearchCloseBtn, "✕")
-															btn.TextSize = unit.Sp(8)
-															btn.Background = theme.BgSecondary
-															btn.Inset = layout.UniformInset(unit.Dp(4))
-															return btn.Layout(gtx)
-														}),
-													)
-												})
-											}),
-											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 												size := image.Point{X: gtx.Constraints.Max.X, Y: gtx.Dp(unit.Dp(1))}
 												return layout.Dimensions{Size: size}
 											}),
 											layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 												return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 													layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-														return t.layoutResponseBody(gtx, th, win, isDragging)
+														return layout.Stack{}.Layout(gtx,
+															layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+																return t.layoutResponseBody(gtx, th, win, isDragging)
+															}),
+															layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+																return t.layoutSearchOverlay(gtx, th, &t.RespSearch)
+															}),
+														)
 													}),
 													layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 														loaded := t.previewLoaded.Load()
@@ -2593,14 +2501,15 @@ func (t *RequestTab) layoutResponseBody(gtx layout.Context, th *material.Theme, 
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 			lang := t.responseLang()
 			vs := ResponseViewerStyle{
-				Viewer:         t.RespEditor,
-				Shaper:         th.Shaper,
-				Font:           widgets.MonoFont,
-				TextSize:       settings.BodyTextSize,
-				Color:          theme.Fg,
-				HighlightColor: theme.AccentDim,
-				SelectionColor: theme.Selection,
-				Wrap:           t.WrapEnabled,
+				Viewer:           t.RespEditor,
+				Shaper:           th.Shaper,
+				Font:             widgets.MonoFont,
+				TextSize:         settings.BodyTextSize,
+				Color:            theme.Fg,
+				HighlightColor:   theme.WithAlpha(theme.Accent, 150),
+				SearchMatchColor: theme.WithAlpha(theme.Accent, 60),
+				SelectionColor:   theme.Selection,
+				Wrap:             t.WrapEnabled,
 				Padding:        settings.RespBodyPad,
 				Lang:           lang,
 				Syntax:         theme.Syntax,

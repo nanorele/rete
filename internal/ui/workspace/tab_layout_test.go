@@ -34,8 +34,8 @@ func TestTabLayout(t *testing.T) {
 
 	tab.Layout(gtx, th, win, nil, nil, false, func() {}, func(*collections.ParsedCollection) {})
 
-	tab.SearchOpen = true
-	tab.SearchEditor.SetText("hello")
+	tab.RespSearch.Open = true
+	tab.RespSearch.Editor.SetText("hello")
 	tab.Layout(gtx, th, win, nil, nil, false, func() {}, func(*collections.ParsedCollection) {})
 
 	tab.PreviewEnabled = true

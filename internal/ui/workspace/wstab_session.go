@@ -3,15 +3,19 @@ package workspace
 import (
 	"context"
 	"crypto/tls"
+	"encoding/json"
 	"errors"
 	"io"
 	"net"
 	"net/http"
+	"net/url"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
 	"tracto/internal/ws"
+	"tracto/internal/wsproto"
 
 	"github.com/nanorele/gio/app"
 )
@@ -82,11 +86,21 @@ func (t *RequestTab) WSConnect(ctx context.Context, tlsCfg *tls.Config, env map[
 	s.cancel = cancel
 	s.sessionMu.Unlock()
 
+	handshakeHeaders := t.wsHandshakeHeaders(env, extraHeaders)
+	if handshakeHeaders.Get("Origin") == "" {
+		if origin := defaultOrigin(url); origin != "" {
+			if handshakeHeaders == nil {
+				handshakeHeaders = http.Header{}
+			}
+			handshakeHeaders.Set("Origin", origin)
+		}
+	}
+
 	go func() {
 		opts := ws.DialOptions{
 			TLSConfig:    tlsCfg,
 			Subprotocols: s.SubprotocolList(),
-			Headers:      extraHeaders,
+			Headers:      handshakeHeaders,
 			OfferDeflate: s.OfferDeflate,
 			DialTimeout:  15 * time.Second,
 		}
@@ -119,6 +133,47 @@ func (t *RequestTab) WSConnect(ctx context.Context, tlsCfg *tls.Config, env map[
 		}
 		s.readLoop(dialCtx, session)
 	}()
+}
+
+func defaultOrigin(rawURL string) string {
+	u, err := url.Parse(rawURL)
+	if err != nil || u.Host == "" {
+		return ""
+	}
+	scheme := "https"
+	if s := strings.ToLower(u.Scheme); s == "ws" || s == "http" {
+		scheme = "http"
+	}
+	host := u.Host
+	if h, p, err := net.SplitHostPort(host); err == nil {
+		if (scheme == "https" && p == "443") || (scheme == "http" && p == "80") {
+			host = h
+		}
+	}
+	return scheme + "://" + host
+}
+
+func (t *RequestTab) wsHandshakeHeaders(env map[string]string, extra http.Header) http.Header {
+	h := http.Header{}
+	for _, it := range t.Headers {
+		if it.IsGenerated {
+			continue
+		}
+		k := strings.TrimSpace(processTemplate(it.Key.Text(), env))
+		if k == "" {
+			continue
+		}
+		h.Add(k, processTemplate(it.Value.Text(), env))
+	}
+	for k, vs := range extra {
+		for _, v := range vs {
+			h.Add(k, v)
+		}
+	}
+	if len(h) == 0 {
+		return nil
+	}
+	return h
 }
 
 func formatDialError(err error, res *ws.DialResult) string {
@@ -224,6 +279,101 @@ func (t *RequestTab) wsSend(op ws.Opcode, payload []byte) {
 	})
 }
 
+func (t *RequestTab) WSSendProto(jsonText string) {
+	s := t.EnsureWS()
+	conn := s.getConn()
+	if s.State() != WSStateOpen || conn == nil {
+		s.appendError("Not connected")
+		return
+	}
+	cmd, seq, opcode, err := s.protoHeaderFields()
+	if err != nil {
+		s.appendError(err.Error())
+		return
+	}
+	var payload any
+	if txt := strings.TrimSpace(jsonText); txt != "" {
+		if err := json.Unmarshal([]byte(txt), &payload); err != nil {
+			s.appendError("JSON parse: " + err.Error())
+			return
+		}
+	}
+	raw, meta, err := wsproto.Encode(wsproto.Frame{Cmd: cmd, Seq: seq, Opcode: opcode, Payload: payload})
+	if err != nil {
+		s.appendError("Encode: " + err.Error())
+		return
+	}
+	if err := conn.WriteMessage(ws.OpBinary, raw); err != nil {
+		if isNormalCloseErr(context.Background(), err) {
+			s.appendNote(s.sessionCount, "Connection closed")
+			s.setStatus("Disconnected", false)
+			return
+		}
+		s.appendError("Write failed: " + err.Error())
+		return
+	}
+	view := &ProtoView{Cmd: cmd, Seq: seq, Opcode: opcode, Cof: meta.Cof, BodyLen: meta.BodyLen, RawLen: meta.RawLen}
+	if js, jerr := wsproto.MarshalJSON(payload); jerr == nil {
+		view.JSON = js
+	} else {
+		view.DecodeErr = jerr.Error()
+	}
+	s.appendMessage(WSDisplayMessage{
+		Time:    time.Now(),
+		Dir:     ws.DirOut,
+		Opcode:  ws.OpBinary,
+		Payload: raw,
+		Session: s.sessionCount,
+		Proto:   view,
+	})
+}
+
+func (s *WSSession) protoHeaderFields() (uint8, int16, int16, error) {
+	cmd, err := parseProtoInt(s.ProtoCmdEditor.Text(), 0, 255)
+	if err != nil {
+		return 0, 0, 0, errors.New("cmd: " + err.Error())
+	}
+	seq, err := parseProtoInt(s.ProtoSeqEditor.Text(), -32768, 32767)
+	if err != nil {
+		return 0, 0, 0, errors.New("seq: " + err.Error())
+	}
+	opcode, err := parseProtoInt(s.ProtoOpcodeEditor.Text(), -32768, 32767)
+	if err != nil {
+		return 0, 0, 0, errors.New("opcode: " + err.Error())
+	}
+	return uint8(cmd), int16(seq), int16(opcode), nil
+}
+
+func parseProtoInt(text string, lo, hi int) (int, error) {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(text)
+	if err != nil {
+		return 0, errors.New("not a number")
+	}
+	if n < lo || n > hi {
+		return 0, errors.New("out of range")
+	}
+	return n, nil
+}
+
+func decodeProtoView(payload []byte) *ProtoView {
+	data, meta, err := wsproto.Decode(payload)
+	view := &ProtoView{Cmd: meta.Cmd, Seq: meta.Seq, Opcode: meta.Opcode, Cof: meta.Cof, BodyLen: meta.BodyLen, RawLen: meta.RawLen}
+	if err != nil {
+		view.DecodeErr = err.Error()
+		return view
+	}
+	if js, jerr := wsproto.MarshalJSON(data); jerr == nil {
+		view.JSON = js
+	} else {
+		view.DecodeErr = jerr.Error()
+	}
+	return view
+}
+
 func (s *WSSession) readLoop(ctx context.Context, session int) {
 	conn := s.getConn()
 	defer func() {
@@ -256,13 +406,17 @@ func (s *WSSession) readLoop(ctx context.Context, session int) {
 			s.setStatus("Disconnected", true)
 			return
 		}
-		s.appendMessage(WSDisplayMessage{
+		in := WSDisplayMessage{
 			Time:    time.Now(),
 			Dir:     ws.DirIn,
 			Opcode:  op,
 			Payload: payload,
 			Session: session,
-		})
+		}
+		if op == ws.OpBinary && s.UseMsgpackProto {
+			in.Proto = decodeProtoView(payload)
+		}
+		s.appendMessage(in)
 		if op == ws.OpClose {
 			code, reason := ws.ParseClosePayload(payload)
 			s.appendNote(session, formatPeerClose(code, reason))
