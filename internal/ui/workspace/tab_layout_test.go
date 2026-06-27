@@ -80,3 +80,50 @@ func TestTabLayout(t *testing.T) {
 	tab.FileSaveChan <- &failingWriteCloser{}
 	tab.Layout(gtx, th, win, nil, nil, false, func() {}, func(*collections.ParsedCollection) {})
 }
+
+// TestTabLayoutAllMenusOpen renders the tab with each migrated select dropdown
+// open, ensuring the unified menu component lays out without panicking for
+// every variant (checkmarks, color-coded rows, mono rows, protocol/method/body
+// type/example, and the websocket opcode/filter menus).
+func TestTabLayoutAllMenusOpen(t *testing.T) {
+	win := new(app.Window)
+	th := material.NewTheme()
+	th.Shaper = material.NewTheme().Shaper
+	gtx := layout.Context{
+		Ops:         new(op.Ops),
+		Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
+		Constraints: layout.Exact(image.Pt(900, 700)),
+		Now:         time.Now(),
+	}
+	render := func(tab *RequestTab) {
+		tab.Layout(gtx, th, win, nil, nil, false, func() {}, func(*collections.ParsedCollection) {})
+	}
+
+	// HTTP request: protocol, method, body type, send and example menus.
+	httpTab := NewRequestTab("http")
+	httpTab.Method = "POST"
+	httpTab.URLInput.SetText("http://example.com")
+	httpTab.ProtocolListOpen = true
+	render(httpTab)
+	httpTab.ProtocolListOpen = false
+	httpTab.MethodListOpen = true
+	render(httpTab)
+	httpTab.MethodListOpen = false
+	httpTab.BodyTypeOpen = true
+	render(httpTab)
+	httpTab.BodyTypeOpen = false
+	httpTab.RunOpen = true
+	httpTab.ExampleListOpen = true
+	render(httpTab)
+
+	// WebSocket: opcode and filter menus.
+	wsTab := NewRequestTab("ws")
+	wsTab.Method = MethodWS
+	wsTab.URLInput.SetText("ws://example.com/socket")
+	s := wsTab.EnsureWS()
+	s.OpcodeMenuOpen = true
+	render(wsTab)
+	s.OpcodeMenuOpen = false
+	s.FilterMenuOpen = true
+	render(wsTab)
+}

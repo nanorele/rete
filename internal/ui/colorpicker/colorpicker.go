@@ -5,6 +5,7 @@ import (
 	"image/color"
 	"math"
 	"tracto/internal/ui/theme"
+	"tracto/internal/ui/widgets"
 
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/io/event"
@@ -191,9 +192,11 @@ func Render(gtx layout.Context, th *material.Theme, p *State) layout.Dimensions 
 		border = 1
 	}
 
-	paint.FillShape(gtx.Ops, theme.BorderLight, clip.UniformRRect(image.Rectangle{Max: cardSize}, 4).Op(gtx.Ops))
+	widgets.MenuShadow(gtx, cardSize)
+	rr := gtx.Dp(unit.Dp(widgets.MenuRadiusDp))
+	paint.FillShape(gtx.Ops, theme.BorderLight, clip.UniformRRect(image.Rectangle{Max: cardSize}, rr).Op(gtx.Ops))
 	innerCard := image.Rect(border, border, cardSize.X-border, cardSize.Y-border)
-	paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(innerCard, 4).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(innerCard, rr).Op(gtx.Ops))
 
 	innerOff := image.Pt(innerPad, innerPad)
 	svW := width - 2*innerPad

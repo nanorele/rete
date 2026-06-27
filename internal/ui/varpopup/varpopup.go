@@ -165,6 +165,7 @@ func (s *State) Layout(gtx layout.Context, host *Host) {
 			defer op.Offset(image.Pt(px, py)).Push(gtx.Ops).Pop()
 			gtx.Constraints.Min = image.Pt(popupW, popupH)
 			gtx.Constraints.Max = image.Pt(popupW, popupH)
+			widgets.MenuShadow(gtx, image.Pt(popupW, popupH))
 			paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(image.Rectangle{Max: image.Pt(popupW, popupH)}, 8).Op(gtx.Ops))
 			widget.Border{Color: theme.BorderLight, CornerRadius: unit.Dp(8), Width: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: image.Pt(popupW, popupH)}
@@ -310,44 +311,19 @@ func (s *State) layoutEnvSelect(gtx layout.Context, host *Host) layout.Dimension
 							}
 						}
 						isActive := *host.ActiveEnvID == envID
-						return material.Clickable(gtx, &s.EnvClicks[i], func(gtx layout.Context) layout.Dimensions {
-							gtx.Constraints.Min.X = gtx.Constraints.Max.X
-							bg := theme.Transparent
-							if isActive {
-								bg = theme.AccentDim
-							} else if s.EnvClicks[i].Hovered() {
-								bg = theme.BgHover
-							}
-							rowH := gtx.Dp(unit.Dp(28))
-							paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: image.Pt(gtx.Constraints.Max.X, rowH)}, 4).Op(gtx.Ops))
-							pointer.CursorPointer.Add(gtx.Ops)
-							return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-									layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
-										lbl := material.Label(host.Theme, unit.Sp(12), envName)
-										if isActive {
-											lbl.Font.Weight = font.Bold
-										}
-										lbl.MaxLines = 1
-										lbl.Truncator = "…"
-										return lbl.Layout(gtx)
-									}),
-									layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
-									layout.Flexed(0.5, func(gtx layout.Context) layout.Dimensions {
-										txt := preview
-										if i == 0 {
-											txt = ""
-										} else if preview == "" {
-											txt = "(undefined)"
-										}
-										lbl := material.Label(host.Theme, unit.Sp(11), txt)
-										lbl.Color = theme.FgMuted
-										lbl.MaxLines = 1
-										lbl.Truncator = "…"
-										return lbl.Layout(gtx)
-									}),
-								)
-							})
+						previewTxt := preview
+						if i == 0 {
+							previewTxt = ""
+						} else if preview == "" {
+							previewTxt = "(undefined)"
+						}
+						gtx.Constraints.Min.X = gtx.Constraints.Max.X
+						return widgets.MenuRow(gtx, host.Theme, widgets.MenuItem{
+							Label:    envName,
+							Shortcut: previewTxt,
+							Click:    &s.EnvClicks[i],
+							Checked:  isActive,
+							Bold:     isActive,
 						})
 					})
 				})

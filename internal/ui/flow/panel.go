@@ -839,58 +839,16 @@ func (ed *Editor) envDropdown(gtx layout.Context, th *material.Theme, n *Node) [
 						offY = -menuH - gtx.Dp(unit.Dp(2))
 					}
 				}
-				macro := op.Record(gtx.Ops)
-				op.Offset(image.Pt(0, offY)).Add(gtx.Ops)
-
-				rec := op.Record(gtx.Ops)
-				menuGtx := gtx
-				menuGtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, 0)
-				menuGtx.Constraints.Max.Y = menuH
-				var rows []layout.FlexChild
+				items := make([]widgets.MenuItem, len(opts))
 				for i, o := range opts {
-					i, o := i, o
-					rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return ed.envBtns[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							gtx.Constraints.Min.X = gtx.Constraints.Max.X
-							sz := image.Pt(gtx.Constraints.Max.X, rowH)
-							bg := theme.BgPopup
-							switch {
-							case n.EnvID == o.ID:
-								bg = theme.Mix(theme.BgPopup, theme.Accent, 0.25)
-							case ed.envBtns[i].Hovered():
-								bg = theme.BgHover
-							}
-							paint.FillShape(gtx.Ops, bg, clip.Rect{Max: sz}.Op())
-							gtx.Constraints.Min.Y = rowH
-							return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-								layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									gtx.Constraints.Min.Y = 0
-									lbl := material.Label(th, unit.Sp(12), optName(o))
-									if n.EnvID == o.ID {
-										lbl.Color = theme.Fg
-									} else {
-										lbl.Color = theme.FgMuted
-									}
-									lbl.MaxLines = 1
-									return lbl.Layout(gtx)
-								}),
-							)
-						})
-					}))
+					items[i] = widgets.MenuItem{
+						Label:   optName(o),
+						Click:   &ed.envBtns[i],
+						Checked: n.EnvID == o.ID,
+					}
 				}
-				menuDims := layout.Flex{Axis: layout.Vertical}.Layout(menuGtx, rows...)
-				menuCall := rec.Stop()
-
-				sz := menuDims.Size
-				rr := gtx.Dp(unit.Dp(5))
-				paint.FillShape(gtx.Ops, theme.BorderLight, clip.UniformRRect(image.Rect(-1, -1, sz.X+1, sz.Y+1), rr).Op(gtx.Ops))
-				paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(image.Rectangle{Max: sz}, rr).Op(gtx.Ops))
-				cl := clip.UniformRRect(image.Rectangle{Max: sz}, rr).Push(gtx.Ops)
-				menuCall.Add(gtx.Ops)
-				cl.Pop()
-
-				op.Defer(gtx.Ops, macro.Stop())
+				anchor := widgets.MenuAnchor{Pt: image.Pt(0, offY)}
+				widgets.DeferMenuAt(gtx, th, &ed.envDropOpen, anchor, widgets.MenuMinWidthDp, items)
 			}
 			return dims
 		}),

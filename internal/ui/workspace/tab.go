@@ -359,52 +359,17 @@ func (t *RequestTab) layoutBodyTypeSelector(gtx layout.Context, th *material.The
 			if !t.BodyTypeOpen {
 				return layout.Dimensions{}
 			}
-			macro := op.Record(gtx.Ops)
-			layout.Inset{Top: unit.Dp(28)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return widget.Border{
-					Color:        theme.BorderLight,
-					CornerRadius: unit.Dp(2),
-					Width:        unit.Dp(1),
-				}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.Stack{}.Layout(gtx,
-						layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-							rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2)
-							paint.FillShape(gtx.Ops, theme.BgMenu, rect.Op(gtx.Ops))
-							return layout.Dimensions{Size: gtx.Constraints.Min}
-						}),
-						layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-							rowW := gtx.Dp(unit.Dp(180))
-							children := make([]layout.FlexChild, 0, len(bodyTypeChoices))
-							for i, bt := range bodyTypeChoices {
-								idx := i
-								typ := bt
-								children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									gtx.Constraints.Min.X = rowW
-									gtx.Constraints.Max.X = rowW
-									return material.Clickable(gtx, &t.BodyTypeChoices[idx], func(gtx layout.Context) layout.Dimensions {
-										if t.BodyTypeChoices[idx].Hovered() {
-											paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: image.Pt(rowW, gtx.Dp(unit.Dp(28)))}.Op())
-										}
-										pointer.CursorPointer.Add(gtx.Ops)
-										return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											name := typ.String()
-											if t.BodyType == typ {
-												name = "✓ " + name
-											} else {
-												name = "  " + name
-											}
-											lbl := widgets.MonoLabel(th, unit.Sp(11), name)
-											return lbl.Layout(gtx)
-										})
-									})
-								}))
-							}
-							return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
-						}),
-					)
-				})
-			})
-			op.Defer(gtx.Ops, macro.Stop())
+			items := make([]widgets.MenuItem, len(bodyTypeChoices))
+			for i, bt := range bodyTypeChoices {
+				items[i] = widgets.MenuItem{
+					Label:   bt.String(),
+					Click:   &t.BodyTypeChoices[i],
+					Checked: t.BodyType == bt,
+					Mono:    true,
+				}
+			}
+			anchor := widgets.MenuAnchor{Pt: image.Pt(0, gtx.Dp(unit.Dp(28)))}
+			widgets.DeferMenuAt(gtx, th, &t.BodyTypeOpen, anchor, 180, items)
 			return layout.Dimensions{}
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
@@ -1726,49 +1691,24 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 								if !t.ProtocolListOpen {
 									return layout.Dimensions{}
 								}
-								macro := op.Record(gtx.Ops)
-								dropGtx := gtx
-								dropGtx.Constraints.Min = image.Point{}
-								dropGtx.Constraints.Max.Y = 1 << 24
-								layout.Inset{Top: unit.Dp(32)}.Layout(dropGtx, func(gtx layout.Context) layout.Dimensions {
-									return widget.Border{
-										Color:        theme.BorderLight,
-										CornerRadius: unit.Dp(2),
-										Width:        unit.Dp(1),
-									}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										return layout.Stack{}.Layout(gtx,
-											layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-												rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2)
-												paint.FillShape(gtx.Ops, theme.BgMenu, rect.Op(gtx.Ops))
-												return layout.Dimensions{Size: gtx.Constraints.Min}
-											}),
-											layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-												rowW := gtx.Dp(unit.Dp(96))
-												children := make([]layout.FlexChild, 0, len(protocols))
-												for i, p := range protocols {
-													idx := i
-													protoName := p
-													children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-														gtx.Constraints.Min.X = rowW
-														gtx.Constraints.Max.X = rowW
-														return material.Clickable(gtx, &t.ProtocolClickables[idx], func(gtx layout.Context) layout.Dimensions {
-															if t.ProtocolClickables[idx].Hovered() {
-																paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: image.Pt(rowW, gtx.Dp(unit.Dp(34)))}.Op())
-															}
-															pointer.CursorPointer.Add(gtx.Ops)
-															return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8), Left: unit.Dp(12), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-																lbl := widgets.MonoLabel(th, unit.Sp(12), protoName)
-																return lbl.Layout(gtx)
-															})
-														})
-													}))
-												}
-												return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
-											}),
-										)
-									})
-								})
-								op.Defer(gtx.Ops, macro.Stop())
+								items := make([]widgets.MenuItem, len(protocols))
+								curProto := "HTTP"
+								switch t.Method {
+								case MethodWS:
+									curProto = "WS"
+								case MethodGraphQL:
+									curProto = "GraphQL"
+								}
+								for i, p := range protocols {
+									items[i] = widgets.MenuItem{
+										Label:   p,
+										Click:   &t.ProtocolClickables[i],
+										Checked: p == curProto,
+										Mono:    true,
+									}
+								}
+								anchor := widgets.MenuAnchor{Pt: image.Pt(0, gtx.Dp(unit.Dp(32)))}
+								widgets.DeferMenuAt(gtx, th, &t.ProtocolListOpen, anchor, 120, items)
 								return layout.Dimensions{}
 							}),
 							layout.Stacked(func(gtx layout.Context) layout.Dimensions {
@@ -1809,50 +1749,18 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 								if !t.MethodListOpen {
 									return layout.Dimensions{}
 								}
-								macro := op.Record(gtx.Ops)
-								dropGtx := gtx
-								dropGtx.Constraints.Min = image.Point{}
-								dropGtx.Constraints.Max.Y = 1 << 24
-								layout.Inset{Top: unit.Dp(32)}.Layout(dropGtx, func(gtx layout.Context) layout.Dimensions {
-									return widget.Border{
-										Color:        theme.BorderLight,
-										CornerRadius: unit.Dp(2),
-										Width:        unit.Dp(1),
-									}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										return layout.Stack{}.Layout(gtx,
-											layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-												rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2)
-												paint.FillShape(gtx.Ops, theme.BgMenu, rect.Op(gtx.Ops))
-												return layout.Dimensions{Size: gtx.Constraints.Min}
-											}),
-											layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-												rowW := gtx.Dp(unit.Dp(96))
-												children := make([]layout.FlexChild, 0, len(methods))
-												for i, m := range methods {
-													idx := i
-													methodName := m
-													children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-														gtx.Constraints.Min.X = rowW
-														gtx.Constraints.Max.X = rowW
-														return material.Clickable(gtx, &t.MethodClickables[idx], func(gtx layout.Context) layout.Dimensions {
-															if t.MethodClickables[idx].Hovered() {
-																paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: image.Pt(rowW, gtx.Dp(unit.Dp(34)))}.Op())
-															}
-															pointer.CursorPointer.Add(gtx.Ops)
-															return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8), Left: unit.Dp(12), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-																lbl := widgets.MonoLabel(th, unit.Sp(12), methodName)
-																lbl.Color = theme.MethodColor(methodName)
-																return lbl.Layout(gtx)
-															})
-														})
-													}))
-												}
-												return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
-											}),
-										)
-									})
-								})
-								op.Defer(gtx.Ops, macro.Stop())
+								items := make([]widgets.MenuItem, len(methods))
+								for i, m := range methods {
+									items[i] = widgets.MenuItem{
+										Label:    m,
+										Click:    &t.MethodClickables[i],
+										Checked:  m == t.Method,
+										Mono:     true,
+										LabelCol: theme.MethodColor(m),
+									}
+								}
+								anchor := widgets.MenuAnchor{Pt: image.Pt(0, gtx.Dp(unit.Dp(32)))}
+								widgets.DeferMenuAt(gtx, th, &t.MethodListOpen, anchor, 120, items)
 								return layout.Dimensions{}
 							}),
 							layout.Stacked(func(gtx layout.Context) layout.Dimensions {
@@ -1988,45 +1896,14 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 						sendCall.Add(gtx.Ops)
 
 						if t.SendMenuOpen {
-							macro := op.Record(gtx.Ops)
-							menuGtx := gtx
-							menuGtx.Constraints.Min = image.Point{}
-							menuGtx.Constraints.Max = image.Pt(gtx.Dp(unit.Dp(160)), gtx.Dp(unit.Dp(100)))
-
-							rec := op.Record(gtx.Ops)
-							menuItem := func(gtx layout.Context, btn *widget.Clickable, label string) layout.Dimensions {
-								return material.Clickable(gtx, btn, func(gtx layout.Context) layout.Dimensions {
-									pointer.CursorPointer.Add(gtx.Ops)
-									return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										gtx.Constraints.Min.X = gtx.Dp(unit.Dp(130))
-										lbl := widgets.MonoLabel(th, unit.Sp(12), label)
-										return lbl.Layout(gtx)
-									})
-								})
+							anchor := widgets.MenuAnchor{
+								Pt:         image.Pt(sz.X, sz.Y+gtx.Dp(unit.Dp(2))),
+								AlignRight: true,
 							}
-							menuDims := layout.UniformInset(unit.Dp(4)).Layout(menuGtx, func(gtx layout.Context) layout.Dimensions {
-								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										return menuItem(gtx, &t.SaveToFileBtn, "Save to file...")
-									}),
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										return menuItem(gtx, &t.CopyAsCurlBtn, "Copy as cURL")
-									}),
-								)
+							widgets.DeferMenuAt(gtx, th, &t.SendMenuOpen, anchor, widgets.MenuMinWidthDp, []widgets.MenuItem{
+								{Label: "Save to file…", Click: &t.SaveToFileBtn, Icon: widgets.IconSave},
+								{Label: "Copy as cURL", Click: &t.CopyAsCurlBtn, Icon: widgets.IconDup},
 							})
-							menuCall := rec.Stop()
-
-							msz := menuDims.Size
-							menuX := sz.X - msz.X
-							op.Offset(image.Pt(menuX, sz.Y+gtx.Dp(unit.Dp(2)))).Add(gtx.Ops)
-
-							paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(image.Rectangle{Max: msz}, 4).Op(gtx.Ops))
-							b := max(1, gtx.Dp(unit.Dp(1)))
-							paint.FillShape(gtx.Ops, theme.BorderLight, clip.Stroke{Path: clip.UniformRRect(image.Rectangle{Max: msz}, 4).Path(gtx.Ops), Width: float32(b)}.Op())
-							menuCall.Add(gtx.Ops)
-
-							call := macro.Stop()
-							op.Defer(gtx.Ops, call)
 						}
 
 						return sendDims

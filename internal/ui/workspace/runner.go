@@ -919,72 +919,30 @@ func (t *RequestTab) layoutExampleSelector(gtx layout.Context, th *material.Them
 			if !t.ExampleListOpen {
 				return layout.Dimensions{}
 			}
-			macro := op.Record(gtx.Ops)
-			dropGtx := gtx
-			dropGtx.Constraints.Min = image.Point{}
-			dropGtx.Constraints.Max.Y = 1 << 24
-			layout.Inset{Top: unit.Dp(28)}.Layout(dropGtx, func(gtx layout.Context) layout.Dimensions {
-				return widget.Border{
-					Color:        theme.BorderLight,
-					CornerRadius: unit.Dp(2),
-					Width:        unit.Dp(1),
-				}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.Stack{}.Layout(gtx,
-						layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-							rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2)
-							paint.FillShape(gtx.Ops, theme.BgMenu, rect.Op(gtx.Ops))
-							return layout.Dimensions{Size: gtx.Constraints.Min}
-						}),
-						layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-							rowW := gtx.Dp(unit.Dp(200))
-							row := func(clk *widget.Clickable, name string, active bool) layout.FlexChild {
-								return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									gtx.Constraints.Min.X = rowW
-									gtx.Constraints.Max.X = rowW
-									return material.Clickable(gtx, clk, func(gtx layout.Context) layout.Dimensions {
-										if clk.Hovered() {
-											paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: image.Pt(rowW, gtx.Dp(unit.Dp(28)))}.Op())
-										}
-										pointer.CursorPointer.Add(gtx.Ops)
-										return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											display := "  " + name
-											if active {
-												display = "✓ " + name
-											}
-											lbl := widgets.MonoLabel(th, unit.Sp(11), display)
-											lbl.MaxLines = 1
-											lbl.Truncator = "…"
-											return lbl.Layout(gtx)
-										})
-									})
-								})
-							}
-							children := make([]layout.FlexChild, 0, len(t.Examples)+1)
-							children = append(children, row(&t.ExampleChoices[0], "Base request", t.ExampleSel < 0))
-							if len(t.Examples) == 0 {
-								children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									gtx.Constraints.Min.X = rowW
-									gtx.Constraints.Max.X = rowW
-									return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										lbl := widgets.MonoLabel(th, unit.Sp(11), "No examples")
-										lbl.Color = theme.FgMuted
-										return lbl.Layout(gtx)
-									})
-								}))
-							}
-							for i := range t.Examples {
-								label := exampleMenuLabel(i)
-								if c := t.Examples[i].Code; c != 0 {
-									label += " (" + strconv.Itoa(c) + ")"
-								}
-								children = append(children, row(&t.ExampleChoices[i+1], label, t.ExampleSel == i))
-							}
-							return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
-						}),
-					)
-				})
+			items := make([]widgets.MenuItem, 0, len(t.Examples)+1)
+			items = append(items, widgets.MenuItem{
+				Label:   "Base request",
+				Click:   &t.ExampleChoices[0],
+				Checked: t.ExampleSel < 0,
+				Mono:    true,
 			})
-			op.Defer(gtx.Ops, macro.Stop())
+			if len(t.Examples) == 0 {
+				items = append(items, widgets.MenuItem{Label: "No examples", Mono: true, Disabled: true})
+			}
+			for i := range t.Examples {
+				label := exampleMenuLabel(i)
+				if c := t.Examples[i].Code; c != 0 {
+					label += " (" + strconv.Itoa(c) + ")"
+				}
+				items = append(items, widgets.MenuItem{
+					Label:   label,
+					Click:   &t.ExampleChoices[i+1],
+					Checked: t.ExampleSel == i,
+					Mono:    true,
+				})
+			}
+			anchor := widgets.MenuAnchor{Pt: image.Pt(0, gtx.Dp(unit.Dp(28)))}
+			widgets.DeferMenuAt(gtx, th, &t.ExampleListOpen, anchor, 200, items)
 			return layout.Dimensions{}
 		}),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
