@@ -457,6 +457,67 @@ func rightClickTabBar(t *testing.T, titles []string, pos f32.Point, w, h int) *S
 	return s
 }
 
+func middleClickTabBar(t *testing.T, titles []string, pos f32.Point, w, h int) *Strip {
+	t.Helper()
+	th := newTestTheme()
+	s := NewStrip()
+	var tabs []*workspace.RequestTab
+	for _, ti := range titles {
+		tabs = append(tabs, workspace.NewRequestTab(ti))
+	}
+	active := 0
+
+	var router input.Router
+	ops := new(op.Ops)
+	gtx := layout.Context{
+		Ops:         ops,
+		Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
+		Constraints: layout.Exact(image.Pt(w, h)),
+		Source:      router.Source(),
+	}
+
+	s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
+	router.Frame(ops)
+	router.Queue(
+		pointer.Event{Kind: pointer.Press, Position: pos, Buttons: pointer.ButtonTertiary, Source: pointer.Mouse},
+		pointer.Event{Kind: pointer.Release, Position: pos, Source: pointer.Mouse},
+	)
+	ops.Reset()
+	gtx.Ops = ops
+	s.Layout(gtx, th, &tabs, &active, false, 0, nil, nil)
+	return s
+}
+
+func TestMiddleClick_RequestsCloseOnTabBody(t *testing.T) {
+	s := middleClickTabBar(t, []string{"Get users"}, f32.Pt(30, 18), 1000, 200)
+	if s.MidCloseIdx != 0 {
+		t.Fatalf("middle-click on a tab body must request closing it (MidCloseIdx=0), got %d", s.MidCloseIdx)
+	}
+}
+
+func TestMiddleClick_RequestsCloseOnCloseButton(t *testing.T) {
+	w0 := measureTabWidth(makeGtx(1000, 200), newTestTheme(), "Get users")
+	s := middleClickTabBar(t, []string{"Get users"}, f32.Pt(float32(4+w0-8), 18), 1000, 200)
+	if s.MidCloseIdx != 0 {
+		t.Fatalf("middle-click on the close button must request closing the tab (MidCloseIdx=0), got %d", s.MidCloseIdx)
+	}
+}
+
+func TestMiddleClick_PicksSecondTab(t *testing.T) {
+	w0 := measureTabWidth(makeGtx(1000, 200), newTestTheme(), "alpha")
+	s := middleClickTabBar(t, []string{"alpha", "bravo"}, f32.Pt(float32(4+w0+6), 18), 1000, 200)
+	if s.MidCloseIdx != 1 {
+		t.Fatalf("middle-click on the second tab must set MidCloseIdx=1, got %d", s.MidCloseIdx)
+	}
+}
+
+func TestMiddleClick_IgnoresEmptySpace(t *testing.T) {
+	s := middleClickTabBar(t, []string{"Get users"}, f32.Pt(700, 18), 1000, 200)
+	if s.MidCloseIdx != -1 {
+		t.Errorf("middle-click on empty tab-bar space must not request a close, got MidCloseIdx=%d", s.MidCloseIdx)
+	}
+}
+
 func TestTabContextMenu_IgnoresEmptySpace(t *testing.T) {
 	for _, pos := range []f32.Point{
 		f32.Pt(220, 18),
@@ -544,12 +605,9 @@ func TestOverflowRow_FirstRowWidthMatchesOthers(t *testing.T) {
 	}
 	active := 0
 
-	// warm-up layout to learn the actual cached natural tab width
 	s.Layout(makeGtx(2000, 200), th, &tabs, &active, false, 0, nil, nil)
 	natW := s.widthCache[tabs[0]].width
 
-	// window where 5 tabs fill a row with only 10px to spare — smaller than the
-	// chevron cell, so the first row would overflow unless its tabs are shrunk
 	perRow := 5
 	maxWidth := perRow*natW + 10
 	winW := maxWidth + 2
@@ -565,7 +623,7 @@ func TestOverflowRow_FirstRowWidthMatchesOthers(t *testing.T) {
 	if len(s.rowWidthsBuf) < 3 {
 		t.Fatalf("expected several visible rows, got %d", len(s.rowWidthsBuf))
 	}
-	ref := s.rowWidthsBuf[1] // a non-chevron, non-last visible row
+	ref := s.rowWidthsBuf[1]
 	for i := 0; i < len(s.rowWidthsBuf)-1; i++ {
 		if s.rowWidthsBuf[i] != ref {
 			t.Errorf("visible row %d width = %d, want %d; the chevron row must not be wider than the others", i, s.rowWidthsBuf[i], ref)

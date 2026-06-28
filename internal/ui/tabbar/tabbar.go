@@ -54,6 +54,8 @@ type Strip struct {
 	TabCtxMenuIdx  int
 	TabCtxMenuPos  f32.Point
 
+	MidCloseIdx int
+
 	widthCache   map[*workspace.RequestTab]cachedTab
 	infoBuf      []tabInfo
 	rowsBuf      [][]int
@@ -73,9 +75,7 @@ func renderAddCell(th *material.Theme, clk *widget.Clickable, label string, sp u
 				return layout.Dimensions{Size: gtx.Constraints.Min}
 			}),
 			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-				btn := material.Button(th, clk, label)
-				btn.Background = theme.BgDark
-				btn.Color = th.Fg
+				btn := widgets.FilledButton(th, clk, label, theme.BgDark, th.Fg)
 				btn.TextSize = sp
 				btn.CornerRadius = unit.Dp(0)
 				btn.Inset = layout.Inset{}
@@ -151,8 +151,9 @@ func renderIconCell(clk *widget.Clickable, ic *widget.Icon, w, h int, drawTop, d
 
 func NewStrip() *Strip {
 	return &Strip{
-		TabDragIdx: -1,
-		widthCache: make(map[*workspace.RequestTab]cachedTab),
+		TabDragIdx:  -1,
+		MidCloseIdx: -1,
+		widthCache:  make(map[*workspace.RequestTab]cachedTab),
 	}
 }
 
@@ -447,6 +448,10 @@ func (s *Strip) Layout(
 							s.TabCtxMenuOpen = true
 							s.TabCtxMenuIdx = hit
 							s.TabCtxMenuPos = pe.Position
+						}
+					} else if pe.Buttons.Contain(pointer.ButtonTertiary) {
+						if hit := tabIdxAtXY(pe.Position.X, pe.Position.Y, true); hit >= 0 {
+							s.MidCloseIdx = hit
 						}
 					}
 				case pointer.Drag:

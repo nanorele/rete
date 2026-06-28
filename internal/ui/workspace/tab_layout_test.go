@@ -81,10 +81,6 @@ func TestTabLayout(t *testing.T) {
 	tab.Layout(gtx, th, win, nil, nil, false, func() {}, func(*collections.ParsedCollection) {})
 }
 
-// TestTabLayoutAllMenusOpen renders the tab with each migrated select dropdown
-// open, ensuring the unified menu component lays out without panicking for
-// every variant (checkmarks, color-coded rows, mono rows, protocol/method/body
-// type/example, and the websocket opcode/filter menus).
 func TestTabLayoutAllMenusOpen(t *testing.T) {
 	win := new(app.Window)
 	th := material.NewTheme()
@@ -99,7 +95,6 @@ func TestTabLayoutAllMenusOpen(t *testing.T) {
 		tab.Layout(gtx, th, win, nil, nil, false, func() {}, func(*collections.ParsedCollection) {})
 	}
 
-	// HTTP request: protocol, method, body type, send and example menus.
 	httpTab := NewRequestTab("http")
 	httpTab.Method = "POST"
 	httpTab.URLInput.SetText("http://example.com")
@@ -116,7 +111,6 @@ func TestTabLayoutAllMenusOpen(t *testing.T) {
 	httpTab.ExampleListOpen = true
 	render(httpTab)
 
-	// WebSocket: opcode and filter menus.
 	wsTab := NewRequestTab("ws")
 	wsTab.Method = MethodWS
 	wsTab.URLInput.SetText("ws://example.com/socket")

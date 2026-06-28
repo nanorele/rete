@@ -375,7 +375,7 @@ func TestKvRow_SplitRatioFallback(t *testing.T) {
 	tab := NewRequestTab("t")
 	tab.BodyType = model.BodyURLEncoded
 	tab.URLEncoded = []*URLEncodedPart{NewURLEncodedPart("k", "v")}
-	tab.HeaderSplitRatio = 0
+	tab.HeaderKeyW = 0
 	gtx := makeBodyTestGtx()
 	th := material.NewTheme()
 	win := new(app.Window)

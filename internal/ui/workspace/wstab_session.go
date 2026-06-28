@@ -48,12 +48,10 @@ func (t *RequestTab) EnsureWS() *WSSession {
 	return t.WS
 }
 
-// WSMenuOpen reports whether any websocket popup menu (opcode/filter) is open.
 func (t *RequestTab) WSMenuOpen() bool {
 	return t.WS != nil && (t.WS.OpcodeMenuOpen || t.WS.FilterMenuOpen)
 }
 
-// CloseWSMenus closes the websocket popup menus.
 func (t *RequestTab) CloseWSMenus() {
 	if t.WS != nil {
 		t.WS.OpcodeMenuOpen = false

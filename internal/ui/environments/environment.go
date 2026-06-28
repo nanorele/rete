@@ -17,6 +17,8 @@ type EnvVarRow struct {
 	KeyEditor widget.Editor
 	ValEditor widget.Editor
 	DelBtn    widget.Clickable
+	SplitDrag gesture.Drag
+	splitLX   float32
 }
 
 type EnvironmentUI struct {
@@ -32,6 +34,8 @@ type EnvironmentUI struct {
 
 	List           widget.List
 	Rows           []*EnvVarRow
+	KeyColW        float32
+	KeyColBelowMin bool
 	AddBtn         widget.Clickable
 	SaveBtn        widget.Clickable
 	BackBtn        widget.Clickable
@@ -48,9 +52,6 @@ type EnvironmentUI struct {
 	Drag            gesture.Drag
 	DragOriginY     float32
 
-	// RowHovered/MenuHovered are recomputed each frame from the live pointer
-	// position and the list geometry (see sidebar.envsBody), not from
-	// Enter/Leave events.
 	RowHovered  bool
 	MenuHovered bool
 }

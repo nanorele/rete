@@ -25,25 +25,6 @@ import (
 	"github.com/nanorele/gio/unit"
 )
 
-// Phantom-hover reproduction.
-//
-// Root cause: a sidebar row's hover highlight is painted from
-// `node.Hover.Update(...)` (collections), `env.Hover.Update(...)` (environments)
-// and `row.Hover.Update(...)` (scripts), all called DURING layout. The
-// widgets.Hover.entered flag those return is only refreshed by the gio router's
-// Enter/Leave pass, which for a frame with no pointer event runs in
-// router.Frame() AFTER layout. So when the list content shifts WITHOUT a pointer
-// event (a resize-induced re-flow/scroll-clamp, an async tree change, a
-// programmatic scroll), the current frame is laid out with the highlight still
-// on the OLD row at its NEW screen position — i.e. on the wrong row, away from
-// the cursor. The correction only lands on the next frame. During a resize this
-// 1-frame lag repeats every frame, so the highlight visibly trails / "floats",
-// and it stays on screen until the next render if nothing invalidates.
-//
-// These tests drive the REAL input.Router + ui.layoutApp and rasterize through
-// the real GPU pipeline (gpu/headless), so the screenshots are produced by the
-// actual UI code, not a mock.
-
 const phantomShotDir = "testdata/phantom"
 
 type phantomDriver struct {
@@ -67,9 +48,9 @@ func newPhantomDriver(t *testing.T, envHeavy bool) *phantomDriver {
 	root.Children = append(root.Children, sub)
 	for i := 0; i < 40; i++ {
 		sub.Children = append(sub.Children, &collections.CollectionNode{
-			Name:       fmt.Sprintf("Request %02d", i),
-			Request:    &model.ParsedRequest{Name: fmt.Sprintf("Request %02d", i), Method: "GET"},
-			Parent:     sub, Depth: 2, Collection: col,
+			Name:    fmt.Sprintf("Request %02d", i),
+			Request: &model.ParsedRequest{Name: fmt.Sprintf("Request %02d", i), Method: "GET"},
+			Parent:  sub, Depth: 2, Collection: col,
 		})
 	}
 	ui.Collections = []*collections.CollectionUI{{Data: col}}
@@ -78,7 +59,6 @@ func newPhantomDriver(t *testing.T, envHeavy bool) *phantomDriver {
 	nEnv := 3
 	if envHeavy {
 		nEnv = 30
-		// give the environments list the whole sidebar so it overflows.
 		ui.ColsExpanded = false
 		ui.ScriptsExpanded = false
 	}
@@ -103,7 +83,6 @@ func (d *phantomDriver) gtx(ops *op.Ops) layout.Context {
 	}
 }
 
-// tick runs one real frame: queue events -> layout -> router.Frame.
 func (d *phantomDriver) tick(events ...pointer.Event) {
 	ops := new(op.Ops)
 	for _, e := range events {
@@ -159,8 +138,6 @@ func (d *phantomDriver) menuHoveredCols() []string {
 	return out
 }
 
-// shootOps rasterizes a specific ops list (the exact frame that was laid out)
-// WITHOUT running another layout that could heal the mis-render.
 func (d *phantomDriver) shootOps(name string, ops *op.Ops) {
 	win, err := headless.NewWindow(d.sz.X, d.sz.Y)
 	if err != nil {
@@ -188,8 +165,6 @@ func (d *phantomDriver) shootOps(name string, ops *op.Ops) {
 	d.t.Logf("wrote %s", filepath.Join(phantomShotDir, name+".png"))
 }
 
-// TestPhantomHoverControl: the baseline. Hovering then moving the pointer away
-// with a real pointer event leaves no stuck hover (the Leave is delivered).
 func TestPhantomHoverControl(t *testing.T) {
 	d := newPhantomDriver(t, false)
 	var hy float32
@@ -211,10 +186,6 @@ func TestPhantomHoverControl(t *testing.T) {
 	}
 }
 
-// TestPhantomHoverResizeLag is the regression test for the phantom in
-// Collections: after a content shift with NO pointer event, the SAME rendered
-// frame must already paint the highlight on the row actually under the cursor
-// (no one-frame lag onto the stale row).
 func TestPhantomHoverResizeLag(t *testing.T) {
 	d := newPhantomDriver(t, false)
 	for i := 0; i < 4; i++ {
@@ -230,7 +201,6 @@ func TestPhantomHoverResizeLag(t *testing.T) {
 	}
 	target := before[0]
 
-	// content shift with NO pointer event (resize re-flow / async change / scroll clamp).
 	d.ui.ColList.Position.First += 2
 
 	ops := new(op.Ops)
@@ -254,9 +224,6 @@ func TestPhantomHoverResizeLag(t *testing.T) {
 	t.Logf("FIXED: shift frame already highlights %v (the row now under the cursor), no phantom", during)
 }
 
-// TestPhantomHoverEnvResizeLag confirms the same defect in the Environments
-// section (identical Hover-painted-during-layout pattern), i.e. it is not
-// Collections-specific.
 func TestPhantomHoverEnvResizeLag(t *testing.T) {
 	d := newPhantomDriver(t, true)
 	for i := 0; i < 4; i++ {
@@ -291,8 +258,6 @@ func TestPhantomHoverEnvResizeLag(t *testing.T) {
 	t.Logf("FIXED in Environments: shift frame already highlights %v, no phantom", during)
 }
 
-// TestStickyBandHoverNoLag verifies the sticky-band row highlight (now geometric)
-// does not lag a content shift onto the wrong pinned row.
 func TestStickyBandHoverNoLag(t *testing.T) {
 	d := newPhantomDriver(t, false)
 	for i := 0; i < 6; i++ {
@@ -303,7 +268,6 @@ func TestStickyBandHoverNoLag(t *testing.T) {
 		t.Skip("list did not scroll; no band")
 	}
 
-	// hover a pinned band row near the top of the collections area.
 	var bandY float32
 	for y := float32(48); y < 90; y += 2 {
 		d.settle(mv(120, y))
@@ -317,7 +281,6 @@ func TestStickyBandHoverNoLag(t *testing.T) {
 	}
 	t.Logf("band hovered at y=%v: %v", bandY, d.stickyHovered())
 
-	// shift the list under the fixed cursor with NO pointer event.
 	d.ui.ColList.Position.First += 3
 
 	ops := new(op.Ops)
@@ -337,8 +300,6 @@ func TestStickyBandHoverNoLag(t *testing.T) {
 	}
 }
 
-// TestStickyBandHoverControl: moving the cursor out of the sidebar clears the
-// band highlight (no stuck hover).
 func TestStickyBandHoverControl(t *testing.T) {
 	d := newPhantomDriver(t, false)
 	for i := 0; i < 6; i++ {
@@ -357,9 +318,6 @@ func TestStickyBandHoverControl(t *testing.T) {
 	}
 }
 
-// TestMenuIconHoverZone checks the geometric "⋮" zone: hovering the right edge of
-// a row lights its menu icon, hovering the left does not, and it never lags onto
-// the wrong row after a content shift.
 func TestMenuIconHoverZone(t *testing.T) {
 	d := newPhantomDriver(t, false)
 	for i := 0; i < 3; i++ {
@@ -367,7 +325,6 @@ func TestMenuIconHoverZone(t *testing.T) {
 	}
 	d.settle()
 
-	// find a row Y that hovers exactly one row at left x.
 	var rowY float32
 	for y := float32(60); y < 300; y += 4 {
 		d.settle(mv(40, y))
@@ -380,15 +337,12 @@ func TestMenuIconHoverZone(t *testing.T) {
 		t.Skip("no row found")
 	}
 
-	// left side: row hovered, menu icon NOT hovered.
 	d.settle(mv(40, rowY))
 	if got := d.menuHoveredCols(); len(got) != 0 {
 		t.Fatalf("menu icon hovered while cursor is on the left of the row: %v", got)
 	}
 	rowName := d.hoveredCols()
 
-	// right edge (the ⋮ sits ~18dp wide, 10dp from the right; sidebar body is
-	// narrower than the window, so probe near the body's right edge).
 	var menuOn []string
 	for x := float32(d.ui.SidebarWidth); x > float32(d.ui.SidebarWidth)-60; x -= 2 {
 		d.settle(mv(x, rowY))
@@ -403,5 +357,50 @@ func TestMenuIconHoverZone(t *testing.T) {
 	t.Logf("⋮ zone hovered for %v", menuOn)
 	if strings.Join(menuOn, ",") != strings.Join(rowName, ",") {
 		t.Fatalf("⋮ hover is on a different row (%v) than the row hover (%v)", menuOn, rowName)
+	}
+}
+
+func TestWheelOverScrollbar(t *testing.T) {
+	d := newPhantomDriver(t, false)
+	d.settle()
+
+	var rowY float32
+	for y := float32(60); y < 300; y += 4 {
+		d.settle(mv(40, y))
+		if len(d.hoveredCols()) == 1 {
+			rowY = y
+			break
+		}
+	}
+	if rowY == 0 {
+		t.Skip("no row found")
+	}
+
+	maxRowX := float32(0)
+	for x := float32(d.ui.SidebarWidth); x > 0; x -= 1 {
+		d.settle(mv(x, rowY))
+		if len(d.hoveredCols()) == 1 {
+			maxRowX = x
+			break
+		}
+	}
+	if maxRowX == 0 {
+		t.Skip("could not locate the body's right edge")
+	}
+	scrollbarX := maxRowX + 5
+
+	d.settle(mv(scrollbarX, rowY))
+	if got := d.hoveredCols(); len(got) != 0 {
+		t.Fatalf("expected to be over the scrollbar (no row hover) at x=%v, got %v", scrollbarX, got)
+	}
+
+	beforeFirst, beforeOff := d.ui.ColList.Position.First, d.ui.ColList.Position.Offset
+	d.tick(scroll(scrollbarX, rowY, 60))
+	d.tick()
+	afterFirst, afterOff := d.ui.ColList.Position.First, d.ui.ColList.Position.Offset
+
+	t.Logf("scroll over scrollbar at x=%v: First %d->%d Offset %d->%d", scrollbarX, beforeFirst, afterFirst, beforeOff, afterOff)
+	if afterFirst == beforeFirst && afterOff == beforeOff {
+		t.Fatalf("wheel over the scrollbar did not scroll the list (First %d, Offset %d unchanged)", beforeFirst, beforeOff)
 	}
 }

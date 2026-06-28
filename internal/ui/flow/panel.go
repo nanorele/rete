@@ -261,17 +261,17 @@ func (ed *Editor) layoutRunBlockCompact(gtx layout.Context, th *material.Theme, 
 		bg := theme.BgSecondary
 		fg := theme.Fg
 		if paused {
-			bg = theme.Accent
-			fg = theme.AccentFg
+			bg = theme.BtnPrimary
+			fg = theme.BtnPrimaryFg
 		}
 		addBtn(&ed.BtnStep, widgets.IconNext, bg, fg)
 	}
 	if stepMode {
-		addBtn(&ed.BtnStepMode, widgets.IconPause, theme.Accent, theme.AccentFg)
+		addBtn(&ed.BtnStepMode, widgets.IconPause, theme.BtnPrimary, theme.BtnPrimaryFg)
 	} else {
 		addBtn(&ed.BtnStepMode, widgets.IconPause, theme.BgSecondary, theme.FgMuted)
 	}
-	addBtn(&ed.BtnSave, widgets.IconSave, theme.Accent, theme.AccentFg)
+	addBtn(&ed.BtnSave, widgets.IconSave, theme.BtnPrimary, theme.BtnPrimaryFg)
 	addBtn(&ed.BtnNew, widgets.IconAddReq, theme.BgSecondary, theme.Fg)
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -301,9 +301,7 @@ func (ed *Editor) layoutRunBlock(gtx layout.Context, th *material.Theme) layout.
 						label = "Stop"
 						bg = theme.Danger
 					}
-					btn := material.Button(th, &ed.BtnRun, label)
-					btn.Background = bg
-					btn.Color = theme.White
+					btn := widgets.FilledButton(th, &ed.BtnRun, label, bg, theme.White)
 					btn.TextSize = unit.Sp(13)
 					btn.Inset = layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8)}
 					gtx.Constraints.Min.X = gtx.Constraints.Max.X
@@ -317,8 +315,8 @@ func (ed *Editor) layoutRunBlock(gtx layout.Context, th *material.Theme) layout.
 						bg := theme.BgSecondary
 						fg := theme.Fg
 						if paused {
-							bg = theme.Accent
-							fg = theme.AccentFg
+							bg = theme.BtnPrimary
+							fg = theme.BtnPrimaryFg
 						}
 						return ed.squareIconBtn(gtx, &ed.BtnStep, widgets.IconNext, s, bg, fg)
 					})
@@ -328,8 +326,8 @@ func (ed *Editor) layoutRunBlock(gtx layout.Context, th *material.Theme) layout.
 						bg := theme.BgSecondary
 						fg := theme.FgMuted
 						if stepMode {
-							bg = theme.Accent
-							fg = theme.AccentFg
+							bg = theme.BtnPrimary
+							fg = theme.BtnPrimaryFg
 						}
 						return ed.squareIconBtn(gtx, &ed.BtnStepMode, widgets.IconPause, s, bg, fg)
 					})
@@ -339,19 +337,11 @@ func (ed *Editor) layoutRunBlock(gtx layout.Context, th *material.Theme) layout.
 		layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			saveBtn := func(gtx layout.Context) layout.Dimensions {
-				btn := material.Button(th, &ed.BtnSave, "Save")
-				btn.Background = theme.Accent
-				btn.Color = theme.AccentFg
-				btn.TextSize = unit.Sp(12)
-				btn.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}
+				btn := widgets.PrimaryButton(th, &ed.BtnSave, "Save")
 				return btn.Layout(gtx)
 			}
 			newBtn := func(gtx layout.Context) layout.Dimensions {
-				btn := material.Button(th, &ed.BtnNew, "New")
-				btn.Background = theme.BgSecondary
-				btn.Color = theme.Fg
-				btn.TextSize = unit.Sp(12)
-				btn.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}
+				btn := widgets.FilledButton(th, &ed.BtnNew, "New", theme.BgSecondary, theme.Fg)
 				return btn.Layout(gtx)
 			}
 			if gtx.Constraints.Max.X < gtx.Dp(unit.Dp(230)) {
@@ -637,8 +627,8 @@ func (ed *Editor) chipRow(gtx layout.Context, th *material.Theme, btns []*widget
 					bg := theme.BgField
 					fg := theme.FgMuted
 					if active {
-						bg = theme.Accent
-						fg = theme.AccentFg
+						bg = theme.BtnPrimary
+						fg = theme.BtnPrimaryFg
 					} else if btns[i].Hovered() {
 						bg = theme.BgHover
 					}
@@ -1032,10 +1022,7 @@ func (ed *Editor) layoutNodeProps(gtx layout.Context, th *material.Theme, n *Nod
 		}
 		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: unit.Dp(16)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				btn := material.Button(th, &ed.BtnDelete, label)
-				btn.Background = theme.Danger
-				btn.Color = theme.DangerFg
-				btn.TextSize = unit.Sp(12)
+				btn := widgets.DangerButton(th, &ed.BtnDelete, label)
 				btn.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6)}
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
 				return btn.Layout(gtx)
@@ -1162,10 +1149,7 @@ func (ed *Editor) layoutEdgeProps(gtx layout.Context, th *material.Theme, e *Edg
 	}
 	children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 		return layout.Inset{Top: unit.Dp(16)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			btn := material.Button(th, &ed.BtnDelete, delLbl)
-			btn.Background = theme.Danger
-			btn.Color = theme.DangerFg
-			btn.TextSize = unit.Sp(12)
+			btn := widgets.DangerButton(th, &ed.BtnDelete, delLbl)
 			btn.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6)}
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
 			return btn.Layout(gtx)

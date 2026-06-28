@@ -40,8 +40,8 @@ func (ui *AppUI) loadTabFromState(ts persist.TabState) *workspace.RequestTab {
 		rt.VStackRatio = ts.VStackRatio
 	}
 	rt.LayoutMode = ts.LayoutMode
-	if ts.HeaderSplitRatio > 0 {
-		rt.HeaderSplitRatio = ts.HeaderSplitRatio
+	if ts.HeaderSplitRatio >= 1 {
+		rt.HeaderKeyW = ts.HeaderSplitRatio
 	}
 	if ts.ReqWrapEnabled != nil {
 		rt.ReqWrapEnabled = *ts.ReqWrapEnabled
@@ -132,7 +132,7 @@ func (ui *AppUI) tabStateFromTab(rt *workspace.RequestTab) persist.TabState {
 		SplitRatio:       rt.SplitRatio,
 		VStackRatio:      rt.VStackRatio,
 		LayoutMode:       rt.LayoutMode,
-		HeaderSplitRatio: rt.HeaderSplitRatio,
+		HeaderSplitRatio: rt.HeaderKeyW,
 		HeadersExpanded:  rt.HeadersExpanded,
 		HeadersAbsHeight: rt.HeadersAbsHeight,
 		ReqWrapEnabled:   &reqWrap,

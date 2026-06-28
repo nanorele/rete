@@ -35,9 +35,6 @@ type ScriptRow struct {
 	NameEd          widget.Editor
 	LastClickAt     time.Time
 
-	// RowHovered/MenuHovered are recomputed each frame from the live pointer
-	// position and the list geometry (see scriptsBody), not from Enter/Leave
-	// events.
 	RowHovered  bool
 	MenuHovered bool
 }
@@ -170,9 +167,8 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 		activeID = host.ActiveScriptID()
 	}
 
-	// Geometric hover (see sidebar.colsBody): the row under the pointer is
-	// recomputed each frame from the body-local pointer position and the uniform
-	// row height, so the highlight never lags a content shift.
+	scrollBarWheel(gtx, host.ScriptBarScroll, host.ScriptList)
+
 	for _, r := range rows {
 		r.RowHovered = false
 		r.MenuHovered = false
@@ -183,8 +179,10 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 			rowH = gtx.Dp(unit.Dp(24))
 		}
 		pos := host.ScriptsBodyHover.Pos()
+		scriptsScrollable := host.ScriptList.Position.First > 0 || host.ScriptList.Position.OffsetLast < 0
+		overScrollbar := scriptsScrollable && scrollbarZoneHovered(gtx, pos.X, gtx.Constraints.Max.X)
 		rel := pos.Y + float32(host.ScriptList.Position.Offset)
-		if rel >= 0 {
+		if !overScrollbar && rel >= 0 {
 			if idx := host.ScriptList.Position.First + int(rel)/rowH; idx >= 0 && idx < len(rows) {
 				rows[idx].RowHovered = true
 				rows[idx].MenuHovered = menuZoneHovered(gtx, pos.X, gtx.Constraints.Max.X)
@@ -196,6 +194,7 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 	list.AnchorStrategy = material.Overlay
 	list.Indicator.Color.A = uint8(float32(list.Indicator.Color.A) * fade)
 	list.Indicator.HoverColor.A = uint8(float32(list.Indicator.HoverColor.A) * fade)
+	scriptBarW := gtx.Dp(list.Width())
 	dim := list.Layout(gtx, len(rows), func(gtx layout.Context, i int) layout.Dimensions {
 		row := rows[i]
 		isActive := row.ID == activeID
@@ -400,6 +399,8 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 	host.ScriptsBodyHover.Add(gtx.Ops)
 	ov.Pop()
 	pass.Pop()
+
+	addScrollBarStrip(gtx, host.ScriptBarScroll, dim.Size, scriptBarW)
 
 	return dim
 }

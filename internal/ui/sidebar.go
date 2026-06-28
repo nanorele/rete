@@ -43,13 +43,16 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 		DragEnvCurrentY: &ui.DragEnvCurrentY,
 		DragEnvActive:   &ui.DragEnvActive,
 
-		ColRowH:       &ui.colRowH,
-		StickyBandH:   &ui.stickyBandH,
-		StickyScroll:  &ui.stickyScroll,
-		EnvRowH:       &ui.envRowH,
-		ColRowYs:      &ui.colRowYs,
-		ColAfterLastY: &ui.colAfterLastY,
-		WindowSize:    &ui.windowSize,
+		ColRowH:         &ui.colRowH,
+		StickyBandH:     &ui.stickyBandH,
+		StickyScroll:    &ui.stickyScroll,
+		ColBarScroll:    &ui.colBarScroll,
+		EnvBarScroll:    &ui.envBarScroll,
+		ScriptBarScroll: &ui.scriptBarScroll,
+		EnvRowH:         &ui.envRowH,
+		ColRowYs:        &ui.colRowYs,
+		ColAfterLastY:   &ui.colAfterLastY,
+		WindowSize:      &ui.windowSize,
 
 		SidebarEnvHeight: &ui.SidebarEnvHeight,
 		SidebarEnvDrag:   &ui.SidebarEnvDrag,
@@ -72,6 +75,7 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 		EnvsMenuBtn:     &ui.EnvsMenuBtn,
 		EnvsMenuOpen:    &ui.EnvsMenuOpen,
 		SidebarDropTag:  &ui.SidebarDropTag,
+		DropZones:       &ui.sidebarZones,
 
 		Scripts:            &ui.ScriptRows,
 		ScriptList:         &ui.ScriptList,
@@ -185,6 +189,7 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 		LayoutNetlimitBody:    ui.layoutNetlimitBody,
 		LayoutSectionMITM:     ui.layoutSidebarSectionMITMBtn,
 		LayoutMITMRules:       ui.layoutMITMSidebar,
+		LayoutSectionHAR:      ui.layoutSidebarSectionHARBtn,
 		SidebarSection:        &ui.SidebarSection,
 	}
 }

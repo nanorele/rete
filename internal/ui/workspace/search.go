@@ -326,7 +326,7 @@ func searchCaseButton(gtx layout.Context, th *material.Theme, clk *widget.Clicka
 		gtx.Constraints.Max = gtx.Constraints.Min
 		rr := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, gtx.Dp(unit.Dp(3)))
 		if active {
-			paint.FillShape(gtx.Ops, theme.Accent, rr.Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, theme.BtnPrimary, rr.Op(gtx.Ops))
 		} else if clk.Hovered() {
 			paint.FillShape(gtx.Ops, theme.BgHover, rr.Op(gtx.Ops))
 		}
@@ -334,7 +334,7 @@ func searchCaseButton(gtx layout.Context, th *material.Theme, clk *widget.Clicka
 			lbl := widgets.MonoLabel(th, unit.Sp(11), "Aa")
 			lbl.Color = theme.FgDim
 			if active {
-				lbl.Color = theme.AccentFg
+				lbl.Color = theme.BtnPrimaryFg
 			}
 			return lbl.Layout(gtx)
 		})

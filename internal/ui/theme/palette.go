@@ -93,6 +93,14 @@ func (sp SyntaxPalette) ColorForToken(kind syntax.TokenKind, depth uint8, bracke
 		return sp.Type
 	case syntax.TokComment:
 		return sp.Comment
+	case syntax.TokRegex, syntax.TokTemplate:
+		return sp.String
+	case syntax.TokFunction:
+		return sp.Type
+	case syntax.TokProperty:
+		return sp.Key
+	case syntax.TokConstant:
+		return sp.Number
 	}
 	return sp.Plain
 }

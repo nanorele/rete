@@ -258,13 +258,13 @@ func TestInheritActiveTabLayout(t *testing.T) {
 	src.SplitRatio = 0.42
 	src.VStackRatio = 0.31
 	src.LayoutMode = 1
-	src.HeaderSplitRatio = 0.7
+	src.HeaderKeyW = 0.7
 	ui.Tabs = []*workspace.RequestTab{src}
 	ui.ActiveIdx = 0
 
 	dst := workspace.NewRequestTab("dst")
 	ui.inheritActiveTabLayout(dst)
-	if dst.SplitRatio != 0.42 || dst.VStackRatio != 0.31 || dst.HeaderSplitRatio != 0.7 {
+	if dst.SplitRatio != 0.42 || dst.VStackRatio != 0.31 || dst.HeaderKeyW != 0.7 {
 		t.Errorf("layout not inherited: %+v", dst)
 	}
 

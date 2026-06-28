@@ -3,6 +3,7 @@ package workspace
 import (
 	"tracto/internal/model"
 
+	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/widget"
 )
 
@@ -19,10 +20,12 @@ type FormDataPart struct {
 }
 
 type URLEncodedPart struct {
-	Key      widget.Editor
-	Value    widget.Editor
-	Disabled bool
-	DelBtn   widget.Clickable
+	Key        widget.Editor
+	Value      widget.Editor
+	Disabled   bool
+	DelBtn     widget.Clickable
+	SplitDrag  gesture.Drag
+	splitLastX float32
 }
 
 func NewFormPart(key, value string, kind model.FormPartKind, filePath string, fileSize int64) *FormDataPart {

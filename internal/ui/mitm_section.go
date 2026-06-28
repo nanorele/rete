@@ -189,8 +189,8 @@ func (ui *AppUI) mitmCABar(gtx layout.Context) layout.Dimensions {
 					fg := ui.Theme.Fg
 					label := "Decrypt HTTPS: off"
 					if intercepting {
-						bg = theme.Accent
-						fg = ui.Theme.ContrastFg
+						bg = theme.BtnPrimary
+						fg = theme.BtnPrimaryFg
 						label = "Decrypt HTTPS: on"
 					}
 					return mitmBtn(gtx, ui.Theme, &st.InterceptBtn, label, nil, bg, fg, ca != nil)
@@ -489,19 +489,8 @@ func (ui *AppUI) mitmToolbar(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.X = gtx.Dp(unit.Dp(140))
 					gtx.Constraints.Max.X = gtx.Dp(unit.Dp(200))
-					return mitmBoxed(gtx, func(gtx layout.Context) layout.Dimensions {
-						return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(6), Right: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							ed := material.Editor(ui.Theme, &st.BindAddr, "host:port")
-							ed.TextSize = unit.Sp(12)
-							ed.HintColor = theme.FgMuted
-							if st.Proxy.Running() {
-								st.BindAddr.ReadOnly = true
-							} else {
-								st.BindAddr.ReadOnly = false
-							}
-							return ed.Layout(gtx)
-						})
-					})
+					st.BindAddr.ReadOnly = st.Proxy.Running()
+					return widgets.TextField(gtx, ui.Theme, &st.BindAddr, "host:port", true, nil, 0, unit.Sp(12))
 				}),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ui.mitmCAStatusBrief(gtx) }),
@@ -562,15 +551,15 @@ func (ui *AppUI) mitmStartBtn(gtx layout.Context) layout.Dimensions {
 	admin := mitm.IsAdmin()
 	running := st.Proxy.Running()
 
-	bg := theme.Accent
-	fg := ui.Theme.ContrastFg
+	bg := theme.BtnPrimary
+	fg := theme.BtnPrimaryFg
 	label := "Start Proxy"
 	useUAC := false
 	ic := widgets.IconPlay
 	switch {
 	case running:
 		bg = theme.Cancel
-		fg = theme.Fg
+		fg = theme.DangerFg
 		label = "Stop Proxy"
 		ic = widgets.IconStop
 	case !admin:
@@ -689,20 +678,36 @@ func (ui *AppUI) mitmBody(gtx layout.Context) layout.Dimensions {
 	)
 }
 
+func mitmFlowColumns() []widgets.TableColumn {
+	return []widgets.TableColumn{
+		{Title: "#", Width: unit.Dp(32), Align: text.Start},
+		{Title: "Method", Width: unit.Dp(64), Align: text.Start},
+		{Title: "Host", Width: 0, Align: text.Start},
+		{Title: "Status", Width: unit.Dp(56), Align: text.End},
+		{Title: "Size", Width: unit.Dp(64), Align: text.End},
+		{Title: "Time", Width: unit.Dp(56), Align: text.End},
+	}
+}
+
 func (ui *AppUI) mitmFlowTable(gtx layout.Context) layout.Dimensions {
 	st := &ui.MITM
+	if ui.mitmFlowsTbl == nil {
+		ui.mitmFlowsTbl = widgets.NewTable(mitmFlowColumns())
+	}
+	tbl := ui.mitmFlowsTbl
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+	flows := st.Store.SnapshotMeta()
+	if len(flows) == 0 {
+		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			lbl := material.Label(ui.Theme, unit.Sp(12), "No traffic captured yet")
+			lbl.Color = theme.FgMuted
+			return lbl.Layout(gtx)
+		})
+	}
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-		layout.Rigid(mitmTableHeader(ui.Theme)),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return tbl.Header(gtx, ui.Theme) }),
 		layout.Rigid(mitmHLine),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			flows := st.Store.SnapshotMeta()
-			if len(flows) == 0 {
-				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					lbl := material.Label(ui.Theme, unit.Sp(12), "No traffic captured yet")
-					lbl.Color = theme.FgMuted
-					return lbl.Layout(gtx)
-				})
-			}
 			for len(st.RowClicks) < len(flows) {
 				st.RowClicks = append(st.RowClicks, &widget.Clickable{})
 			}
@@ -712,60 +717,13 @@ func (ui *AppUI) mitmFlowTable(gtx layout.Context) layout.Dimensions {
 				for clk.Clicked(gtx) {
 					st.Selected = f.ID
 				}
-				return mitmFlowRow(gtx, ui.Theme, f, clk, st.Selected == f.ID)
+				return mitmFlowRow(gtx, ui.Theme, tbl, f, clk, st.Selected == f.ID)
 			})
 		}),
 	)
 }
 
-func mitmTableHeader(th *material.Theme) layout.Widget {
-	return func(gtx layout.Context) layout.Dimensions {
-		paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(24)))}.Op())
-		return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-				colHeader(th, "#", 32),
-				colHeader(th, "Method", 64),
-				colHeader(th, "Host", 0),
-				colHeaderRight(th, "Status", 56),
-				colHeaderRight(th, "Size", 64),
-				colHeaderRight(th, "Time", 56),
-			)
-		})
-	}
-}
-
-func colHeader(th *material.Theme, s string, w int) layout.FlexChild {
-	return colHeaderAligned(th, s, w, text.Start)
-}
-
-func colHeaderRight(th *material.Theme, s string, w int) layout.FlexChild {
-	return colHeaderAligned(th, s, w, text.End)
-}
-
-func colHeaderAligned(th *material.Theme, s string, w int, al text.Alignment) layout.FlexChild {
-	if w == 0 {
-		return layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			lbl := material.Label(th, unit.Sp(10), s)
-			lbl.Color = theme.FgMuted
-			lbl.Font.Weight = font.Bold
-			lbl.Alignment = al
-			lbl.MaxLines = 1
-			return lbl.Layout(gtx)
-		})
-	}
-	return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Min.X = gtx.Dp(unit.Dp(float32(w)))
-		gtx.Constraints.Max.X = gtx.Constraints.Min.X
-		lbl := material.Label(th, unit.Sp(10), s)
-		lbl.Color = theme.FgMuted
-		lbl.Font.Weight = font.Bold
-		lbl.Alignment = al
-		lbl.MaxLines = 1
-		return lbl.Layout(gtx)
-	})
-}
-
-func mitmFlowRow(gtx layout.Context, th *material.Theme, f *mitm.Flow, clk *widget.Clickable, selected bool) layout.Dimensions {
+func mitmFlowRow(gtx layout.Context, th *material.Theme, t *widgets.Table, f *mitm.Flow, clk *widget.Clickable, selected bool) layout.Dimensions {
 	return clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		rowH := gtx.Dp(unit.Dp(22))
 		gtx.Constraints.Min.Y = rowH
@@ -776,25 +734,29 @@ func mitmFlowRow(gtx layout.Context, th *material.Theme, f *mitm.Flow, clk *widg
 			bg = theme.BgHover
 		}
 		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, rowH)}.Op())
-		return layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-				cellText(th, fmt.Sprintf("%d", f.ID), 32, text.Start, theme.FgMuted, false),
-				cellMethod(th, f.Method, 64),
-				cellHost(th, f),
-				cellStatus(th, f, 56),
-				cellText(th, humanSize(f.RespSize), 64, text.End, theme.FgMuted, true),
-				cellText(th, humanDuration(f), 56, text.End, theme.FgMuted, true),
-			)
+		return layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(widgets.TableHInset), Right: unit.Dp(widgets.TableHInset)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return t.Row(gtx, func(i int) layout.Widget {
+				switch i {
+				case 0:
+					return mitmTextCell(th, fmt.Sprintf("%d", f.ID), text.Start, theme.FgMuted, false)
+				case 1:
+					return mitmMethodCell(th, f.Method)
+				case 2:
+					return mitmHostCell(th, f)
+				case 3:
+					return mitmStatusCell(th, f)
+				case 4:
+					return mitmTextCell(th, humanSize(f.RespSize), text.End, theme.FgMuted, true)
+				default:
+					return mitmTextCell(th, humanDuration(f), text.End, theme.FgMuted, true)
+				}
+			})
 		})
 	})
 }
 
-func cellText(th *material.Theme, s string, w int, al text.Alignment, col color.NRGBA, mono bool) layout.FlexChild {
-	return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-		if w > 0 {
-			gtx.Constraints.Min.X = gtx.Dp(unit.Dp(float32(w)))
-			gtx.Constraints.Max.X = gtx.Constraints.Min.X
-		}
+func mitmTextCell(th *material.Theme, s string, al text.Alignment, col color.NRGBA, mono bool) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
 		lbl := material.Label(th, unit.Sp(11), s)
 		lbl.Alignment = al
 		lbl.MaxLines = 1
@@ -803,40 +765,37 @@ func cellText(th *material.Theme, s string, w int, al text.Alignment, col color.
 			lbl.Font.Typeface = widgets.MonoTypeface
 		}
 		return lbl.Layout(gtx)
-	})
+	}
 }
 
-func cellMethod(th *material.Theme, method string, w int) layout.FlexChild {
-	return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Min.X = gtx.Dp(unit.Dp(float32(w)))
-		gtx.Constraints.Max.X = gtx.Constraints.Min.X
+func mitmMethodCell(th *material.Theme, method string) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
 		lbl := material.Label(th, unit.Sp(11), method)
 		lbl.Color = theme.MethodColor(method)
 		lbl.Font.Weight = font.Bold
 		lbl.MaxLines = 1
 		return lbl.Layout(gtx)
-	})
+	}
 }
 
-func cellHost(th *material.Theme, f *mitm.Flow) layout.FlexChild {
-	return layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-		text := f.Host
+func mitmHostCell(th *material.Theme, f *mitm.Flow) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
+		host := f.Host
 		if f.Path != "" {
-			text = f.Host + f.Path
+			host = f.Host + f.Path
 		} else if f.Port != "" && f.Port != "80" && f.Port != "443" {
-			text = f.Host + ":" + f.Port
+			host = f.Host + ":" + f.Port
 		}
-		lbl := material.Label(th, unit.Sp(11), text)
+		lbl := material.Label(th, unit.Sp(11), host)
 		lbl.MaxLines = 1
+		lbl.Truncator = "…"
 		lbl.Font.Typeface = widgets.MonoTypeface
 		return lbl.Layout(gtx)
-	})
+	}
 }
 
-func cellStatus(th *material.Theme, f *mitm.Flow, w int) layout.FlexChild {
-	return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Min.X = gtx.Dp(unit.Dp(float32(w)))
-		gtx.Constraints.Max.X = gtx.Constraints.Min.X
+func mitmStatusCell(th *material.Theme, f *mitm.Flow) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
 		var s string
 		col := theme.FgMuted
 		switch {
@@ -864,7 +823,7 @@ func cellStatus(th *material.Theme, f *mitm.Flow, w int) layout.FlexChild {
 		lbl.MaxLines = 1
 		lbl.Font.Typeface = widgets.MonoTypeface
 		return lbl.Layout(gtx)
-	})
+	}
 }
 
 func (ui *AppUI) mitmInspector(gtx layout.Context) layout.Dimensions {
@@ -1246,6 +1205,9 @@ func mitmBtn(gtx layout.Context, th *material.Theme, clk *widget.Clickable, labe
 	return clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			macro := mitmRecord(gtx)
+			if !enabled {
+				bg = theme.Mix(bg, theme.Bg, 0.6)
+			}
 			dims := layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				children := []layout.FlexChild{}
 				col := fg

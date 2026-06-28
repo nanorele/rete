@@ -51,13 +51,9 @@ type CollectionNode struct {
 	StickyClick   widget.Clickable
 	StickyMenuBtn widget.Clickable
 
-	// RowHovered, MenuHovered and StickyHovered are recomputed each frame from
-	// the live pointer position and the list/band geometry (see sidebar.colsBody
-	// and sidebar.stickyHeaders), not from Enter/Leave events, so a highlight
-	// cannot lag a content shift onto the wrong row.
-	RowHovered    bool // list-row background
-	MenuHovered   bool // the list row's "⋮" icon
-	StickyHovered bool // the pinned sticky-band row
+	RowHovered    bool
+	MenuHovered   bool
+	StickyHovered bool
 
 	StickyArmed       bool
 	StickyArmedFirst  int

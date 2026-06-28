@@ -35,6 +35,8 @@ var (
 	EditorScroll   = color.NRGBA{R: 170, G: 170, B: 170, A: 255}
 	VarFound       = color.NRGBA{R: 40, G: 110, B: 160, A: 100}
 	VarMissing     = color.NRGBA{R: 130, G: 60, B: 60, A: 100}
+	BtnPrimary     = color.NRGBA{R: 40, G: 110, B: 160, A: 100}
+	BtnPrimaryFg   = color.NRGBA{R: 204, G: 204, B: 204, A: 255}
 	DividerLight   = color.NRGBA{R: 255, G: 255, B: 255, A: 60}
 	Transparent    = color.NRGBA{}
 	Syntax         SyntaxPalette
@@ -146,6 +148,8 @@ func Apply(p Palette) {
 	ScrollThumb = p.ScrollThumb
 	VarFound = p.VarFound
 	VarMissing = p.VarMissing
+	BtnPrimaryFg = p.Fg
+	BtnPrimary = ContrastBgFor(Composite(p.VarFound, p.Bg), p.Fg, 4.0)
 	DividerLight = p.DividerLight
 	Syntax = p.Syntax
 	if (Syntax.Plain == color.NRGBA{}) {

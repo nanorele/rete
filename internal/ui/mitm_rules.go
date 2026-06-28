@@ -12,8 +12,6 @@ import (
 	"tracto/internal/ui/widgets"
 
 	"github.com/nanorele/gio/font"
-	"github.com/nanorele/gio/io/key"
-	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op/clip"
 	"github.com/nanorele/gio/op/paint"
@@ -118,7 +116,7 @@ func (ui *AppUI) mitmRulesForm(gtx layout.Context) layout.Dimensions {
 						return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, 0)}
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return mitmBtn(gtx, ui.Theme, &st.RuleAddBtn, "Add / update", nil, theme.Accent, ui.Theme.ContrastFg, true)
+						return mitmBtn(gtx, ui.Theme, &st.RuleAddBtn, "Add / update", nil, theme.BtnPrimary, theme.BtnPrimaryFg, true)
 					}),
 				)
 			}),
@@ -127,21 +125,8 @@ func (ui *AppUI) mitmRulesForm(gtx layout.Context) layout.Dimensions {
 }
 
 func (ui *AppUI) mitmInputBox(gtx layout.Context, clk *widget.Clickable, ed *widget.Editor, hint string) layout.Dimensions {
-	for clk.Clicked(gtx) {
-		gtx.Execute(key.FocusCmd{Tag: ed})
-	}
-	return clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		dims := mitmBoxed(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(6), Right: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				e := material.Editor(ui.Theme, ed, hint)
-				e.TextSize = unit.Sp(12)
-				e.HintColor = theme.FgMuted
-				return e.Layout(gtx)
-			})
-		})
-		pointer.CursorText.Add(gtx.Ops)
-		return dims
-	})
+	_ = clk
+	return widgets.TextField(gtx, ui.Theme, ed, hint, true, nil, 0, unit.Sp(12))
 }
 
 func (ui *AppUI) mitmRulesListHeader(gtx layout.Context) layout.Dimensions {

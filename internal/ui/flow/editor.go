@@ -73,6 +73,7 @@ type Editor struct {
 	zoom       float32
 	canvasSize image.Point
 	canvasOrig image.Point
+	pendingFit bool
 	nodeW      float32
 	nodeH      float32
 	portHit    float32
@@ -143,8 +144,6 @@ type Editor struct {
 	winH        int
 
 	envMenuNodeID string
-	envMenuRect   image.Rectangle
-	envMenuRowH   int
 
 	panelCompact bool
 	fitBadge     image.Rectangle
@@ -165,11 +164,12 @@ type Editor struct {
 
 func NewEditor() *Editor {
 	ed := &Editor{
-		Scenario: LoadLatest(),
-		Runner:   NewRunner(),
-		mode:     modeWidgets,
-		zoom:     1,
-		selected: make(map[string]bool),
+		Scenario:   LoadLatest(),
+		Runner:     NewRunner(),
+		mode:       modeWidgets,
+		zoom:       1,
+		selected:   make(map[string]bool),
+		pendingFit: true,
 	}
 	ed.panelList.Axis = layout.Vertical
 	return ed
@@ -205,7 +205,7 @@ func (ed *Editor) OpenScenario(id string) bool {
 	}
 	ed.note = "Opened: " + name
 	ed.lastSaved = ed.encode()
-	ed.fitView()
+	ed.pendingFit = true
 	return true
 }
 
@@ -218,6 +218,7 @@ func (ed *Editor) CreateNew() {
 	ed.Runner.Reset()
 	ed.pan = f32.Point{}
 	ed.zoom = 1
+	ed.pendingFit = true
 	ed.clearSelection()
 	ed.mode = modeWidgets
 	ed.note = ""
@@ -513,11 +514,12 @@ func (ed *Editor) cancelInteraction() {
 }
 
 func (ed *Editor) EnvDropOpen() bool {
-	return ed.envDropOpen
+	return ed.envDropOpen || ed.envMenuNodeID != ""
 }
 
 func (ed *Editor) CloseEnvDrop() {
 	ed.envDropOpen = false
+	ed.envMenuNodeID = ""
 }
 
 func (ed *Editor) selectedNode() *Node {
@@ -827,6 +829,8 @@ func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Hos
 	ed.nodeH = float32(gtx.Dp(unit.Dp(56)))
 	ed.portHit = float32(gtx.Dp(unit.Dp(12)))
 
+	ed.maybeFitOnShow()
+
 	for {
 		ev, ok := gtx.Event(
 			key.Filter{Name: key.NameDeleteForward},
@@ -944,56 +948,40 @@ func (ed *Editor) drawEnvMenu(gtx layout.Context, th *material.Theme) {
 		ed.envMenuNodeID = ""
 		return
 	}
-	c0, c1 := ed.envChipRect(n)
-	rowH := gtx.Dp(unit.Dp(24))
-	pad := gtx.Dp(unit.Dp(8))
-	maxW := 0
-	names := make([]string, len(ed.envOpts))
+
+	if len(ed.envBtns) < len(ed.envOpts) {
+		ed.envBtns = make([]widget.Clickable, len(ed.envOpts))
+	}
+	for i, o := range ed.envOpts {
+		i, o := i, o
+		for ed.envBtns[i].Clicked(gtx) {
+			if n.EnvID != o.ID {
+				ed.pushHistory()
+				n.EnvID = o.ID
+			}
+			ed.envMenuNodeID = ""
+		}
+	}
+
+	items := make([]widgets.MenuItem, len(ed.envOpts))
 	for i, o := range ed.envOpts {
 		name := o.Name
 		if o.ID == "" {
 			name = "Active environment"
 		}
-		names[i] = name
-		if w := widgets.MeasureTextWidthCached(gtx, th, unit.Sp(11), font.Font{}, name); w > maxW {
-			maxW = w
+		items[i] = widgets.MenuItem{
+			Label:   name,
+			Click:   &ed.envBtns[i],
+			Checked: n.EnvID == o.ID,
 		}
 	}
-	menuW := maxW + pad*2 + gtx.Dp(unit.Dp(16))
-	menuH := rowH * len(ed.envOpts)
-	x := int(c0.X)
-	y := int(c1.Y) + gtx.Dp(unit.Dp(2))
-	if x+menuW > ed.canvasSize.X {
-		x = ed.canvasSize.X - menuW
-	}
-	if y+menuH > ed.canvasSize.Y {
-		y = int(c0.Y) - menuH - gtx.Dp(unit.Dp(2))
-	}
-	if x < 0 {
-		x = 0
-	}
-	if y < 0 {
-		y = 0
-	}
-	rect := image.Rect(x, y, x+menuW, y+menuH)
-	ed.envMenuRect = rect
-	ed.envMenuRowH = rowH
 
-	rr := gtx.Dp(unit.Dp(5))
-	paint.FillShape(gtx.Ops, theme.BorderLight, clip.UniformRRect(rect.Inset(-1), rr).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(rect, rr).Op(gtx.Ops))
-	dotR := gtx.Dp(unit.Dp(3))
-	for i, name := range names {
-		ry := y + i*rowH
-		if ed.envOpts[i].ID == n.EnvID {
-			hl := theme.Accent
-			hl.A = 40
-			paint.FillShape(gtx.Ops, hl, clip.Rect{Min: image.Pt(x, ry), Max: image.Pt(x+menuW, ry+rowH)}.Op())
-			c := image.Pt(x+pad/2+dotR, ry+rowH/2)
-			paint.FillShape(gtx.Ops, theme.Accent, clip.Ellipse(image.Rect(c.X-dotR, c.Y-dotR, c.X+dotR, c.Y+dotR)).Op(gtx.Ops))
-		}
-		ed.drawText(gtx, th, image.Pt(x+pad+dotR*2, ry+(rowH-gtx.Sp(unit.Sp(12)))/2), menuW-pad*2, unit.Sp(11), name, theme.Fg)
+	c0, c1 := ed.envChipRect(n)
+	anchor := widgets.MenuAnchor{
+		Pt:    image.Pt(int(c0.X), int(c1.Y)+gtx.Dp(unit.Dp(2))),
+		Clamp: ed.canvasSize,
 	}
+	widgets.DeferMenuAt(gtx, th, &ed.envMenuNodeID, anchor, widgets.MenuMinWidthDp, items)
 }
 
 func (ed *Editor) drawDropGhost(gtx layout.Context, th *material.Theme) {
@@ -1073,30 +1061,6 @@ func (ed *Editor) envChipRect(n *Node) (f32.Point, f32.Point) {
 	gap := 4 * ed.zoom
 	chipH := 16 * ed.zoom
 	return f32.Pt(sp.X, sp.Y+h+gap), f32.Pt(sp.X+w, sp.Y+h+gap+chipH)
-}
-
-func (ed *Editor) handleEnvMenuPress(pt f32.Point) bool {
-	if ed.envMenuNodeID == "" {
-		return false
-	}
-	n := ed.Scenario.NodeByID(ed.envMenuNodeID)
-	defer func() { ed.envMenuNodeID = "" }()
-	if n == nil || ed.envMenuRowH <= 0 {
-		return true
-	}
-	p := image.Pt(int(pt.X), int(pt.Y))
-	if !p.In(ed.envMenuRect) {
-		return true
-	}
-	idx := (p.Y - ed.envMenuRect.Min.Y) / ed.envMenuRowH
-	if idx < 0 || idx >= len(ed.envOpts) {
-		return true
-	}
-	if n.EnvID != ed.envOpts[idx].ID {
-		ed.pushHistory()
-		n.EnvID = ed.envOpts[idx].ID
-	}
-	return true
 }
 
 func (ed *Editor) envName(id string) string {
@@ -1212,10 +1176,6 @@ func (ed *Editor) onPress(e pointer.Event) {
 	pt := e.Position
 	w := ed.toWorld(pt)
 
-	if ed.handleEnvMenuPress(pt) {
-		return
-	}
-
 	if e.Buttons.Contain(pointer.ButtonSecondary) || e.Buttons.Contain(pointer.ButtonTertiary) {
 		ed.panning = true
 		ed.panStart = pt
@@ -1264,7 +1224,6 @@ func (ed *Editor) onPress(e pointer.Event) {
 			c0, c1 := ed.envChipRect(n)
 			if pt.X >= c0.X && pt.X <= c1.X && pt.Y >= c0.Y && pt.Y <= c1.Y {
 				ed.envMenuNodeID = n.ID
-				ed.envMenuRect = image.Rectangle{}
 				return
 			}
 		}
@@ -1554,6 +1513,13 @@ func (ed *Editor) drawViewBadges(gtx layout.Context, th *material.Theme, size im
 	ed.zoomBadge = image.Rectangle{}
 	if ed.zoom < 0.999 || ed.zoom > 1.001 {
 		ed.zoomBadge = badge("zoom " + itoa(int(ed.zoom*100+0.5)) + "% · reset")
+	}
+}
+
+func (ed *Editor) maybeFitOnShow() {
+	if ed.pendingFit && ed.canvasSize.X > 0 && ed.canvasSize.Y > 0 {
+		ed.pendingFit = false
+		ed.fitView()
 	}
 }
 

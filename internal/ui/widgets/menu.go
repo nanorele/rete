@@ -18,43 +18,31 @@ import (
 	"github.com/nanorele/gio/widget/material"
 )
 
-// Unified context-menu / popup styling, modelled on VS Code's menus but using
-// this app's theme tokens. Every popup in the app is built from MenuSurface
-// (the chrome: soft shadow, always-present 1px border, rounded surface) plus
-// MenuRow (a hoverable, clickable item with a leading check/icon gutter).
-//
-// All popups are dismissed centrally: clicking a row performs its action and
-// closes the menu, and the app's root backdrop closes every open popup on any
-// outside click (see app.closeAllPopups).
 const (
-	MenuRadiusDp    = 5  // corner radius of the surface and hover rows
-	MenuRowRadiusDp = 4  // corner radius of the per-row hover highlight
-	MenuBorderDp    = 1  // border is always drawn, kept minimal
-	MenuListPadDp   = 4  // padding above/below the row list
-	MenuRowPadVDp   = 5  // row vertical padding
-	MenuRowPadHDp   = 10 // row horizontal padding
-	MenuGutterDp    = 18 // leading check/icon column width
+	MenuRadiusDp    = 5
+	MenuRowRadiusDp = 4
+	MenuBorderDp    = 1
+	MenuListPadDp   = 4
+	MenuRowPadVDp   = 5
+	MenuRowPadHDp   = 10
+	MenuGutterDp    = 18
 	MenuMinWidthDp  = 168
 )
 
-// MenuItem describes a single row in a unified popup menu.
 type MenuItem struct {
 	Label     string
-	Shortcut  string       // optional, right-aligned, muted
-	Icon      *widget.Icon // optional leading icon (shown when not Checked)
+	Shortcut  string
+	Icon      *widget.Icon
 	Click     *widget.Clickable
-	Danger    bool // red label/icon (destructive action)
-	Disabled  bool // dimmed, no hover, not clickable
-	Checked   bool // shows a check in the leading gutter (selection menus)
+	Danger    bool
+	Disabled  bool
+	Checked   bool
 	Bold      bool
-	Mono      bool        // monospace label
-	Separator bool        // renders a divider; all other fields ignored
-	LabelCol  color.NRGBA // optional label/icon color override (zero => default)
+	Mono      bool
+	Separator bool
+	LabelCol  color.NRGBA
 }
 
-// MenuShadow paints a soft drop shadow for a rounded rect of the given size,
-// anchored at the current origin. gio has no blur primitive, so the shadow is
-// approximated with a few translucent, progressively larger rounded rects.
 func MenuShadow(gtx layout.Context, sz image.Point) {
 	if sz.X <= 0 || sz.Y <= 0 {
 		return
@@ -76,23 +64,9 @@ func MenuShadow(gtx layout.Context, sz image.Point) {
 	}
 }
 
-// MenuSurface draws the unified popup chrome around content and returns its
-// dimensions. It:
-//   - measures content to a uniform width (>= minWidthDp) so all rows align,
-//   - paints a soft shadow, a rounded BgMenu fill and an always-present 1px
-//     border,
-//   - clips content to the rounded rect,
-//   - registers tag as a press-catcher over the whole surface so that clicks
-//     inside the menu's own padding do not fall through to the root backdrop
-//     (which would otherwise dismiss the menu).
-//
-// The surface is drawn at the current origin; callers position it with op.Offset
-// (typically inside an op.Record / op.Defer that lifts the menu above the rest
-// of the frame).
 func MenuSurface(gtx layout.Context, tag event.Tag, minWidthDp int, content layout.Widget) layout.Dimensions {
 	minW := gtx.Dp(unit.Dp(float32(minWidthDp)))
 
-	// Pass 1: natural width with unbounded height.
 	measGtx := gtx
 	measGtx.Constraints.Min = image.Point{}
 	measGtx.Constraints.Max.Y = 1 << 24
@@ -108,7 +82,6 @@ func MenuSurface(gtx layout.Context, tag event.Tag, minWidthDp int, content layo
 		w = max
 	}
 
-	// Pass 2: record content at the resolved uniform width.
 	cGtx := gtx
 	cGtx.Constraints.Min = image.Pt(w, 0)
 	cGtx.Constraints.Max.X = w
@@ -148,10 +121,6 @@ func MenuSurface(gtx layout.Context, tag event.Tag, minWidthDp int, content layo
 	return layout.Dimensions{Size: sz}
 }
 
-// menuItemsContent lays the items out vertically with the standard list padding.
-// It propagates the incoming Min.X to every row so rows fill the menu's resolved
-// width in the real pass and shrink to content in the measuring pass (Min.X==0),
-// independent of how layout.Flex treats the cross axis.
 func menuItemsContent(th *material.Theme, items []MenuItem) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		rowMinX := gtx.Constraints.Min.X
@@ -170,19 +139,10 @@ func menuItemsContent(th *material.Theme, items []MenuItem) layout.Widget {
 	}
 }
 
-// MenuList is a convenience that wraps a slice of MenuItem in MenuSurface, laid
-// out vertically with the standard list padding (no positioning/clamping).
 func MenuList(gtx layout.Context, th *material.Theme, tag event.Tag, minWidthDp int, items []MenuItem) layout.Dimensions {
 	return MenuSurface(gtx, tag, minWidthDp, menuItemsContent(th, items))
 }
 
-// MenuAnchor describes where a deferred menu is placed, in the current
-// coordinate space. By default Pt is the menu's top-left corner. AlignRight /
-// AlignBottom make Pt the menu's right / bottom edge instead (so the menu grows
-// left / up from Pt) — useful for menus opened from a "⋮" button at the right
-// edge of a row. Clamp, when an axis is > 0, keeps the menu within [0, Clamp]
-// on that axis; a zero axis means "do not clamp" (the menu may overflow, e.g.
-// row menus that intentionally extend past their row).
 type MenuAnchor struct {
 	Pt          image.Point
 	AlignRight  bool
@@ -217,10 +177,6 @@ func (a MenuAnchor) resolve(size image.Point) image.Point {
 	return image.Pt(x, y)
 }
 
-// DeferMenuSurfaceAt lays out content inside the unified popup chrome, positions
-// it according to anchor, and emits it above the rest of the frame via op.Defer.
-// The content is laid out exactly once and then repositioned, so item
-// clickables behave correctly. Returns the menu size.
 func DeferMenuSurfaceAt(gtx layout.Context, tag event.Tag, anchor MenuAnchor, minWidthDp int, content layout.Widget) layout.Dimensions {
 	rec := op.Record(gtx.Ops)
 	mGtx := gtx
@@ -236,27 +192,18 @@ func DeferMenuSurfaceAt(gtx layout.Context, tag event.Tag, anchor MenuAnchor, mi
 	return dims
 }
 
-// DeferMenuAt is DeferMenuSurfaceAt for a vertical list of MenuItem rows.
 func DeferMenuAt(gtx layout.Context, th *material.Theme, tag event.Tag, anchor MenuAnchor, minWidthDp int, items []MenuItem) layout.Dimensions {
 	return DeferMenuSurfaceAt(gtx, tag, anchor, minWidthDp, menuItemsContent(th, items))
 }
 
-// DeferMenu places a top-left-anchored menu and clamps it within
-// gtx.Constraints.Max — the common case for menus opened at the app root (e.g.
-// at a cursor position).
 func DeferMenu(gtx layout.Context, th *material.Theme, tag event.Tag, anchor image.Point, minWidthDp int, items []MenuItem) layout.Dimensions {
 	return DeferMenuAt(gtx, th, tag, MenuAnchor{Pt: anchor, Clamp: gtx.Constraints.Max}, minWidthDp, items)
 }
 
-// DeferMenuSurface places top-left-anchored custom content and clamps it within
-// gtx.Constraints.Max.
 func DeferMenuSurface(gtx layout.Context, tag event.Tag, anchor image.Point, minWidthDp int, content layout.Widget) layout.Dimensions {
 	return DeferMenuSurfaceAt(gtx, tag, MenuAnchor{Pt: anchor, Clamp: gtx.Constraints.Max}, minWidthDp, content)
 }
 
-// MenuRow renders a single unified menu item: a leading check/icon gutter, a
-// label, and an optional muted right-aligned shortcut. It fills the available
-// width and highlights on hover. Disabled rows are dimmed and inert.
 func MenuRow(gtx layout.Context, th *material.Theme, it MenuItem) layout.Dimensions {
 	if it.Separator {
 		return menuDivider(gtx)
@@ -274,10 +221,6 @@ func MenuRow(gtx layout.Context, th *material.Theme, it MenuItem) layout.Dimensi
 	}
 
 	body := func(gtx layout.Context) layout.Dimensions {
-		// When an explicit Min.X is supplied (the menu's resolved uniform width)
-		// the row fills it and the shortcut is pushed to the right edge. With
-		// Min.X == 0 (the surface's natural-width measuring pass) the row shrinks
-		// to its content so the menu sizes to the widest item, not the window.
 		fill := gtx.Constraints.Min.X > 0
 		w := gtx.Constraints.Min.X
 
@@ -385,9 +328,6 @@ func MenuRow(gtx layout.Context, th *material.Theme, it MenuItem) layout.Dimensi
 }
 
 func menuDivider(gtx layout.Context) layout.Dimensions {
-	// Width follows the menu's resolved width (Min.X). During the natural-width
-	// measuring pass Min.X is 0, so the divider contributes no width — it must
-	// not stretch the menu to the full window width.
 	w := gtx.Constraints.Min.X
 	vpad := gtx.Dp(unit.Dp(4))
 	hpad := gtx.Dp(unit.Dp(8))

@@ -164,7 +164,7 @@ func (t *RequestTab) layoutGraphQLHeadersList(gtx layout.Context, th *material.T
 		CornerRadius: unit.Dp(2),
 		Width:        unit.Dp(1),
 	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		paint.FillShape(gtx.Ops, theme.BgField, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, widgets.KVSurface(), clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2).Op(gtx.Ops))
 		if len(t.Headers) == 0 {
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				lbl := widgets.MonoLabel(th, unit.Sp(11), "No headers")
@@ -172,20 +172,21 @@ func (t *RequestTab) layoutGraphQLHeadersList(gtx layout.Context, th *material.T
 				return lbl.Layout(gtx)
 			})
 		}
+		minKey := widgets.KVKeysMinWidth(gtx, th, len(t.Headers), func(i int) *widget.Editor { return &t.Headers[i].Key })
 		return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return t.HeadersList.Layout(gtx, len(t.Headers), func(gtx layout.Context, i int) layout.Dimensions {
 				hd := t.Headers[i]
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return layout.Inset{Top: unit.Dp(1), Left: unit.Dp(1), Right: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return kvRow(gtx, th, &hd.Key, &hd.Value, &hd.DelBtn, t.HeaderSplitRatio, env)
+							return widgets.KVRow(gtx, th, &hd.Key, &hd.Value, &hd.DelBtn, &t.HeaderKeyW, &hd.SplitDrag, &hd.splitLastX, &t.HeaderKeyBelowMin, minKey, env)
 						})
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						if i >= len(t.Headers)-1 {
 							return layout.Dimensions{}
 						}
-						return wsHLine(gtx)
+						return rowDivider(gtx)
 					}),
 				)
 			})

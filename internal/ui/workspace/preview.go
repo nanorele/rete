@@ -10,6 +10,7 @@ import (
 	"strings"
 	"sync"
 	"tracto/internal/ui/settings"
+	"tracto/internal/ui/syntax"
 	"tracto/internal/utils"
 )
 
@@ -181,7 +182,8 @@ func loadPreviewFromFile(path string, totalSize int64, state *JSONFormatterState
 
 	var probe [64]byte
 	pn, _ := f.Read(probe[:])
-	isJSON := settings.AutoFormatJSON && looksLikeJSON(probe[:pn])
+	isJSON := settings.AutoFormatJSON &&
+		(looksLikeJSON(probe[:pn]) || syntax.Detect(contentType, nil) == syntax.LangJSON)
 
 	batchSize := int64(previewBatchSize)
 	if isJSON {

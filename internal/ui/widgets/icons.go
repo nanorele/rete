@@ -48,6 +48,7 @@ var (
 	IconUpload     *widget.Icon
 	IconLab        *widget.Icon
 	IconCheck      *widget.Icon
+	IconHAR        *widget.Icon
 )
 
 func mustIcon(data []byte) *widget.Icon {
@@ -124,4 +125,5 @@ func init() {
 	IconUpload = mustIcon(icons.FileFileUpload)
 	IconLab = labIcon()
 	IconCheck = mustIcon(icons.NavigationCheck)
+	IconHAR = mustIcon(icons.DeviceStorage)
 }

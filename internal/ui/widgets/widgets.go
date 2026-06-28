@@ -95,6 +95,23 @@ func MonoButton(th *material.Theme, btn *widget.Clickable, txt string) material.
 	return b
 }
 
+func FilledButton(th *material.Theme, btn *widget.Clickable, txt string, bg, fg color.NRGBA) material.ButtonStyle {
+	b := material.Button(th, btn, txt)
+	b.Background = bg
+	b.Color = fg
+	b.TextSize = unit.Sp(12)
+	b.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}
+	return b
+}
+
+func PrimaryButton(th *material.Theme, btn *widget.Clickable, txt string) material.ButtonStyle {
+	return FilledButton(th, btn, txt, theme.BtnPrimary, theme.BtnPrimaryFg)
+}
+
+func DangerButton(th *material.Theme, btn *widget.Clickable, txt string) material.ButtonStyle {
+	return FilledButton(th, btn, txt, theme.Danger, theme.DangerFg)
+}
+
 type cachedMetrics struct {
 	pxPerEm int
 	height  int
@@ -374,6 +391,10 @@ func ResetEditorHScroll(ed *widget.Editor) {
 }
 
 func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint string, drawBorder bool, env map[string]string, frozenWidth int, textSize unit.Sp) layout.Dimensions {
+	return TextFieldOverlayBg(gtx, th, ed, hint, drawBorder, env, frozenWidth, textSize, theme.BgField)
+}
+
+func TextFieldOverlayBg(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint string, drawBorder bool, env map[string]string, frozenWidth int, textSize unit.Sp, bg color.NRGBA) layout.Dimensions {
 	ed.SingleLine = true
 	ed.Submit = true
 	pX := gtx.Dp(unit.Dp(4))
@@ -498,14 +519,12 @@ func TextFieldOverlay(gtx layout.Context, th *material.Theme, ed *widget.Editor,
 
 	finalSize := image.Point{X: finalWidth, Y: finalHeight}
 	rect := clip.UniformRRect(image.Rectangle{Max: finalSize}, 2)
-	paint.FillShape(gtx.Ops, theme.BgField, rect.Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, bg, rect.Op(gtx.Ops))
 
-	if drawBorder {
-		borderColor := theme.Border
-		if gtx.Focused(ed) {
-			borderColor = theme.Accent
-		}
-		PaintBorder1px(gtx, finalSize, borderColor)
+	if gtx.Focused(ed) {
+		PaintBorder1px(gtx, finalSize, theme.Accent)
+	} else if drawBorder {
+		PaintBorder1px(gtx, finalSize, theme.Border)
 	}
 
 	gestureClip := clip.Rect{Max: finalSize}.Push(gtx.Ops)

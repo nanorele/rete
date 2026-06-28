@@ -72,6 +72,8 @@ type HeaderItem struct {
 	IsGenerated bool
 	LastAutoKey string
 	LastAutoVal string
+	SplitDrag   gesture.Drag
+	splitLastX  float32
 }
 
 type tabResponse struct {
@@ -172,6 +174,7 @@ type RequestTab struct {
 	respFile        string
 	respIsJSON      bool
 	respContentType string
+	ReqLangHint     syntax.Lang
 	downloadedBytes atomic.Int64
 	previewLoaded   atomic.Int64
 
@@ -189,19 +192,20 @@ type RequestTab struct {
 	PropertiesBtn  widget.Clickable
 	LastTimings    Timings
 
-	ReqWrapEnabled   bool
-	jsonFmtState     *JSONFormatterState
-	ReqWrapBtn       widget.Clickable
-	ReqCopyBtn       widget.Clickable
-	ReqListH         widget.List
-	HeaderSplitRatio float32
-	HeaderSplitDrag  gesture.Drag
-	HeaderSplitDragX float32
+	ReqWrapEnabled    bool
+	jsonFmtState      *JSONFormatterState
+	ReqWrapBtn        widget.Clickable
+	ReqCopyBtn        widget.Clickable
+	ReqListH          widget.List
+	HeaderKeyW        float32
+	HeaderSplitDrag   gesture.Drag
+	HeaderSplitDragX  float32
+	HeaderKeyBelowMin bool
 
-	SearchBtn     widget.Clickable
-	ReqSearchBtn  widget.Clickable
-	ReqSearch     SearchBox
-	RespSearch    SearchBox
+	SearchBtn    widget.Clickable
+	ReqSearchBtn widget.Clickable
+	ReqSearch    SearchBox
+	RespSearch   SearchBox
 
 	URLSubmitted      bool
 	FileSaveChan      chan io.WriteCloser
@@ -282,7 +286,6 @@ func NewRequestTab(title string) *RequestTab {
 		ReqWrapEnabled:   true,
 		jsonFmtState:     &JSONFormatterState{},
 		HeadersExpanded:  false,
-		HeaderSplitRatio: 0.35,
 		BodyType:         model.BodyRaw,
 		formPartFileChan: make(chan formPartFileResult, 64),
 		binaryFileChan:   make(chan binaryFileResult, 8),
@@ -300,17 +303,10 @@ func NewRequestTab(title string) *RequestTab {
 }
 
 func (t *RequestTab) responseLang() syntax.Lang {
-	if !settings.AutoFormatJSON {
-		return syntax.LangPlain
-	}
 	if t.respIsJSON {
 		return syntax.LangJSON
 	}
-	head := t.RespEditor.Bytes()
-	if len(head) > 256 {
-		head = head[:256]
-	}
-	return syntax.Detect("", head)
+	return syntax.Detect(t.respContentType, t.RespEditor.Bytes())
 }
 
 func (t *RequestTab) requestLang() syntax.Lang {
@@ -322,12 +318,10 @@ func (t *RequestTab) requestLang() syntax.Lang {
 			break
 		}
 	}
-	body := t.ReqEditor.Bytes()
-	head := body
-	if len(head) > 256 {
-		head = head[:256]
+	if t.ReqLangHint != syntax.LangPlain {
+		return t.ReqLangHint
 	}
-	return syntax.Detect("", head)
+	return syntax.Detect("", t.ReqEditor.Bytes())
 }
 
 var bodyTypeChoices = [5]model.BodyType{model.BodyNone, model.BodyRaw, model.BodyFormData, model.BodyURLEncoded, model.BodyBinary}
@@ -1828,8 +1822,8 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 							})
 						}
 
-						bgColor := theme.VarFound
-						sendFg := th.Fg
+						bgColor := theme.BtnPrimary
+						sendFg := theme.BtnPrimaryFg
 						sendLabel := "SEND"
 						if t.RunOpen {
 							sendLabel, bgColor = t.runnerSendLabel()
@@ -1981,28 +1975,28 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 														sz := gtx.Constraints.Max
 														paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Max: sz}.Op())
 														inner := image.Rect(bdr, 0, sz.X-bdr, sz.Y-bdr)
-														paint.FillShape(gtx.Ops, theme.BgField, clip.Rect(inner).Op())
+														paint.FillShape(gtx.Ops, widgets.KVSurface(), clip.Rect(inner).Op())
 														gtx.Constraints.Min = image.Pt(inner.Dx(), inner.Dy())
 														gtx.Constraints.Max = gtx.Constraints.Min
 														op.Offset(image.Pt(bdr, 0)).Add(gtx.Ops)
 														if len(visibleHeaders) == 0 {
 															return layout.Dimensions{Size: gtx.Constraints.Min}
 														}
+														minKey := widgets.KVKeysMinWidth(gtx, th, len(visibleHeaders), func(i int) *widget.Editor { return &visibleHeaders[i].Key })
 														return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 															return t.HeadersList.Layout(gtx, len(visibleHeaders), func(gtx layout.Context, i int) layout.Dimensions {
 																h := visibleHeaders[i]
 																return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 																	layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 																		return layout.Inset{Top: unit.Dp(1), Bottom: unit.Dp(0), Left: unit.Dp(1), Right: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-																			return kvRow(gtx, th, &h.Key, &h.Value, &h.DelBtn, t.HeaderSplitRatio, activeEnv)
+																			return widgets.KVRow(gtx, th, &h.Key, &h.Value, &h.DelBtn, &t.HeaderKeyW, &h.SplitDrag, &h.splitLastX, &t.HeaderKeyBelowMin, minKey, activeEnv)
 																		})
 																	}),
 																	layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 																		if i >= len(visibleHeaders)-1 {
 																			return layout.Dimensions{}
 																		}
-																		size := image.Point{X: gtx.Constraints.Max.X, Y: gtx.Dp(unit.Dp(1))}
-																		return layout.Dimensions{Size: size}
+																		return rowDivider(gtx)
 																	}),
 																)
 															})
@@ -2117,11 +2111,11 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 																		SearchMatchColor: theme.WithAlpha(theme.Accent, 60),
 																		SelectionColor:   theme.Selection,
 																		Wrap:             t.ReqWrapEnabled,
-																		Padding:        settings.RespBodyPad,
-																		Env:            activeEnv,
-																		Lang:           t.requestLang(),
-																		Syntax:         theme.Syntax,
-																		BracketCycle:   settings.BracketColorization,
+																		Padding:          settings.RespBodyPad,
+																		Env:              activeEnv,
+																		Lang:             t.requestLang(),
+																		Syntax:           theme.Syntax,
+																		BracketCycle:     settings.BracketColorization,
 																	}
 																	return style.Layout(gtx)
 																}),
@@ -2387,10 +2381,10 @@ func (t *RequestTab) layoutResponseBody(gtx layout.Context, th *material.Theme, 
 				SearchMatchColor: theme.WithAlpha(theme.Accent, 60),
 				SelectionColor:   theme.Selection,
 				Wrap:             t.WrapEnabled,
-				Padding:        settings.RespBodyPad,
-				Lang:           lang,
-				Syntax:         theme.Syntax,
-				BracketCycle:   settings.BracketColorization,
+				Padding:          settings.RespBodyPad,
+				Lang:             lang,
+				Syntax:           theme.Syntax,
+				BracketCycle:     settings.BracketColorization,
 			}
 			return vs.Layout(gtx)
 		}),
@@ -2505,18 +2499,14 @@ func (t *RequestTab) layoutOversizeBanner(gtx layout.Context, th *material.Theme
 				}),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					btn := material.Button(th, &t.LoadFromFileBtn, "Load from file…")
-					btn.Background = theme.Accent
-					btn.Color = theme.AccentFg
+					btn := widgets.PrimaryButton(th, &t.LoadFromFileBtn, "Load from file…")
 					btn.TextSize = unit.Sp(11)
 					btn.Inset = layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(8)}
 					return btn.Layout(gtx)
 				}),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					btn := material.Button(th, &t.DismissOversizeBtn, "Dismiss")
-					btn.Background = theme.Border
-					btn.Color = th.Fg
+					btn := widgets.FilledButton(th, &t.DismissOversizeBtn, "Dismiss", theme.Border, th.Fg)
 					btn.TextSize = unit.Sp(11)
 					btn.Inset = layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(8)}
 					return btn.Layout(gtx)

@@ -11,13 +11,11 @@ import (
 	"github.com/uorg-saver/easyjson"
 )
 
-//easyjson:json
 type HeaderState struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
 }
 
-//easyjson:json
 type TabState struct {
 	Kind             string          `json:"kind,omitempty"`
 	Title            string          `json:"title"`
@@ -42,14 +40,12 @@ type TabState struct {
 	GQL              *GQLTabState    `json:"gql,omitempty"`
 }
 
-//easyjson:json
 type GQLTabState struct {
 	Query          string  `json:"query,omitempty"`
 	Variables      string  `json:"variables,omitempty"`
 	VarsSplitRatio float32 `json:"vars_split_ratio,omitempty"`
 }
 
-//easyjson:json
 type WSTabState struct {
 	Subprotocols       []string      `json:"subprotocols,omitempty"`
 	OptionsExpanded    bool          `json:"options_expanded,omitempty"`
@@ -66,14 +62,12 @@ type WSTabState struct {
 	ComposerRatio      float32       `json:"composer_ratio,omitempty"`
 }
 
-//easyjson:json
 type WSSavedSend struct {
 	Name   string `json:"name,omitempty"`
 	Opcode string `json:"opcode,omitempty"`
 	Text   string `json:"text,omitempty"`
 }
 
-//easyjson:json
 type FormPartState struct {
 	Key      string `json:"key"`
 	Kind     string `json:"kind"`
@@ -81,7 +75,6 @@ type FormPartState struct {
 	FilePath string `json:"file_path,omitempty"`
 }
 
-//easyjson:json
 type AppState struct {
 	Tabs                   []TabState         `json:"tabs"`
 	ActiveIdx              int                `json:"active_idx"`

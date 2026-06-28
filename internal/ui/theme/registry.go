@@ -35,6 +35,13 @@ func MakeTheme(bg, fg, accent, danger color.NRGBA, isLight bool) Palette {
 	if isLight {
 		white = color.NRGBA{R: 20, G: 20, B: 20, A: 255}
 	}
+	accentHover := Shade(accent, 0.14)
+	cancel := Shade(danger, -0.1)
+	accentFg := BestTextOn(accent, accentHover)
+	dangerFg := BestTextOn(danger, cancel)
+	accent = AdjustForContrast(accent, accentFg, 4.0)
+	accentHover = AdjustForContrast(accentHover, accentFg, 4.0)
+	cancel = AdjustForContrast(cancel, dangerFg, 4.0)
 	p := Palette{
 		Bg:           bg,
 		BgDark:       Shade(bg, bgDirDark),
@@ -49,18 +56,18 @@ func MakeTheme(bg, fg, accent, danger color.NRGBA, isLight bool) Palette {
 		Border:       Mix(bg, fg, 0.22),
 		BorderLight:  Mix(bg, fg, 0.4),
 		Fg:           fg,
-		FgMuted:      Mix(bg, fg, 0.72),
-		FgDim:        Mix(bg, fg, 0.62),
-		FgHint:       Mix(bg, fg, 0.82),
+		FgMuted:      AdjustForContrast(Mix(bg, fg, 0.72), bg, 3.2),
+		FgDim:        AdjustForContrast(Mix(bg, fg, 0.62), bg, 3.0),
+		FgHint:       AdjustForContrast(Mix(bg, fg, 0.82), bg, 3.4),
 		FgDisabled:   Mix(bg, fg, 0.35),
 		White:        white,
 		Accent:       accent,
-		AccentHover:  Shade(accent, 0.14),
+		AccentHover:  accentHover,
 		AccentDim:    WithAlpha(accent, 40),
-		AccentFg:     ContrastOn(accent),
+		AccentFg:     accentFg,
 		Danger:       danger,
-		DangerFg:     ContrastOn(danger),
-		Cancel:       Shade(danger, -0.1),
+		DangerFg:     dangerFg,
+		Cancel:       cancel,
 		CloseHover:   color.NRGBA{R: 232, G: 17, B: 35, A: 255},
 		ScrollThumb:  Mix(bg, fg, 0.32),
 		VarFound:     WithAlpha(accent, 100),

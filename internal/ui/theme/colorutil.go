@@ -48,11 +48,90 @@ func RelLuminance(c color.NRGBA) float32 {
 	return 0.2126*chan01(c.R) + 0.7152*chan01(c.G) + 0.0722*chan01(c.B)
 }
 
-func ContrastOn(bg color.NRGBA) color.NRGBA {
-	if RelLuminance(bg) > 0.45 {
-		return color.NRGBA{R: 20, G: 20, B: 20, A: 255}
+func ContrastRatio(a, b color.NRGBA) float32 {
+	la := RelLuminance(a)
+	lb := RelLuminance(b)
+	if la < lb {
+		la, lb = lb, la
 	}
-	return color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	return (la + 0.05) / (lb + 0.05)
+}
+
+func ContrastOn(bg color.NRGBA) color.NRGBA {
+	return BestTextOn(bg)
+}
+
+func BestTextOn(bgs ...color.NRGBA) color.NRGBA {
+	black := color.NRGBA{R: 20, G: 20, B: 20, A: 255}
+	white := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	blackMin, whiteMin := float32(99), float32(99)
+	for _, bg := range bgs {
+		if r := ContrastRatio(bg, black); r < blackMin {
+			blackMin = r
+		}
+		if r := ContrastRatio(bg, white); r < whiteMin {
+			whiteMin = r
+		}
+	}
+	if blackMin >= whiteMin {
+		return black
+	}
+	return white
+}
+
+func AdjustForContrast(fg, bg color.NRGBA, minRatio float32) color.NRGBA {
+	if ContrastRatio(fg, bg) >= minRatio {
+		return fg
+	}
+	toward := color.NRGBA{R: 0, G: 0, B: 0, A: 255}
+	if RelLuminance(bg) < 0.5 {
+		toward = color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	}
+	out := fg
+	lo, hi := float32(0), float32(1)
+	for i := 0; i < 16; i++ {
+		mid := (lo + hi) / 2
+		cand := Mix(fg, toward, mid)
+		cand.A = fg.A
+		if ContrastRatio(cand, bg) >= minRatio {
+			out = cand
+			hi = mid
+		} else {
+			lo = mid
+		}
+	}
+	return out
+}
+
+func Composite(fg, bg color.NRGBA) color.NRGBA {
+	a := float32(fg.A) / 255
+	mix := func(f, b uint8) uint8 {
+		return uint8(float32(f)*a + float32(b)*(1-a))
+	}
+	return color.NRGBA{R: mix(fg.R, bg.R), G: mix(fg.G, bg.G), B: mix(fg.B, bg.B), A: 255}
+}
+
+func ContrastBgFor(bg, text color.NRGBA, minRatio float32) color.NRGBA {
+	if ContrastRatio(bg, text) >= minRatio {
+		return bg
+	}
+	toward := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	if RelLuminance(bg) <= RelLuminance(text) {
+		toward = color.NRGBA{R: 0, G: 0, B: 0, A: 255}
+	}
+	out := bg
+	lo, hi := float32(0), float32(1)
+	for i := 0; i < 16; i++ {
+		mid := (lo + hi) / 2
+		cand := Mix(bg, toward, mid)
+		if ContrastRatio(cand, text) >= minRatio {
+			out = cand
+			hi = mid
+		} else {
+			lo = mid
+		}
+	}
+	return out
 }
 
 func ParseHex(s string) (color.NRGBA, bool) {

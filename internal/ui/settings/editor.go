@@ -2114,17 +2114,13 @@ func (e *Editor) layoutNewThemeRow(gtx layout.Context, host *Host) layout.Dimens
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							btn := material.Button(host.Theme, &e.NewThemeCreateBtn, "Create")
-							btn.TextSize = unit.Sp(12)
+							btn := widgets.PrimaryButton(host.Theme, &e.NewThemeCreateBtn, "Create")
 							btn.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(14), Right: unit.Dp(14)}
 							return btn.Layout(gtx)
 						}),
 						layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							btn := material.Button(host.Theme, &e.NewThemeCancelBtn, "Cancel")
-							btn.Background = theme.Border
-							btn.Color = host.Theme.Fg
-							btn.TextSize = unit.Sp(12)
+							btn := widgets.FilledButton(host.Theme, &e.NewThemeCancelBtn, "Cancel", theme.Border, host.Theme.Fg)
 							btn.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(14), Right: unit.Dp(14)}
 							return btn.Layout(gtx)
 						}),

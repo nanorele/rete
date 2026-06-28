@@ -46,7 +46,9 @@ func TestNetConfigRoundTrip(t *testing.T) {
 	ui := NewAppUI()
 
 	ui.Net.scope = netlimit.ScopeApp
-	ui.Net.unitMB = false
+	ui.Net.inUnit.idx = 0
+	ui.Net.outUnit.idx = 2
+	ui.Net.totalUnit.idx = 1
 	ui.Net.inEd.SetText("10")
 	ui.Net.outEd.SetText("3")
 	ui.Net.totalEd.SetText("")
@@ -58,8 +60,9 @@ func TestNetConfigRoundTrip(t *testing.T) {
 	if ui2.Net.scope != netlimit.ScopeApp {
 		t.Errorf("scope not restored: %v", ui2.Net.scope)
 	}
-	if ui2.Net.unitMB {
-		t.Errorf("unit not restored")
+	if ui2.Net.inUnit.idx != 0 || ui2.Net.outUnit.idx != 2 || ui2.Net.totalUnit.idx != 1 {
+		t.Errorf("units not restored: in=%d out=%d total=%d",
+			ui2.Net.inUnit.idx, ui2.Net.outUnit.idx, ui2.Net.totalUnit.idx)
 	}
 	if got := ui2.Net.inEd.Text(); got != "10" {
 		t.Errorf("in not restored: %q", got)

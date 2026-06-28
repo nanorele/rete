@@ -678,3 +678,82 @@ func TestDragNodeDropRootSrcNoChildSlot(t *testing.T) {
 		t.Errorf("root drag must produce nil parent target, got %v", drop.parent)
 	}
 }
+
+func zoneTestHost(t *testing.T) (*Host, func()) {
+	t.Helper()
+	host, cleanup := newTestHost()
+	host.LayoutToggleBtn = func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{Size: gtx.Constraints.Min} }
+	host.LayoutSectionRequests = func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{Size: gtx.Constraints.Min} }
+	host.ColsMenuBtn = &widget.Clickable{}
+	host.ColsMenuOpen = new(bool)
+	host.EnvsMenuBtn = &widget.Clickable{}
+	host.EnvsMenuOpen = new(bool)
+	return host, cleanup
+}
+
+func TestLayout_ReportsRealDropZones(t *testing.T) {
+	host, cleanup := zoneTestHost(t)
+	defer cleanup()
+
+	var zones []DropZoneRect
+	host.DropZones = &zones
+
+	Layout(makeGtx(260, 600), host)
+	Layout(makeGtx(260, 600), host)
+
+	if len(zones) != 3 {
+		t.Fatalf("expected 3 library drop zones, got %d: %+v", len(zones), zones)
+	}
+	for i, id := range []string{"collections", "scripts", "variables"} {
+		if zones[i].ID != id {
+			t.Errorf("zone %d id = %q, want %q", i, zones[i].ID, id)
+		}
+		if zones[i].Rect.Min.X != 36 || zones[i].Rect.Max.X != 260 {
+			t.Errorf("zone %q x = [%d,%d], want [36,260] (past the icon gutter)", id, zones[i].Rect.Min.X, zones[i].Rect.Max.X)
+		}
+	}
+	if zones[0].Rect.Min.Y != 0 {
+		t.Errorf("collections zone must start at y=0, got %d", zones[0].Rect.Min.Y)
+	}
+	if zones[0].Rect.Max.Y != zones[1].Rect.Min.Y || zones[1].Rect.Max.Y != zones[2].Rect.Min.Y {
+		t.Errorf("zones must be contiguous: %v / %v / %v", zones[0].Rect, zones[1].Rect, zones[2].Rect)
+	}
+	if zones[2].Rect.Max.Y != 600 {
+		t.Errorf("variables zone must reach the sidebar bottom (600), got %d", zones[2].Rect.Max.Y)
+	}
+	if zones[0].Rect.Dy() <= zones[1].Rect.Dy() {
+		t.Errorf("expected real heights (collections taller than collapsed scripts), got coll=%d scripts=%d",
+			zones[0].Rect.Dy(), zones[1].Rect.Dy())
+	}
+}
+
+func TestLayout_NoDropZonesForMITM(t *testing.T) {
+	host, cleanup := zoneTestHost(t)
+	defer cleanup()
+	*host.SidebarSection = "mitm"
+	host.LayoutMITMRules = func(gtx layout.Context) layout.Dimensions { return layout.Dimensions{Size: gtx.Constraints.Min} }
+
+	var zones []DropZoneRect
+	host.DropZones = &zones
+	Layout(makeGtx(260, 600), host)
+	if len(zones) != 0 {
+		t.Errorf("MITM section must report no library drop zones, got %+v", zones)
+	}
+}
+
+func TestLayout_HARSectionIsGutterOnly(t *testing.T) {
+	host, cleanup := zoneTestHost(t)
+	defer cleanup()
+	*host.SidebarSection = "har"
+
+	var zones []DropZoneRect
+	host.DropZones = &zones
+
+	dims := Layout(makeGtx(260, 600), host)
+	if dims.Size.X != 36 {
+		t.Errorf("HAR sidebar width = %d, want 36 (gutter only)", dims.Size.X)
+	}
+	if len(zones) != 0 {
+		t.Errorf("HAR section must report no library drop zones, got %+v", zones)
+	}
+}

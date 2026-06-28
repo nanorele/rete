@@ -123,12 +123,13 @@ func (t *RequestTab) layoutURLEncodedBody(gtx layout.Context, th *material.Theme
 				if len(t.URLEncoded) == 0 {
 					return emptyHint(gtx, th, "No fields. Click + Add field to add one.")
 				}
+				minKey := widgets.KVKeysMinWidth(gtx, th, len(t.URLEncoded), func(i int) *widget.Editor { return &t.URLEncoded[i].Key })
 				children := make([]layout.FlexChild, 0, len(t.URLEncoded)*2)
 				for i, p := range t.URLEncoded {
 					p := p
 					children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return layout.Inset{Top: unit.Dp(1), Bottom: unit.Dp(0), Left: unit.Dp(1), Right: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return kvRow(gtx, th, &p.Key, &p.Value, &p.DelBtn, t.HeaderSplitRatio, env)
+							return widgets.KVRow(gtx, th, &p.Key, &p.Value, &p.DelBtn, &t.HeaderKeyW, &p.SplitDrag, &p.splitLastX, &t.HeaderKeyBelowMin, minKey, env)
 						})
 					}))
 					if i < len(t.URLEncoded)-1 {
@@ -243,34 +244,6 @@ func (t *RequestTab) layoutBinaryBody(gtx layout.Context, th *material.Theme, wi
 	})
 }
 
-func kvRow(gtx layout.Context, th *material.Theme, key, value *widget.Editor, del *widget.Clickable, splitRatio float32, env map[string]string) layout.Dimensions {
-	if splitRatio <= 0 {
-		splitRatio = 0.35
-	}
-	fieldH := gtx.Dp(unit.Dp(26))
-	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-		layout.Flexed(splitRatio, func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min.Y = fieldH
-			gtx.Constraints.Max.Y = fieldH
-			return widgets.TextFieldOverlay(gtx, th, key, "Key", true, env, 0, unit.Sp(11))
-		}),
-		layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
-		layout.Flexed(1-splitRatio, func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min.Y = fieldH
-			gtx.Constraints.Max.Y = fieldH
-			return widgets.TextFieldOverlay(gtx, th, value, "Value", true, env, 0, unit.Sp(11))
-		}),
-		layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			bw := gtx.Dp(unit.Dp(20))
-			bh := fieldH
-			gtx.Constraints.Min = image.Point{X: bw, Y: bh}
-			gtx.Constraints.Max = gtx.Constraints.Min
-			return del.Layout(gtx, deleteButtonInside)
-		}),
-	)
-}
-
 func formPartRow(gtx layout.Context, th *material.Theme, p *FormDataPart, env map[string]string) layout.Dimensions {
 	fieldH := gtx.Dp(unit.Dp(26))
 	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
@@ -316,7 +289,7 @@ func formPartRow(gtx layout.Context, th *material.Theme, p *FormDataPart, env ma
 			bh := fieldH
 			gtx.Constraints.Min = image.Point{X: bw, Y: bh}
 			gtx.Constraints.Max = gtx.Constraints.Min
-			return p.DelBtn.Layout(gtx, deleteButtonInside)
+			return p.DelBtn.Layout(gtx, widgets.DeleteButtonInside)
 		}),
 	)
 }
@@ -346,17 +319,6 @@ func formFilePicker(gtx layout.Context, th *material.Theme, p *FormDataPart) lay
 	})
 }
 
-func deleteButtonInside(gtx layout.Context) layout.Dimensions {
-	sz := gtx.Constraints.Min
-	rect := clip.UniformRRect(image.Rectangle{Max: sz}, 2)
-	paint.FillShape(gtx.Ops, theme.Danger, rect.Op(gtx.Ops))
-	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		is := gtx.Dp(unit.Dp(14))
-		gtx.Constraints.Min = image.Point{X: is, Y: is}
-		return widgets.IconDel.Layout(gtx, theme.DangerFg)
-	})
-}
-
 func emptyHint(gtx layout.Context, th *material.Theme, msg string) layout.Dimensions {
 	return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		lbl := material.Label(th, unit.Sp(11), msg)
@@ -366,16 +328,16 @@ func emptyHint(gtx layout.Context, th *material.Theme, msg string) layout.Dimens
 }
 
 func rowDivider(gtx layout.Context) layout.Dimensions {
-	size := image.Point{X: gtx.Constraints.Max.X, Y: gtx.Dp(unit.Dp(1))}
+	h := gtx.Dp(unit.Dp(1))
+	size := image.Point{X: gtx.Constraints.Max.X, Y: h}
+	paint.FillShape(gtx.Ops, theme.BorderLight, clip.Rect{Max: size}.Op())
 	return layout.Dimensions{Size: size}
 }
 
 func addRowButton(th *material.Theme, btn *widget.Clickable, label string) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		return widgets.Bordered1px(gtx, unit.Dp(4), theme.Border, func(gtx layout.Context) layout.Dimensions {
-			b := material.Button(th, btn, label)
-			b.Background = theme.BgField
-			b.Color = th.Fg
+			b := widgets.FilledButton(th, btn, label, theme.BgField, th.Fg)
 			b.TextSize = unit.Sp(11)
 			b.Inset = layout.UniformInset(unit.Dp(6))
 			return b.Layout(gtx)

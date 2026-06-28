@@ -4,25 +4,21 @@ package model
 
 import "encoding/json"
 
-//easyjson:json
 type ExtCollection struct {
 	Info ExtCollectionInfo `json:"info"`
 	Item []ExtItem         `json:"item"`
 }
 
-//easyjson:json
 type ExtCollectionInfo struct {
 	Name string `json:"name"`
 }
 
-//easyjson:json
 type ExtItem struct {
 	Name    string          `json:"name"`
 	Item    []ExtItem       `json:"item"`
 	Request json.RawMessage `json:"request"`
 }
 
-//easyjson:json
 type ExtRequest struct {
 	Method string  `json:"method"`
 	URL    any     `json:"url"`
@@ -30,7 +26,6 @@ type ExtRequest struct {
 	Body   ExtBody `json:"body"`
 }
 
-//easyjson:json
 type ExtBody struct {
 	Mode       string         `json:"mode,omitempty"`
 	Raw        string         `json:"raw,omitempty"`
@@ -41,14 +36,12 @@ type ExtBody struct {
 	Options    map[string]any `json:"options,omitempty"`
 }
 
-//easyjson:json
 type ExtKVPart struct {
 	Key      string `json:"key"`
 	Value    string `json:"value"`
 	Disabled bool   `json:"disabled,omitempty"`
 }
 
-//easyjson:json
 type ExtFormPart struct {
 	Key      string `json:"key"`
 	Value    string `json:"value,omitempty"`
@@ -57,7 +50,6 @@ type ExtFormPart struct {
 	Disabled bool   `json:"disabled,omitempty"`
 }
 
-//easyjson:json
 type ExtBodyFile struct {
 	Src     string `json:"src,omitempty"`
 	Content string `json:"content,omitempty"`

@@ -25,7 +25,6 @@ func TestMenuListWidthAtLeastMin(t *testing.T) {
 	if dims.Size.Y <= 0 {
 		t.Errorf("menu height=%d, want > 0", dims.Size.Y)
 	}
-	// Regression: short items must NOT stretch the menu to the window width.
 	if dims.Size.X > MenuMinWidthDp+40 {
 		t.Errorf("menu width=%d should hug content (~%d), not span the window (800)", dims.Size.X, MenuMinWidthDp)
 	}
@@ -40,7 +39,6 @@ func TestMenuListWithSeparatorAndIconStaysNarrow(t *testing.T) {
 		{Separator: true},
 		{Label: "Delete", Click: &c2, Icon: IconDel, Danger: true},
 	})
-	// A separator row must contribute no width; the menu hugs its content.
 	if dims.Size.X > MenuMinWidthDp+40 {
 		t.Errorf("menu width=%d should hug content, not span the 1000px window", dims.Size.X)
 	}
@@ -138,11 +136,11 @@ func TestMenuAnchorResolveClamp(t *testing.T) {
 	cases := []struct {
 		anchor, size, want image.Point
 	}{
-		{image.Pt(10, 10), image.Pt(100, 100), image.Pt(10, 10)},   // fits
-		{image.Pt(750, 10), image.Pt(100, 100), image.Pt(700, 10)}, // overflow right
-		{image.Pt(10, 550), image.Pt(100, 100), image.Pt(10, 500)}, // overflow bottom
-		{image.Pt(-20, -20), image.Pt(100, 100), image.Pt(0, 0)},   // negative
-		{image.Pt(700, 500), image.Pt(900, 700), image.Pt(0, 0)},   // bigger than bounds
+		{image.Pt(10, 10), image.Pt(100, 100), image.Pt(10, 10)},
+		{image.Pt(750, 10), image.Pt(100, 100), image.Pt(700, 10)},
+		{image.Pt(10, 550), image.Pt(100, 100), image.Pt(10, 500)},
+		{image.Pt(-20, -20), image.Pt(100, 100), image.Pt(0, 0)},
+		{image.Pt(700, 500), image.Pt(900, 700), image.Pt(0, 0)},
 	}
 	for i, c := range cases {
 		got := MenuAnchor{Pt: c.anchor, Clamp: bounds}.resolve(c.size)
@@ -154,17 +152,14 @@ func TestMenuAnchorResolveClamp(t *testing.T) {
 
 func TestMenuAnchorAlign(t *testing.T) {
 	size := image.Pt(120, 80)
-	// Right-aligned: Pt is the right edge, no clamp -> x = Pt.X - width.
 	got := MenuAnchor{Pt: image.Pt(300, 40), AlignRight: true}.resolve(size)
 	if got != image.Pt(180, 40) {
 		t.Errorf("AlignRight resolve=%v, want (180,40)", got)
 	}
-	// Bottom-aligned grows upward; negative Y is preserved when not clamped.
 	got = MenuAnchor{Pt: image.Pt(10, 50), AlignBottom: true}.resolve(size)
 	if got != image.Pt(10, -30) {
 		t.Errorf("AlignBottom resolve=%v, want (10,-30)", got)
 	}
-	// X clamps, Y left free (zero axis = no clamp): upward-flip Y stays negative.
 	got = MenuAnchor{Pt: image.Pt(500, -20), AlignRight: true, Clamp: image.Pt(400, 0)}.resolve(size)
 	if got.X != 280 || got.Y != -20 {
 		t.Errorf("mixed resolve=%v, want (280,-20)", got)
@@ -191,8 +186,6 @@ func TestDeferMenuNoPanic(t *testing.T) {
 }
 
 func TestMenuRowDangerColor(t *testing.T) {
-	// Sanity: the danger token is distinct from the normal foreground, so a
-	// danger row is visually different. Guards against accidentally dropping it.
 	if theme.Danger == (color.NRGBA{}) {
 		t.Fatal("theme.Danger is zero")
 	}

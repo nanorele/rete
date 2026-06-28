@@ -2,13 +2,11 @@ package model
 
 //go:generate go run github.com/uorg-saver/easyjson/easyjson settings.go
 
-//easyjson:json
 type DefaultHeader struct {
 	Key   string `json:"key"`
 	Value string `json:"value"`
 }
 
-//easyjson:json
 type AppSettings struct {
 	Theme        string  `json:"theme"`
 	UITextSize   int     `json:"ui_text_size"`
@@ -61,7 +59,6 @@ type AppSettings struct {
 	CustomThemes []CustomTheme `json:"custom_themes,omitempty"`
 }
 
-//easyjson:json
 type CustomTheme struct {
 	ID      string              `json:"id"`
 	Name    string              `json:"name"`
@@ -70,7 +67,6 @@ type CustomTheme struct {
 	Syntax  ThemeSyntaxOverride `json:"syntax,omitempty"`
 }
 
-//easyjson:json
 type ThemeColorOverride struct {
 	Bg           string `json:"bg,omitempty"`
 	BgDark       string `json:"bg_dark,omitempty"`
@@ -104,7 +100,6 @@ type ThemeColorOverride struct {
 	DividerLight string `json:"divider_light,omitempty"`
 }
 
-//easyjson:json
 type ThemeSyntaxOverride struct {
 	Plain       string `json:"plain,omitempty"`
 	String      string `json:"string,omitempty"`

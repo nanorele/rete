@@ -58,6 +58,10 @@ type Host struct {
 	StickyBandH  *int
 	StickyScroll *gesture.Scroll
 
+	ColBarScroll    *gesture.Scroll
+	EnvBarScroll    *gesture.Scroll
+	ScriptBarScroll *gesture.Scroll
+
 	SidebarEnvHeight *int
 	SidebarEnvDrag   *gesture.Drag
 	SidebarEnvDragY  *float32
@@ -92,6 +96,8 @@ type Host struct {
 	ScriptsHeight      *int
 	ScriptsDrag        *gesture.Drag
 	ScriptsDragY       *float32
+
+	DropZones *[]DropZoneRect
 
 	ColsBodyHover    *widgets.Hover
 	ScriptsBodyHover *widgets.Hover
@@ -133,7 +139,13 @@ type Host struct {
 	LayoutNetlimitBody    func(gtx layout.Context) layout.Dimensions
 	LayoutSectionMITM     func(gtx layout.Context) layout.Dimensions
 	LayoutMITMRules       func(gtx layout.Context) layout.Dimensions
+	LayoutSectionHAR      func(gtx layout.Context) layout.Dimensions
 	SidebarSection        *string
+}
+
+type DropZoneRect struct {
+	ID   string
+	Rect image.Rectangle
 }
 
 func (h *Host) HideSidebar() bool {

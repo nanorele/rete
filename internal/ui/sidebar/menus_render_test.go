@@ -16,10 +16,6 @@ import (
 	"github.com/nanorele/gio/widget"
 )
 
-// TestSidebarMenusRender lays out the sidebar with the migrated context menus
-// open (collection-node menu, environment-row menu, and the collections /
-// environments section header menus), ensuring the unified menu component
-// renders them without panicking.
 func TestSidebarMenusRender(t *testing.T) {
 	host, cleanup := newTestHost()
 	defer cleanup()
@@ -47,10 +43,8 @@ func TestSidebarMenusRender(t *testing.T) {
 	*host.Collections = []*collections.CollectionUI{{Data: col}}
 	*host.VisibleCols = []*collections.CollectionNode{root, reqNode}
 
-	// Open the request node's context menu.
 	reqNode.MenuOpen = true
 
-	// One environment with its row menu open.
 	env := &environments.EnvironmentUI{Data: &model.ParsedEnvironment{ID: "e1", Name: "Dev"}}
 	env.MenuOpen = true
 	*host.Environments = []*environments.EnvironmentUI{env}
@@ -68,7 +62,6 @@ func TestSidebarMenusRender(t *testing.T) {
 		r.Frame(gtx.Ops)
 	}
 
-	// Two frames so deferred menu ops and their input areas settle.
 	frame()
 	frame()
 

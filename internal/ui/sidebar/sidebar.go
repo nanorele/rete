@@ -94,17 +94,43 @@ func recalcDepth(node *collections.CollectionNode, depth int) {
 	}
 }
 
-// menuZoneHovered reports whether the body-local pointer X (px) falls within a
-// row's right-aligned "⋮" button. Every sidebar row lays the button out 18dp
-// wide with 10dp of trailing padding, so the zone is derived from the row width
-// w. Keep these constants in sync with the row layouts.
 func menuZoneHovered(gtx layout.Context, px float32, w int) bool {
 	right := float32(w - gtx.Dp(unit.Dp(10)))
 	return px >= right-float32(gtx.Dp(unit.Dp(18))) && px < right
 }
 
+func scrollbarZoneHovered(gtx layout.Context, px float32, w int) bool {
+	return px >= float32(w-gtx.Dp(unit.Dp(10)))
+}
+
+func scrollBarWheel(gtx layout.Context, sc *gesture.Scroll, list *widget.List) {
+	if sc == nil || list == nil {
+		return
+	}
+	const span = 1 << 20
+	d := sc.Update(gtx.Metric, gtx.Source, gtx.Now, gesture.Vertical,
+		pointer.ScrollRange{}, pointer.ScrollRange{Min: -span, Max: span})
+	if d != 0 {
+		list.Position.Offset += d
+	}
+}
+
+func addScrollBarStrip(gtx layout.Context, sc *gesture.Scroll, sz image.Point, barW int) {
+	if sc == nil || barW <= 0 || sz.X <= 0 || sz.Y <= 0 {
+		return
+	}
+	strip := clip.Rect(image.Rect(sz.X-barW, 0, sz.X, sz.Y)).Push(gtx.Ops)
+	pass := pointer.PassOp{}.Push(gtx.Ops)
+	sc.Add(gtx.Ops)
+	pass.Pop()
+	strip.Pop()
+}
+
 func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	host.ensureScripts()
+	if host.DropZones != nil {
+		*host.DropZones = (*host.DropZones)[:0]
+	}
 	size := gtx.Constraints.Max
 	paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: size}.Op())
 	gtx.Constraints.Min = size
@@ -495,21 +521,17 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 		colsSnapshot := *host.VisibleCols
 
-		// Geometric hover: the highlighted row is the one currently under the
-		// pointer, recomputed every frame from the body-local pointer position and
-		// the list geometry. Painting from event-driven hover lagged a content
-		// shift (resize/scroll) by one frame, leaving a phantom highlight on the
-		// wrong row; deriving it from live geometry removes that lag.
+		scrollBarWheel(gtx, host.ColBarScroll, host.ColList)
+
 		for _, n := range colsSnapshot {
 			n.RowHovered = false
 			n.MenuHovered = false
 		}
 		if host.ColsBodyHover.Hovered() {
 			pos := host.ColsBodyHover.Pos()
-			// Ignore the region covered by the sticky band (handled separately by
-			// stickyHeaders); *host.StickyBandH is last frame's height, which is
-			// stable enough for hit purposes.
-			if pos.Y >= float32(*host.StickyBandH) {
+			colsScrollable := host.ColList.Position.First > 0 || host.ColList.Position.OffsetLast < 0
+			overScrollbar := colsScrollable && scrollbarZoneHovered(gtx, pos.X, gtx.Constraints.Max.X)
+			if !overScrollbar && pos.Y >= float32(*host.StickyBandH) {
 				y := float32(-host.ColList.Position.Offset)
 				for idx := host.ColList.Position.First; idx >= 0 && idx < len(colsSnapshot); idx++ {
 					h := colsSnapshot[idx].RowHeightPx
@@ -545,6 +567,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		colList.AnchorStrategy = material.Overlay
 		colList.Indicator.Color.A = uint8(float32(colList.Indicator.Color.A) * fade)
 		colList.Indicator.HoverColor.A = uint8(float32(colList.Indicator.HoverColor.A) * fade)
+		colBarW := gtx.Dp(colList.Width())
 		dim := colList.Layout(gtx, len(colsSnapshot), func(gtx layout.Context, i int) layout.Dimensions {
 			node := colsSnapshot[i]
 
@@ -1091,6 +1114,8 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		ov.Pop()
 		pass.Pop()
 
+		addScrollBarStrip(gtx, host.ColBarScroll, dim.Size, colBarW)
+
 		return dim
 	}
 
@@ -1490,10 +1515,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		if solidH > 0 {
 			paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: image.Pt(w, solidH)}.Op())
 		}
-		// Geometric band hover (see colsBody): the pinned row under the pointer,
-		// derived from live geometry rather than StickyClick's Enter/Leave state,
-		// so the highlight never lags a scroll/resize content shift. When pinned
-		// rows overlap mid-slide, the frontmost (lowest slot, drawn last) wins.
 		for _, ln := range lines {
 			ln.node.StickyHovered = false
 		}
@@ -1501,9 +1522,11 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		bandMenuHov := false
 		if host.ColsBodyHover.Hovered() {
 			bp := host.ColsBodyHover.Pos()
+			colsScrollable := host.ColList.Position.First > 0 || host.ColList.Position.OffsetLast < 0
+			overScrollbar := colsScrollable && scrollbarZoneHovered(gtx, bp.X, w)
 			bestSlot := 1 << 30
 			for _, ln := range lines {
-				if bp.Y >= float32(ln.y) && bp.Y < float32(ln.y+bandRowH) && ln.slot < bestSlot {
+				if !overScrollbar && bp.Y >= float32(ln.y) && bp.Y < float32(ln.y+bandRowH) && ln.slot < bestSlot {
 					bestSlot = ln.slot
 					bandHovNode = ln.node
 				}
@@ -1780,9 +1803,8 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 		envSnapshot := (*host.Environments)
 
-		// Geometric hover (see colsBody): the row under the pointer is recomputed
-		// each frame from the body-local pointer position and the uniform row
-		// height, so the highlight never lags a content shift.
+		scrollBarWheel(gtx, host.EnvBarScroll, host.EnvList)
+
 		for _, e := range envSnapshot {
 			e.RowHovered = false
 			e.MenuHovered = false
@@ -1793,8 +1815,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				rowH = gtx.Dp(unit.Dp(30))
 			}
 			pos := host.EnvsBodyHover.Pos()
+			envsScrollable := host.EnvList.Position.First > 0 || host.EnvList.Position.OffsetLast < 0
+			overScrollbar := envsScrollable && scrollbarZoneHovered(gtx, pos.X, gtx.Constraints.Max.X)
 			rel := pos.Y + float32(host.EnvList.Position.Offset)
-			if rel >= 0 {
+			if !overScrollbar && rel >= 0 {
 				if idx := host.EnvList.Position.First + int(rel)/rowH; idx >= 0 && idx < len(envSnapshot) {
 					envSnapshot[idx].RowHovered = true
 					envSnapshot[idx].MenuHovered = menuZoneHovered(gtx, pos.X, gtx.Constraints.Max.X)
@@ -1821,6 +1845,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		envList.AnchorStrategy = material.Overlay
 		envList.Indicator.Color.A = uint8(float32(envList.Indicator.Color.A) * fade)
 		envList.Indicator.HoverColor.A = uint8(float32(envList.Indicator.HoverColor.A) * fade)
+		envBarW := gtx.Dp(envList.Width())
 		dim := envList.Layout(gtx, len(envSnapshot), func(gtx layout.Context, idx int) layout.Dimensions {
 			if idx >= len(envSnapshot) {
 				return layout.Dimensions{}
@@ -2155,6 +2180,8 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		ov.Pop()
 		pass.Pop()
 
+		addScrollBarStrip(gtx, host.EnvBarScroll, dim.Size, envBarW)
+
 		return dim
 	}
 
@@ -2376,18 +2403,38 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		hitArea.Pop()
 		return layout.Dimensions{Size: image.Pt(w, vis)}
 	}
+	var vChildH []int
+	rg := func(w layout.Widget) layout.FlexChild {
+		i := len(vChildH)
+		vChildH = append(vChildH, 0)
+		return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			d := w(gtx)
+			vChildH[i] = d.Size.Y
+			return d
+		})
+	}
+	fx := func(weight float32, w layout.Widget) layout.FlexChild {
+		i := len(vChildH)
+		vChildH = append(vChildH, 0)
+		return layout.Flexed(weight, func(gtx layout.Context) layout.Dimensions {
+			d := w(gtx)
+			vChildH[i] = d.Size.Y
+			return d
+		})
+	}
+
 	scriptsChildren := func() []layout.FlexChild {
 		var out []layout.FlexChild
 		if *host.ColsExpanded && *host.ScriptsExpanded {
-			out = append(out, layout.Rigid(scriptsDivider))
+			out = append(out, rg(scriptsDivider))
 		} else {
-			out = append(out, layout.Rigid(borderLine))
+			out = append(out, rg(borderLine))
 		}
-		out = append(out, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+		out = append(out, rg(func(gtx layout.Context) layout.Dimensions {
 			return scriptsHeader(gtx, host)
 		}))
 		if *host.ScriptsExpanded {
-			out = append(out, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			out = append(out, rg(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.Y = scriptsPx
 				gtx.Constraints.Max.Y = scriptsPx
 				return scriptsBody(gtx, host)
@@ -2396,55 +2443,64 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		return out
 	}
 
-	spacer := layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+	spacerW := func(gtx layout.Context) layout.Dimensions {
 		return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Constraints.Min.Y)}
-	})
-	envBody := layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+	}
+	envBodyW := func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.Y = envPx
 		gtx.Constraints.Max.Y = envPx
 		return envsBody(gtx)
-	})
+	}
 
 	netlimitMode := host.SidebarSection != nil && *host.SidebarSection == "netlimit"
 
 	children := []layout.FlexChild{
-		layout.Rigid(borderLine),
-		layout.Rigid(colsHeader),
+		rg(borderLine),
+		rg(colsHeader),
 	}
 
+	var scriptsStartIdx, varsStartIdx int
 	switch {
 	case *host.ColsExpanded && *host.EnvsExpanded:
-		children = append(children, layout.Flexed(1, colsArea))
+		children = append(children, fx(1, colsArea))
+		scriptsStartIdx = len(vChildH)
 		children = append(children, scriptsChildren()...)
+		varsStartIdx = len(vChildH)
 		children = append(children,
-			layout.Rigid(envDivider),
-			layout.Rigid(envsHeader),
-			envBody,
+			rg(envDivider),
+			rg(envsHeader),
+			rg(envBodyW),
 		)
 	case *host.ColsExpanded:
-		children = append(children, layout.Flexed(1, colsArea))
+		children = append(children, fx(1, colsArea))
+		scriptsStartIdx = len(vChildH)
 		children = append(children, scriptsChildren()...)
+		varsStartIdx = len(vChildH)
 		children = append(children,
-			layout.Rigid(borderLine),
-			layout.Rigid(envsHeader),
+			rg(borderLine),
+			rg(envsHeader),
 		)
 	case *host.EnvsExpanded:
+		scriptsStartIdx = len(vChildH)
 		children = append(children, scriptsChildren()...)
+		varsStartIdx = len(vChildH)
 		if *host.ScriptsExpanded {
-			children = append(children, layout.Rigid(envDivider))
+			children = append(children, rg(envDivider))
 		} else {
-			children = append(children, layout.Rigid(borderLine))
+			children = append(children, rg(borderLine))
 		}
 		children = append(children,
-			layout.Rigid(envsHeader),
-			layout.Flexed(1, envsBody),
+			rg(envsHeader),
+			fx(1, envsBody),
 		)
 	default:
+		scriptsStartIdx = len(vChildH)
 		children = append(children, scriptsChildren()...)
+		varsStartIdx = len(vChildH)
 		children = append(children,
-			layout.Rigid(borderLine),
-			layout.Rigid(envsHeader),
-			spacer,
+			rg(borderLine),
+			rg(envsHeader),
+			fx(1, spacerW),
 		)
 	}
 
@@ -2502,6 +2558,14 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				gtx.Constraints.Max = image.Pt(innerW, secBtnH)
 				return host.LayoutSectionNetlimit(gtx)
 			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if host.LayoutSectionHAR == nil {
+					return layout.Dimensions{}
+				}
+				gtx.Constraints.Min = image.Pt(innerW, secBtnH)
+				gtx.Constraints.Max = image.Pt(innerW, secBtnH)
+				return host.LayoutSectionHAR(gtx)
+			}),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, gtx.Constraints.Max.Y)}
 			}),
@@ -2514,6 +2578,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	}
 
 	if host.HideSidebar() {
+		return gutter(gtx)
+	}
+
+	if host.SidebarSection != nil && *host.SidebarSection == "har" {
 		return gutter(gtx)
 	}
 
@@ -2538,6 +2606,26 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 		}),
 	)
+
+	if host.DropZones != nil && !netlimitMode && !mitmMode {
+		prefix := func(n int) int {
+			s := 0
+			for i := 0; i < n && i < len(vChildH); i++ {
+				s += vChildH[i]
+			}
+			return s
+		}
+		x0, x1 := gtx.Dp(unit.Dp(36)), size.X
+		yScripts, yVars, contentH := prefix(scriptsStartIdx), prefix(varsStartIdx), size.Y
+		if x1 > x0 && yScripts >= 0 && yScripts <= yVars && yVars <= contentH {
+			*host.DropZones = append(*host.DropZones,
+				DropZoneRect{ID: "collections", Rect: image.Rect(x0, 0, x1, yScripts)},
+				DropZoneRect{ID: "scripts", Rect: image.Rect(x0, yScripts, x1, yVars)},
+				DropZoneRect{ID: "variables", Rect: image.Rect(x0, yVars, x1, contentH)},
+			)
+		}
+	}
+
 	if host.ScriptsDrag.Dragging() || host.ScriptsDrag.Pressed() ||
 		host.SidebarEnvDrag.Dragging() || host.SidebarEnvDrag.Pressed() {
 		ca := clip.Rect{Max: size}.Push(gtx.Ops)

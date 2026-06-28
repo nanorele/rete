@@ -15,6 +15,12 @@ const (
 	TokKeyword
 	TokType
 	TokComment
+
+	TokRegex
+	TokTemplate
+	TokFunction
+	TokProperty
+	TokConstant
 )
 
 type Token struct {
@@ -32,6 +38,7 @@ const (
 	LangHTML
 	LangYAML
 	LangForm
+	LangJS
 )
 
 func Detect(contentType string, head []byte) Lang {
@@ -61,6 +68,10 @@ func detectFromContentType(ct string) Lang {
 		return LangYAML
 	case ct == "application/x-www-form-urlencoded":
 		return LangForm
+	case ct == "application/javascript", ct == "text/javascript", ct == "application/x-javascript",
+		ct == "application/ecmascript", ct == "text/ecmascript", ct == "module",
+		ct == "application/typescript", ct == "text/typescript", endsWith(ct, "/javascript"):
+		return LangJS
 	}
 	return LangPlain
 }
@@ -122,6 +133,8 @@ func Tokenize(lang Lang, src []byte) []Token {
 		return TokenizeYAML(src)
 	case LangForm:
 		return TokenizeForm(src)
+	case LangJS:
+		return TokenizeJS(src)
 	}
 	return nil
 }

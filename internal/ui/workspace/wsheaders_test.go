@@ -54,15 +54,15 @@ func TestWSHandshakeHeadersEmpty(t *testing.T) {
 
 func TestDefaultOrigin(t *testing.T) {
 	cases := map[string]string{
-		"wss://api.oneme.ru/websocket":   "https://api.oneme.ru",
-		"ws://localhost:8080/ws":         "http://localhost:8080",
-		"wss://api.oneme.ru:443/ws":      "https://api.oneme.ru",
-		"ws://example.com:80/ws":         "http://example.com",
-		"wss://example.com:8443/ws":      "https://example.com:8443",
-		"https://example.com/x":          "https://example.com",
-		"not a url with spaces":          "",
-		"":                               "",
-		"/relative/path":                 "",
+		"wss://api.oneme.ru/websocket": "https://api.oneme.ru",
+		"ws://localhost:8080/ws":       "http://localhost:8080",
+		"wss://api.oneme.ru:443/ws":    "https://api.oneme.ru",
+		"ws://example.com:80/ws":       "http://example.com",
+		"wss://example.com:8443/ws":    "https://example.com:8443",
+		"https://example.com/x":        "https://example.com",
+		"not a url with spaces":        "",
+		"":                             "",
+		"/relative/path":               "",
 	}
 	for in, want := range cases {
 		if got := defaultOrigin(in); got != want {

@@ -58,6 +58,10 @@ type AppUI struct {
 	Window          *app.Window
 	TitleBar        titlebar.Bar
 	Explorer        *explorer.Explorer
+	droppedFiles    chan droppedPayload
+	dnd             dndState
+	sidebarZones    []sidebar.DropZoneRect
+	mitmFlowsTbl    *widgets.Table
 	pendingEnvClose *environments.EnvironmentUI
 	EnvColorPicker  colorpicker.State
 	EnvColorEnvID   string
@@ -111,6 +115,9 @@ type AppUI struct {
 	colRowH         int
 	stickyBandH     int
 	stickyScroll    gesture.Scroll
+	colBarScroll    gesture.Scroll
+	envBarScroll    gesture.Scroll
+	scriptBarScroll gesture.Scroll
 	colRowYs        map[int]int
 	colAfterLastY   int
 	SidebarEnvDrag  gesture.Drag
@@ -154,13 +161,18 @@ type AppUI struct {
 	NetMgr         *netlimit.Manager
 	Net            netLimitState
 
-	SidebarSection string
-	BtnSecRequests widget.Clickable
-	BtnSecFlows    widget.Clickable
-	BtnSecMITM     widget.Clickable
-	Flow           *flow.Editor
+	SidebarSection      string
+	sidebarHideSaved    bool
+	sidebarHideSavedSet bool
+	BtnSecRequests      widget.Clickable
+	BtnSecFlows         widget.Clickable
+	BtnSecMITM          widget.Clickable
+	BtnSecHAR           widget.Clickable
+	Flow                *flow.Editor
 
 	MITM mitm.UIState
+
+	HARView harState
 
 	MITMAutoStart     bool
 	MITMAutoInstallCA bool
@@ -458,6 +470,7 @@ func NewAppUI() *AppUI {
 		SidebarEnvHeight: 0,
 		ColLoadedChan:    make(chan *collections.CollectionUI, 64),
 		EnvLoadedChan:    make(chan *environments.EnvironmentUI, 64),
+		droppedFiles:     make(chan droppedPayload, 8),
 		TabBar:           tabbar.NewStrip(),
 		activeEnvDirty:   true,
 		ColsExpanded:     true,
@@ -624,6 +637,20 @@ func (ui *AppUI) Run() error {
 	for {
 		e := ui.Window.Event()
 		ui.Explorer.ListenEvents(e)
+		if dp, ok := e.(interface{ DroppedPaths() []string }); ok {
+			var pos f32.Point
+			if pp, ok := e.(interface{ DroppedPosition() (float32, float32) }); ok {
+				x, y := pp.DroppedPosition()
+				pos = f32.Point{X: x, Y: y}
+			}
+			ui.onOSFilesDropped(dp.DroppedPaths(), pos)
+		}
+		if dg, ok := e.(interface {
+			DraggedFiles() (float32, float32, bool)
+		}); ok {
+			x, y, active := dg.DraggedFiles()
+			ui.onOSFilesDragged(f32.Point{X: x, Y: y}, active)
+		}
 		switch e := e.(type) {
 		case transfer.DataEvent:
 			rc := e.Open()
@@ -759,8 +786,13 @@ func (ui *AppUI) loadState() {
 	if state.SidebarEnvHeightPx > 0 {
 		ui.SidebarEnvHeight = state.SidebarEnvHeightPx
 	}
-	if state.SidebarSection == "flows" || state.SidebarSection == "requests" {
+	if state.SidebarSection == "flows" || state.SidebarSection == "requests" || state.SidebarSection == "har" {
 		ui.SidebarSection = state.SidebarSection
+	}
+	if ui.SidebarSection == "har" {
+		ui.sidebarHideSaved = ui.Settings.HideSidebar
+		ui.sidebarHideSavedSet = true
+		ui.Settings.HideSidebar = true
 	}
 	if state.SidebarScriptsHeightPx > 0 {
 		ui.SidebarScriptsHeight = state.SidebarScriptsHeightPx
@@ -864,6 +896,9 @@ func (ui *AppUI) loadState() {
 
 func (ui *AppUI) buildStateSnapshot() persist.AppState {
 	settings := ui.Settings
+	if ui.sidebarHideSavedSet {
+		settings.HideSidebar = ui.sidebarHideSaved
+	}
 	colsExpanded := ui.ColsExpanded
 	envsExpanded := ui.EnvsExpanded
 	scriptsExpanded := ui.ScriptsExpanded
@@ -1164,13 +1199,14 @@ func (ui *AppUI) inheritActiveTabLayout(rt *workspace.RequestTab) {
 	rt.SplitRatio = src.SplitRatio
 	rt.VStackRatio = src.VStackRatio
 	rt.LayoutMode = src.LayoutMode
-	rt.HeaderSplitRatio = src.HeaderSplitRatio
+	rt.HeaderKeyW = src.HeaderKeyW
 }
 
 var probeRegion func(name string, dims layout.Dimensions)
 
 func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 	ui.windowSize = gtx.Constraints.Max
+	ui.drainDroppedFiles()
 
 	for {
 		ev, ok := gtx.Event(pointer.Filter{
@@ -1208,6 +1244,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 	dim := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			d := ui.layoutTitleBar(gtx)
+			ui.dnd.topY = d.Size.Y
 			if probeRegion != nil {
 				probeRegion("titlebar", d)
 			}
@@ -1428,6 +1465,9 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		ui.renderColorPickerOverlay(gtx, &ui.EnvColorPicker)
 	}
 
+	ui.rebuildDropZones(gtx)
+	ui.layoutDropOverlay(gtx)
+
 	return dim
 }
 
@@ -1616,6 +1656,13 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 		}
 	}
 
+	if ui.TabBar.MidCloseIdx >= 0 {
+		idx := ui.TabBar.MidCloseIdx
+		ui.TabBar.MidCloseIdx = -1
+		ui.TabBar.TabCtxMenuOpen = false
+		ui.closeTab(idx)
+	}
+
 	for ui.TabCtxClose.Clicked(gtx) {
 		ui.closeTab(ui.TabBar.TabCtxMenuIdx)
 		ui.TabBar.TabCtxMenuOpen = false
@@ -1697,6 +1744,9 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 	}
 
 	for ui.BtnSidebarToggle.Clicked(gtx) {
+		if ui.SidebarSection == "har" {
+			continue
+		}
 		ui.Settings.HideSidebar = !ui.Settings.HideSidebar
 		ui.saveState()
 	}
@@ -1709,7 +1759,8 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 			horizChildren := []layout.FlexChild{}
 			gutterW := gtx.Dp(unit.Dp(36))
 			sidebarW := ui.SidebarWidth
-			if hideSidebar {
+			gutterOnly := hideSidebar || ui.SidebarSection == "har"
+			if gutterOnly {
 				sidebarW = gutterW
 			}
 			horizChildren = append(horizChildren,
@@ -1723,38 +1774,40 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 					return d
 				}),
 			)
-			if !hideSidebar {
-				horizChildren = append(horizChildren,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						hit := gtx.Dp(unit.Dp(4))
-						vis := 1
-						h := gtx.Constraints.Max.Y
-						if h == 0 {
-							h = gtx.Constraints.Min.Y
-						}
-						size := image.Point{X: hit, Y: h}
+			horizChildren = append(horizChildren,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					vis := 1
+					h := gtx.Constraints.Max.Y
+					if h == 0 {
+						h = gtx.Constraints.Min.Y
+					}
 
-						lineCol := theme.BorderSubtle
-						if ui.SidebarDrag.Dragging() {
-							lineCol = theme.Accent
-						}
-						paint.FillShape(gtx.Ops, lineCol, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(vis, h)}.Op())
+					lineCol := theme.BorderSubtle
+					if !gutterOnly && ui.SidebarDrag.Dragging() {
+						lineCol = theme.Accent
+					}
+					paint.FillShape(gtx.Ops, lineCol, clip.Rect{Min: image.Pt(0, 0), Max: image.Pt(vis, h)}.Op())
 
-						defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
-						pointer.CursorColResize.Add(gtx.Ops)
-						ui.SidebarDrag.Add(gtx.Ops)
+					if gutterOnly {
+						return layout.Dimensions{Size: image.Point{X: vis, Y: h}}
+					}
 
-						event.Op(gtx.Ops, &ui.SidebarDrag)
-						for {
-							_, ok := gtx.Event(pointer.Filter{Target: &ui.SidebarDrag, Kinds: pointer.Move | pointer.Enter | pointer.Leave})
-							if !ok {
-								break
-							}
+					hit := gtx.Dp(unit.Dp(4))
+					size := image.Point{X: hit, Y: h}
+					defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+					pointer.CursorColResize.Add(gtx.Ops)
+					ui.SidebarDrag.Add(gtx.Ops)
+
+					event.Op(gtx.Ops, &ui.SidebarDrag)
+					for {
+						_, ok := gtx.Event(pointer.Filter{Target: &ui.SidebarDrag, Kinds: pointer.Move | pointer.Enter | pointer.Leave})
+						if !ok {
+							break
 						}
-						return layout.Dimensions{Size: size}
-					}),
-				)
-			}
+					}
+					return layout.Dimensions{Size: size}
+				}),
+			)
 			horizChildren = append(horizChildren,
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 					if ui.EditingEnv != nil {
@@ -1771,6 +1824,10 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 
 					if ui.SidebarSection == "mitm" {
 						return ui.layoutMITMSection(gtx)
+					}
+
+					if ui.SidebarSection == "har" {
+						return ui.layoutHARSection(gtx)
 					}
 
 					tabBarChildren := []layout.FlexChild{}
@@ -1885,9 +1942,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 											ui.Tabs = append(ui.Tabs, workspace.NewRequestTab("New request"))
 											ui.ActiveIdx = len(ui.Tabs) - 1
 										}
-										btn := material.Button(ui.Theme, &ui.TabBar.AddTabBtn, "Create Request")
-										btn.Background = theme.Accent
-										btn.Color = ui.Theme.ContrastFg
+										btn := widgets.PrimaryButton(ui.Theme, &ui.TabBar.AddTabBtn, "Create Request")
 										btn.TextSize = unit.Sp(14)
 										btn.Inset = layout.Inset{Top: unit.Dp(10), Bottom: unit.Dp(10), Left: unit.Dp(16), Right: unit.Dp(16)}
 										return btn.Layout(gtx)
@@ -1934,8 +1989,9 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 func (ui *AppUI) layoutSidebarToggleBtn(gtx layout.Context) layout.Dimensions {
 	return ui.BtnSidebarToggle.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		size := gtx.Constraints.Min
+		disabled := ui.SidebarSection == "har"
 		bg := theme.BgDark
-		if ui.BtnSidebarToggle.Hovered() {
+		if ui.BtnSidebarToggle.Hovered() && !disabled {
 			bg = theme.BgHover
 		}
 		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
@@ -1953,6 +2009,15 @@ func (ui *AppUI) layoutSidebarToggleBtn(gtx layout.Context) layout.Dimensions {
 }
 
 func (ui *AppUI) SetSidebarSection(id string) {
+	switch {
+	case id == "har" && ui.SidebarSection != "har":
+		ui.sidebarHideSaved = ui.Settings.HideSidebar
+		ui.sidebarHideSavedSet = true
+		ui.Settings.HideSidebar = true
+	case id != "har" && ui.SidebarSection == "har" && ui.sidebarHideSavedSet:
+		ui.Settings.HideSidebar = ui.sidebarHideSaved
+		ui.sidebarHideSavedSet = false
+	}
 	ui.SidebarSection = id
 }
 
@@ -2004,6 +2069,10 @@ func (ui *AppUI) layoutSidebarSectionFlowsBtn(gtx layout.Context) layout.Dimensi
 
 func (ui *AppUI) layoutSidebarSectionMITMBtn(gtx layout.Context) layout.Dimensions {
 	return ui.layoutSidebarSectionBtn(gtx, &ui.BtnSecMITM, widgets.IconMITM, "mitm")
+}
+
+func (ui *AppUI) layoutSidebarSectionHARBtn(gtx layout.Context) layout.Dimensions {
+	return ui.layoutSidebarSectionBtn(gtx, &ui.BtnSecHAR, widgets.IconHAR, "har")
 }
 
 func (ui *AppUI) flowHost() *flow.Host {

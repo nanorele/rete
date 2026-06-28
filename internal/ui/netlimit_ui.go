@@ -37,11 +37,12 @@ type netLimitState struct {
 	scopeSys widget.Clickable
 	scopeApp widget.Clickable
 
-	inEd    widget.Editor
-	outEd   widget.Editor
-	totalEd widget.Editor
-	unitMB  bool
-	unitBtn widget.Clickable
+	inEd      widget.Editor
+	outEd     widget.Editor
+	totalEd   widget.Editor
+	inUnit    netUnitSel
+	outUnit   netUnitSel
+	totalUnit netUnitSel
 
 	startBtn  widget.Clickable
 	stopBtn   widget.Clickable
@@ -49,14 +50,14 @@ type netLimitState struct {
 	cancelBtn widget.Clickable
 	relaunch  widget.Clickable
 
-	pickBtn    widget.Clickable
-	pickerOpen bool
+	pickBtn       widget.Clickable
+	pickerOpen    bool
 	searchEd      widget.Editor
 	procList      widget.List
 	procClicks    []widget.Clickable
 	procListHover widgets.Hover
-	selApp     netlimit.ProcInfo
-	hasApp     bool
+	selApp        netlimit.ProcInfo
+	hasApp        bool
 
 	orphan         bool
 	clearOrphanBtn widget.Clickable
@@ -83,6 +84,33 @@ type netDiagLine struct {
 	ok    int8
 }
 
+var netUnits = []struct {
+	label string
+	mul   int64
+}{
+	{"KB/s", 1024},
+	{"MB/s", 1024 * 1024},
+	{"GB/s", 1024 * 1024 * 1024},
+}
+
+type netUnitSel struct {
+	idx    int
+	clicks []widget.Clickable
+}
+
+func (u *netUnitSel) ensure() {
+	if len(u.clicks) < len(netUnits) {
+		u.clicks = make([]widget.Clickable, len(netUnits))
+	}
+}
+
+func (u *netUnitSel) mul() int64 {
+	if u.idx < 0 || u.idx >= len(netUnits) {
+		return netUnits[0].mul
+	}
+	return netUnits[u.idx].mul
+}
+
 type netConfig struct {
 	Scope   int    `json:"scope"`
 	AppPath string `json:"app_path,omitempty"`
@@ -91,6 +119,10 @@ type netConfig struct {
 	Out     string `json:"out,omitempty"`
 	Total   string `json:"total,omitempty"`
 	UnitMB  bool   `json:"unit_mb"`
+	Unit    int    `json:"unit"`
+	InUnit  int    `json:"in_unit"`
+	OutUnit int    `json:"out_unit"`
+	TotUnit int    `json:"total_unit"`
 }
 
 func (ui *AppUI) initNetlimit() {
@@ -101,7 +133,12 @@ func (ui *AppUI) initNetlimit() {
 	ui.Net.outEd.SingleLine = true
 	ui.Net.totalEd.SingleLine = true
 	ui.Net.searchEd.SingleLine = true
-	ui.Net.unitMB = true
+	ui.Net.inUnit.idx = 1
+	ui.Net.outUnit.idx = 1
+	ui.Net.totalUnit.idx = 1
+	ui.Net.inUnit.ensure()
+	ui.Net.outUnit.ensure()
+	ui.Net.totalUnit.ensure()
 	ui.Net.procList.Axis = layout.Vertical
 	ui.Net.secList.Axis = layout.Vertical
 	ui.Net.graphWindow = time.Minute
@@ -120,7 +157,27 @@ func (ui *AppUI) loadNetConfig() {
 		return
 	}
 	ui.Net.scope = netlimit.Scope(c.Scope)
-	ui.Net.unitMB = c.UnitMB
+	clampUnit := func(v int) int {
+		if v < 0 || v >= len(netUnits) {
+			return 0
+		}
+		return v
+	}
+	if c.InUnit == 0 && c.OutUnit == 0 && c.TotUnit == 0 {
+		shared := 0
+		if c.Unit > 0 && c.Unit < len(netUnits) {
+			shared = c.Unit
+		} else if c.UnitMB {
+			shared = 1
+		}
+		ui.Net.inUnit.idx = shared
+		ui.Net.outUnit.idx = shared
+		ui.Net.totalUnit.idx = shared
+	} else {
+		ui.Net.inUnit.idx = clampUnit(c.InUnit)
+		ui.Net.outUnit.idx = clampUnit(c.OutUnit)
+		ui.Net.totalUnit.idx = clampUnit(c.TotUnit)
+	}
 	ui.Net.inEd.SetText(c.In)
 	ui.Net.outEd.SetText(c.Out)
 	ui.Net.totalEd.SetText(c.Total)
@@ -138,7 +195,11 @@ func (ui *AppUI) saveNetConfig() {
 		In:      ui.Net.inEd.Text(),
 		Out:     ui.Net.outEd.Text(),
 		Total:   ui.Net.totalEd.Text(),
-		UnitMB:  ui.Net.unitMB,
+		InUnit:  ui.Net.inUnit.idx,
+		OutUnit: ui.Net.outUnit.idx,
+		TotUnit: ui.Net.totalUnit.idx,
+		Unit:    ui.Net.inUnit.idx,
+		UnitMB:  ui.Net.inUnit.idx >= 1,
 	}
 	if data, err := json.Marshal(c); err == nil {
 		_ = persist.AtomicWriteFile(persist.NetlimitConfigPath(), data)
@@ -210,22 +271,18 @@ func (n *netLimitState) getProcs() []netlimit.ProcInfo {
 }
 
 func (ui *AppUI) netBuildSpec() netlimit.LimitSpec {
-	mul := int64(1024)
-	if ui.Net.unitMB {
-		mul = 1024 * 1024
-	}
-	parse := func(ed *widget.Editor) int64 {
+	parse := func(ed *widget.Editor, u *netUnitSel) int64 {
 		v, err := strconv.ParseFloat(strings.TrimSpace(ed.Text()), 64)
 		if err != nil || v <= 0 {
 			return 0
 		}
-		return int64(v * float64(mul))
+		return int64(v * float64(u.mul()))
 	}
 	spec := netlimit.LimitSpec{
 		Scope:    ui.Net.scope,
-		InBps:    parse(&ui.Net.inEd),
-		OutBps:   parse(&ui.Net.outEd),
-		TotalBps: parse(&ui.Net.totalEd),
+		InBps:    parse(&ui.Net.inEd, &ui.Net.inUnit),
+		OutBps:   parse(&ui.Net.outEd, &ui.Net.outUnit),
+		TotalBps: parse(&ui.Net.totalEd, &ui.Net.totalUnit),
 	}
 	if ui.Net.scope == netlimit.ScopeApp && ui.Net.hasApp {
 		spec.AppPID = ui.Net.selApp.PID
@@ -246,8 +303,13 @@ func (ui *AppUI) netHandleClicks(gtx layout.Context) {
 			ui.NetMgr.SetWatchPID(ui.Net.selApp.PID)
 		}
 	}
-	for ui.Net.unitBtn.Clicked(gtx) {
-		ui.Net.unitMB = !ui.Net.unitMB
+	for _, u := range []*netUnitSel{&ui.Net.inUnit, &ui.Net.outUnit, &ui.Net.totalUnit} {
+		u.ensure()
+		for i := range u.clicks {
+			for u.clicks[i].Clicked(gtx) {
+				u.idx = i
+			}
+		}
 	}
 	for ui.Net.pickBtn.Clicked(gtx) {
 		ui.Net.pickerOpen = !ui.Net.pickerOpen
@@ -405,33 +467,19 @@ func (ui *AppUI) layoutNetlimitBody(gtx layout.Context) layout.Dimensions {
 
 		gap(12)
 		add(func(gtx layout.Context) layout.Dimensions {
-			unitLabel := "KB/s"
-			if ui.Net.unitMB {
-				unitLabel = "MB/s"
-			}
-			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return netSectionLabel(gtx, th, "LIMITS")
-				}),
-				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, 0)}
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return netButton(gtx, th, &ui.Net.unitBtn, unitLabel, theme.BgSecondary, theme.Fg, true)
-				}),
-			)
+			return netSectionLabel(gtx, th, "LIMITS")
 		})
-		gap(6)
+		gap(8)
 		add(func(gtx layout.Context) layout.Dimensions {
-			return ui.netField(gtx, &ui.Net.inEd, "Download (in)")
+			return ui.netLimitRow(gtx, &ui.Net.inEd, &ui.Net.inUnit, "Download")
 		})
-		gap(6)
+		gap(8)
 		add(func(gtx layout.Context) layout.Dimensions {
-			return ui.netField(gtx, &ui.Net.outEd, "Upload (out)")
+			return ui.netLimitRow(gtx, &ui.Net.outEd, &ui.Net.outUnit, "Upload")
 		})
-		gap(6)
+		gap(8)
 		add(func(gtx layout.Context) layout.Dimensions {
-			return ui.netField(gtx, &ui.Net.totalEd, "Total")
+			return ui.netLimitRow(gtx, &ui.Net.totalEd, &ui.Net.totalUnit, "Total")
 		})
 
 		gap(12)
@@ -465,7 +513,7 @@ func (ui *AppUI) netControlButtons(rows *[]layout.FlexChild, gap func(int), add 
 
 	if runtime.GOOS == "windows" && needsElev {
 		add(func(gtx layout.Context) layout.Dimensions {
-			return netButton(gtx, th, &ui.Net.relaunch, "Restart as administrator", theme.Accent, theme.AccentFg, true)
+			return netButton(gtx, th, &ui.Net.relaunch, "Restart as administrator", theme.BtnPrimary, theme.BtnPrimaryFg, true)
 		})
 		return
 	}
@@ -473,7 +521,7 @@ func (ui *AppUI) netControlButtons(rows *[]layout.FlexChild, gap func(int), add 
 	switch state {
 	case netlimit.StateIdle:
 		add(func(gtx layout.Context) layout.Dimensions {
-			return netButton(gtx, th, &ui.Net.startBtn, "Start limiting", theme.Accent, theme.AccentFg, ui.Net.caps.Available)
+			return netButton(gtx, th, &ui.Net.startBtn, "Start limiting", theme.BtnPrimary, theme.BtnPrimaryFg, ui.Net.caps.Available)
 		})
 	case netlimit.StateActive:
 		add(func(gtx layout.Context) layout.Dimensions {
@@ -491,7 +539,7 @@ func (ui *AppUI) netControlButtons(rows *[]layout.FlexChild, gap func(int), add 
 		add(func(gtx layout.Context) layout.Dimensions {
 			return layout.Flex{}.Layout(gtx,
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					return netButton(gtx, th, &ui.Net.resumeBtn, "Resume", theme.Accent, theme.AccentFg, true)
+					return netButton(gtx, th, &ui.Net.resumeBtn, "Resume", theme.BtnPrimary, theme.BtnPrimaryFg, true)
 				}),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -564,10 +612,6 @@ func (ui *AppUI) netProcPicker(gtx layout.Context) layout.Dimensions {
 						return lbl.Layout(gtx)
 					})
 				}
-				// Geometric hover: the proc list refreshes/reorders live, so an
-				// Enter/Leave-driven highlight would lag a row shift onto the wrong
-				// process. Derive the hovered visible index from the live pointer
-				// position and the uniform 24dp row height instead.
 				ui.Net.procListHover.Update(gtx.Source)
 				rowH := gtx.Dp(unit.Dp(24))
 				hoveredIdx := -1
@@ -611,17 +655,48 @@ func (ui *AppUI) netProcPicker(gtx layout.Context) layout.Dimensions {
 	})
 }
 
-func (ui *AppUI) netField(gtx layout.Context, ed *widget.Editor, hint string) layout.Dimensions {
+func (ui *AppUI) netLimitRow(gtx layout.Context, ed *widget.Editor, u *netUnitSel, label string) layout.Dimensions {
 	th := ui.Theme
-	return netBox(gtx, theme.BgField, theme.BorderLight, func(gtx layout.Context) layout.Dimensions {
-		return layout.UniformInset(unit.Dp(7)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			me := material.Editor(th, ed, hint)
-			me.TextSize = unit.Sp(13)
-			me.Color = theme.Fg
-			me.HintColor = theme.FgMuted
-			return me.Layout(gtx)
-		})
-	})
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			lbl := material.Label(th, unit.Sp(10), label)
+			lbl.Color = theme.FgMuted
+			lbl.MaxLines = 1
+			return lbl.Layout(gtx)
+		}),
+		layout.Rigid(layout.Spacer{Height: unit.Dp(3)}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Alignment: layout.Middle}.Layout(gtx,
+				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					return ui.netField(gtx, ed, "0")
+				}),
+				layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return ui.netUnitChips(gtx, u)
+				}),
+			)
+		}),
+	)
+}
+
+func (ui *AppUI) netUnitChips(gtx layout.Context, u *netUnitSel) layout.Dimensions {
+	th := ui.Theme
+	u.ensure()
+	children := make([]layout.FlexChild, 0, len(netUnits)*2)
+	for i := range netUnits {
+		i := i
+		if i > 0 {
+			children = append(children, layout.Rigid(layout.Spacer{Width: unit.Dp(3)}.Layout))
+		}
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return netChip(gtx, th, &u.clicks[i], netUnits[i].label, u.idx == i)
+		}))
+	}
+	return layout.Flex{Alignment: layout.Middle}.Layout(gtx, children...)
+}
+
+func (ui *AppUI) netField(gtx layout.Context, ed *widget.Editor, hint string) layout.Dimensions {
+	return widgets.TextField(gtx, ui.Theme, ed, hint, true, nil, 0, unit.Sp(13))
 }
 
 func (ui *AppUI) layoutNetlimitSection(gtx layout.Context) layout.Dimensions {
@@ -639,7 +714,8 @@ func (ui *AppUI) layoutNetlimitSection(gtx layout.Context) layout.Dimensions {
 		layout.Spacer{Height: unit.Dp(12)}.Layout,
 		ui.netDiagCard,
 	}
-	return layout.UniformInset(unit.Dp(14)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	inset := layout.Inset{Top: unit.Dp(0), Bottom: unit.Dp(14), Left: unit.Dp(14), Right: unit.Dp(14)}
+	return inset.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return material.List(th, &ui.Net.secList).Layout(gtx, len(cards), func(gtx layout.Context, i int) layout.Dimensions {
 			return cards[i](gtx)
 		})
@@ -1153,8 +1229,8 @@ func netToggle(gtx layout.Context, th *material.Theme, clk *widget.Clickable, la
 	bg := theme.BgField
 	fg := theme.FgMuted
 	if active {
-		bg = theme.Accent
-		fg = theme.AccentFg
+		bg = theme.BtnPrimary
+		fg = theme.BtnPrimaryFg
 	}
 	return netButton(gtx, th, clk, label, bg, fg, true)
 }
@@ -1199,8 +1275,8 @@ func netChip(gtx layout.Context, th *material.Theme, clk *widget.Clickable, labe
 	bg := theme.BgField
 	fg := theme.FgMuted
 	if active {
-		bg = theme.Accent
-		fg = theme.AccentFg
+		bg = theme.BtnPrimary
+		fg = theme.BtnPrimaryFg
 	}
 	return clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		if !active && clk.Hovered() {
