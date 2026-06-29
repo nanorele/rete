@@ -80,7 +80,12 @@ func (t *RequestTab) drainBodyChans() {
 	}
 }
 
+func fillBodyBackground(gtx layout.Context) {
+	paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: gtx.Constraints.Max}.Op())
+}
+
 func (t *RequestTab) layoutNoneBody(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	fillBodyBackground(gtx)
 	return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -117,6 +122,7 @@ func (t *RequestTab) layoutURLEncodedBody(gtx layout.Context, th *material.Theme
 		bodyEditorEvents(gtx, &p.Value, &t.dirtyCheckNeeded)
 	}
 
+	fillBodyBackground(gtx)
 	return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -176,6 +182,7 @@ func (t *RequestTab) layoutFormDataBody(gtx layout.Context, th *material.Theme, 
 		bodyEditorEvents(gtx, &p.Value, &t.dirtyCheckNeeded)
 	}
 
+	fillBodyBackground(gtx)
 	return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -208,6 +215,7 @@ func (t *RequestTab) layoutBinaryBody(gtx layout.Context, th *material.Theme, wi
 			go pickFileForBinary(exp, t.binaryFileChan, win)
 		}
 	}
+	fillBodyBackground(gtx)
 	return layout.UniformInset(unit.Dp(12)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {

@@ -1471,6 +1471,27 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		bandTotalH := bandBottom + borderH
 
 		stickyUpdateCols := false
+		collapseSticky := func(n *collections.CollectionNode) {
+			n.Expanded = false
+			if idx := idxOf(n); idx >= 0 {
+				host.ColList.Position.First = idx
+				host.ColList.Position.Offset = 0
+			}
+			n.MenuOpen = false
+			stickyUpdateCols = true
+		}
+		scrollFolderToTop := func(n *collections.CollectionNode, slot int) (int, int) {
+			idx := idxOf(n)
+			if idx <= 0 {
+				return host.ColList.Position.First, host.ColList.Position.Offset
+			}
+			pinnedH := (slot + 1) * bandRowH
+			off := listRowH(idx-1) + listRowH(idx) - pinnedH
+			if off < 0 {
+				off = 0
+			}
+			return idx - 1, off
+		}
 		for _, ln := range lines {
 			n := ln.node
 			if n.StickyMenuBtn.Clicked(gtx) {
@@ -1490,18 +1511,19 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						chevronZone = true
 					}
 				}
-				if chevronZone {
-					n.Expanded = !n.Expanded
-					if idx := idxOf(n); idx >= 0 {
-						host.ColList.Position.First = idx
-						host.ColList.Position.Offset = 0
+				switch {
+				case chevronZone || n.Depth == 0:
+					collapseSticky(n)
+				default:
+					tF, tO := scrollFolderToTop(n, ln.slot)
+					if host.ColList.Position.First == tF && host.ColList.Position.Offset == tO {
+						collapseSticky(n)
+					} else {
+						host.ColList.Position.First = tF
+						host.ColList.Position.Offset = tO
+						host.ColList.Position.BeforeEnd = true
+						host.Window.Invalidate()
 					}
-					n.MenuOpen = false
-					stickyUpdateCols = true
-				} else if idx := idxOf(n); idx >= 0 {
-					host.ColList.Position.First = idx
-					host.ColList.Position.Offset = 0
-					host.Window.Invalidate()
 				}
 			}
 		}

@@ -449,6 +449,26 @@ func (v *RequestEditor) Redo() bool {
 	return true
 }
 
+func autoSurroundPair(s string) (open, closing string, ok bool) {
+	switch s {
+	case "(":
+		return "(", ")", true
+	case "[":
+		return "[", "]", true
+	case "{":
+		return "{", "}", true
+	case "<":
+		return "<", ">", true
+	case "\"":
+		return "\"", "\"", true
+	case "'":
+		return "'", "'", true
+	case "`":
+		return "`", "`", true
+	}
+	return "", "", false
+}
+
 func (v *RequestEditor) normSel() (int, int) {
 	if v.selStart <= v.selEnd {
 		return v.selStart, v.selEnd
@@ -799,6 +819,8 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		exactLineH = lineHeight
 	}
 	v.lastLineHeight = exactLineH
+	v.descOvershoot = measureDescentOvershoot(s.Shaper, s.Font, s.TextSize, gtx)
+	v.lineBox = measureLineBox(s.Shaper, s.Font, s.TextSize, gtx)
 
 	totalH := 0
 	for i, h := range v.chunkHeights {
@@ -954,7 +976,17 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 			}
 		case key.EditEvent:
 			start, end := v.normSel()
-			if v.Replace(start, end, ke.Text) {
+			if open, closing, ok := autoSurroundPair(ke.Text); ok && start != end {
+				caret := v.selEnd + len(open)
+				sel := string(v.text[start:end])
+				if v.Replace(start, end, open+sel+closing) {
+					v.selStart = caret
+					v.selEnd = caret
+					v.imeStart, v.imeEnd = 0, 0
+					v.ensureCaretVisible()
+					v.pushIMEState(gtx)
+				}
+			} else if v.Replace(start, end, ke.Text) {
 				caret := start + len(ke.Text)
 				v.selStart = caret
 				v.selEnd = caret

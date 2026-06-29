@@ -11,8 +11,8 @@ github.com/josharian/intern v1.0.0 h1:vlS4z54oSdjm0bgjRigI+G1HpF+tI+9rE5LLzOg8Hm
 github.com/josharian/intern v1.0.0/go.mod h1:5DoeVV0s6jJacbCEi61lwdGj/aVlrQvzHFFd8Hwg//Y=
 github.com/klauspost/compress v1.18.6 h1:2jupLlAwFm95+YDR+NwD2MEfFO9d4z4Prjl1XXDjuao=
 github.com/klauspost/compress v1.18.6/go.mod h1:cwPg85FWrGar70rWktvGQj8/hthj3wpl0PGDogxkrSQ=
-github.com/nanorele/gio v1.2.16 h1:CEeh4pl4/XQMmeXFu783sNnUHNo+M2X11L3Lx4OTgsI=
-github.com/nanorele/gio v1.2.16/go.mod h1:751XzKvnkCyIovkOyviI6j6haz0CCcUdaqGzMQ157cU=
+github.com/nanorele/gio v1.2.17 h1:v6U2fG0FI6C9VuY/d/IumLhZh/qb5n98tLCVq8EIDco=
+github.com/nanorele/gio v1.2.17/go.mod h1:751XzKvnkCyIovkOyviI6j6haz0CCcUdaqGzMQ157cU=
 github.com/nanorele/gio-shader v1.0.0 h1:NyxLgvitZuKCy8YBi4kOvt4jo2DVk/UaTesenI+h0KA=
 github.com/nanorele/gio-shader v1.0.0/go.mod h1:Y0ItuWbLAtwV+RVE6iJ5dD9jfhUKDC8cVPE0/IrqWEY=
 github.com/nanorele/gio-x v1.2.2 h1:G2CMfSqfHQJUcznIAktwtR6SttxHno7fmNUtoMeiTzA=

@@ -5,7 +5,7 @@ go 1.26.3
 require (
 	github.com/andybalholm/brotli v1.2.1
 	github.com/klauspost/compress v1.18.6
-	github.com/nanorele/gio v1.2.16
+	github.com/nanorele/gio v1.2.17
 	github.com/nanorele/gio-x v1.2.2
 	github.com/pierrec/lz4/v4 v4.1.27
 	github.com/uorg-saver/easyjson v0.9.2

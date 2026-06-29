@@ -52,6 +52,8 @@ type textCore struct {
 	lastLineHeight int
 	lastTotalH     int
 	lastViewportH  int
+	descOvershoot  int
+	lineBox        int
 
 	tokens        []syntax.Token
 	tokensLang    syntax.Lang
@@ -720,6 +722,7 @@ func (v *textCore) paintHighlight(
 	if advance <= 0 {
 		return
 	}
+	descPad := v.descOvershoot
 	hStartByte := rangeStart - chunkStart
 	if hStartByte < 0 {
 		hStartByte = 0
@@ -746,7 +749,15 @@ func (v *textCore) paintHighlight(
 		}
 		x1 := colToPx(hStart) - v.scrollX
 		x2 := colToPx(hEnd) - v.scrollX
-		r := image.Rect(x1, yOff, x2, yOff+chunkH)
+		cellH := chunkH
+		if v.lineBox > cellH {
+			cellH = v.lineBox
+		}
+		bottom := yOff + cellH
+		if !continuesPastChunk {
+			bottom += descPad
+		}
+		r := image.Rect(x1, yOff, x2, bottom)
 		paint.FillShape(gtx.Ops, col, clip.Rect(r).Op())
 		return
 	}
@@ -786,6 +797,12 @@ func (v *textCore) paintHighlight(
 		}
 		if wl == endWL {
 			x2 = endX
+		}
+		if wl == endWL && !continuesPastChunk {
+			if box := y1 + v.lineBox; box > y2 {
+				y2 = box
+			}
+			y2 += descPad
 		}
 		r := image.Rect(x1, y1, x2, y2)
 		paint.FillShape(gtx.Ops, col, clip.Rect(r).Op())

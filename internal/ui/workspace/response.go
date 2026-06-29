@@ -274,6 +274,8 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		exactLineH = lineHeight
 	}
 	v.lastLineHeight = exactLineH
+	v.descOvershoot = measureDescentOvershoot(s.Shaper, s.Font, s.TextSize, gtx)
+	v.lineBox = measureLineBox(s.Shaper, s.Font, s.TextSize, gtx)
 
 	totalH := 0
 	for i, h := range v.chunkHeights {
@@ -679,6 +681,39 @@ func measureCharAdvance(shaper *text.Shaper, fnt font.Font, size unit.Sp, gtx la
 		return 0
 	}
 	return g.Advance
+}
+
+func measureLineBox(shaper *text.Shaper, fnt font.Font, size unit.Sp, gtx layout.Context) int {
+	shaper.LayoutString(text.Parameters{
+		Font:    fnt,
+		PxPerEm: fixed.I(gtx.Sp(size)),
+	}, "M")
+	g, ok := shaper.NextGlyph()
+	if !ok {
+		return 0
+	}
+	return g.Ascent.Ceil() + g.Descent.Ceil()
+}
+
+func measureDescentOvershoot(shaper *text.Shaper, fnt font.Font, size unit.Sp, gtx layout.Context) int {
+	shaper.LayoutString(text.Parameters{
+		Font:    fnt,
+		PxPerEm: fixed.I(gtx.Sp(size)),
+	}, "руфщцgjpqy")
+	over := 0
+	for {
+		g, ok := shaper.NextGlyph()
+		if !ok {
+			break
+		}
+		if d := (g.Bounds.Max.Y - g.Descent).Ceil(); d > over {
+			over = d
+		}
+	}
+	if over < 0 {
+		over = 0
+	}
+	return over
 }
 
 func measureLineHeight(
