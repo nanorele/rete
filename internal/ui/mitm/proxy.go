@@ -174,11 +174,13 @@ func (p *Proxy) serve(l net.Listener) {
 		if err != nil {
 			return
 		}
+		p.wg.Add(1)
 		go p.handleConn(c)
 	}
 }
 
 func (p *Proxy) handleConn(c net.Conn) {
+	defer p.wg.Done()
 	p.trackConn(c)
 	defer func() {
 		p.untrackConn(c)

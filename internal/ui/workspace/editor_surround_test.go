@@ -27,6 +27,27 @@ func TestRequestEditorQuoteWrapsSelection(t *testing.T) {
 	}
 }
 
+func TestRequestEditorQuoteWrapsBackwardSelection(t *testing.T) {
+	rig := newEditorKeyRig()
+	rig.focus()
+
+	rig.r.Queue(key.EditEvent{Text: "hello world"})
+	rig.frame()
+
+	rig.v.selStart = 11
+	rig.v.selEnd = 6
+
+	rig.r.Queue(key.EditEvent{Text: "\""})
+	rig.frame()
+
+	if got := rig.v.Text(); got != "hello \"world\"" {
+		t.Fatalf("quote should wrap a right-to-left selection, got %q", got)
+	}
+	if rig.v.selStart != 12 || rig.v.selEnd != 12 {
+		t.Fatalf("caret should land after the word regardless of selection direction, got [%d,%d]", rig.v.selStart, rig.v.selEnd)
+	}
+}
+
 func TestRequestEditorBracketWrapsSelection(t *testing.T) {
 	rig := newEditorKeyRig()
 	rig.focus()

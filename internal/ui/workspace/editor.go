@@ -977,7 +977,7 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		case key.EditEvent:
 			start, end := v.normSel()
 			if open, closing, ok := autoSurroundPair(ke.Text); ok && start != end {
-				caret := v.selEnd + len(open)
+				caret := end + len(open)
 				sel := string(v.text[start:end])
 				if v.Replace(start, end, open+sel+closing) {
 					v.selStart = caret
