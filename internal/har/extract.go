@@ -2,6 +2,7 @@ package har
 
 import (
 	"archive/zip"
+	"bytes"
 	"encoding/base64"
 	"io"
 	"net/url"
@@ -9,6 +10,7 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 )
 
@@ -94,30 +96,103 @@ func pathExt(p string) string {
 
 func (h *HAR) Resources(jsOnly bool) []Resource {
 	var out []Resource
-	for i, e := range h.Entries {
+	for i := range h.Entries {
+		e := &h.Entries[i]
 		if jsOnly && !e.IsJavaScript() {
 			continue
 		}
-		body, present, err := e.DecodeBody()
-		if !present || err != nil {
+		if r, ok := e.bodyResource(i); ok {
+			out = append(out, r)
+		}
+		if jsOnly {
 			continue
 		}
-		host := ""
-		if u, perr := url.Parse(e.Request.URL); perr == nil {
-			host = u.Host
+		if r, ok := e.wsResource(i); ok {
+			out = append(out, r)
 		}
-		out = append(out, Resource{
-			EntryIndex: i,
-			URL:        e.Request.URL,
-			Host:       host,
-			ZipPath:    ZipPath(e.Request.URL, e.ContentType()),
-			MimeType:   e.ContentType(),
-			Method:     e.Request.Method,
-			Status:     e.Response.Status,
-			Body:       body,
-		})
 	}
 	return out
+}
+
+func hostOf(rawURL string) string {
+	if u, err := url.Parse(rawURL); err == nil && u != nil {
+		return u.Host
+	}
+	return ""
+}
+
+func (e *Entry) bodyResource(i int) (Resource, bool) {
+	body, present, err := e.DecodeBody()
+	if !present {
+		return Resource{}, false
+	}
+	if err != nil {
+		body = []byte(e.Response.Content.Text)
+	}
+	return Resource{
+		EntryIndex: i,
+		URL:        e.Request.URL,
+		Host:       hostOf(e.Request.URL),
+		ZipPath:    ZipPath(e.Request.URL, e.ContentType()),
+		MimeType:   e.ContentType(),
+		Method:     e.Request.Method,
+		Status:     e.Response.Status,
+		Body:       body,
+	}, true
+}
+
+func (e *Entry) wsResource(i int) (Resource, bool) {
+	if len(e.WebSocketMessages) == 0 {
+		return Resource{}, false
+	}
+	return Resource{
+		EntryIndex: i,
+		URL:        e.Request.URL,
+		Host:       hostOf(e.Request.URL),
+		ZipPath:    ZipPath(e.Request.URL, "text/plain") + ".ws.txt",
+		MimeType:   "text/plain",
+		Method:     "WS",
+		Status:     e.Response.Status,
+		Body:       WSTranscript(e),
+	}, true
+}
+
+func WSTranscript(e *Entry) []byte {
+	var b bytes.Buffer
+	last := len(e.WebSocketMessages) - 1
+	for i, m := range e.WebSocketMessages {
+		dir := "<< receive"
+		if m.Sent() {
+			dir = ">> send"
+		}
+		kind := "text"
+		if m.Binary() {
+			kind = "binary"
+		}
+		b.WriteString("#")
+		b.WriteString(strconv.Itoa(i))
+		b.WriteString(" ")
+		b.WriteString(dir)
+		b.WriteString(" [")
+		b.WriteString(kind)
+		b.WriteString("] t=")
+		b.WriteString(strconv.FormatFloat(m.Time, 'f', -1, 64))
+		b.WriteByte('\n')
+		if m.Binary() {
+			if raw, derr := base64.StdEncoding.DecodeString(m.Data); derr == nil {
+				b.Write(raw)
+			} else {
+				b.WriteString(m.Data)
+			}
+		} else {
+			b.WriteString(m.Data)
+		}
+		b.WriteByte('\n')
+		if i != last {
+			b.WriteByte('\n')
+		}
+	}
+	return b.Bytes()
 }
 
 func dedupePaths(res []Resource) []Resource {
@@ -152,12 +227,10 @@ func WriteZip(w io.Writer, resources []Resource) (int, error) {
 		}
 		f, err := zw.Create(name)
 		if err != nil {
-			_ = zw.Close()
-			return written, err
+			continue
 		}
 		if _, err := f.Write(r.Body); err != nil {
-			_ = zw.Close()
-			return written, err
+			continue
 		}
 		written++
 	}
@@ -180,10 +253,10 @@ func WriteDir(dir string, resources []Resource, mkdirAll func(string) error, wri
 		}
 		full := filepath.Join(dir, filepath.FromSlash(rel))
 		if err := mkdirAll(filepath.Dir(full)); err != nil {
-			return written, err
+			continue
 		}
 		if err := writeFile(full, r.Body); err != nil {
-			return written, err
+			continue
 		}
 		written++
 	}

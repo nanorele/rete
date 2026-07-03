@@ -1080,7 +1080,7 @@ func (ui *AppUI) harExportZip() {
 		case cerr != nil:
 			st.setBanner("Export failed: "+cerr.Error(), true)
 		default:
-			st.setBanner("Exported "+strconv.Itoa(n)+" files to "+suggested, false)
+			st.setBanner(harExportMsg(n, len(resources), suggested), false)
 		}
 		ui.Window.Invalidate()
 	}()
@@ -1101,7 +1101,7 @@ func (ui *AppUI) harExportDir() {
 		if err != nil {
 			st.setBanner("Export failed: "+err.Error(), true)
 		} else {
-			st.setBanner("Exported "+strconv.Itoa(n)+" files to "+dir, false)
+			st.setBanner(harExportMsg(n, len(resources), dir), n < len(resources))
 		}
 		ui.Window.Invalidate()
 	}()
@@ -1348,6 +1348,14 @@ func harStatusText(e *har.Entry) string {
 		s += " " + e.Response.StatusText
 	}
 	return s
+}
+
+func harExportMsg(written, total int, dest string) string {
+	if written < total {
+		return "Exported " + strconv.Itoa(written) + " of " + strconv.Itoa(total) +
+			" files to " + dest + " (" + strconv.Itoa(total-written) + " skipped)"
+	}
+	return "Exported " + strconv.Itoa(written) + " files to " + dest
 }
 
 func harExportName(source string) string {

@@ -1,9 +1,11 @@
 package har
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"testing"
 )
 
@@ -67,6 +69,90 @@ func TestIsWebSocket_Detection(t *testing.T) {
 		if got := e.IsWebSocket(); got != c.want {
 			t.Errorf("IsWebSocket(%q,%d) = %v, want %v", c.url, c.status, got, c.want)
 		}
+	}
+}
+
+func TestResources_WebSocketExtracted(t *testing.T) {
+	h := mustParse(t, wsHAR)
+	res := h.Resources(false)
+	if len(res) != 1 {
+		t.Fatalf("Resources = %d, want 1 (the WS transcript)", len(res))
+	}
+	r := res[0]
+	if r.Method != "WS" {
+		t.Errorf("ws resource method = %q, want WS", r.Method)
+	}
+	if !strings.HasSuffix(r.ZipPath, ".ws.txt") {
+		t.Errorf("ws resource path = %q, want .ws.txt suffix", r.ZipPath)
+	}
+	body := string(r.Body)
+	for _, want := range []string{">> send", "<< receive", "hello", "world", "[binary]"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("transcript missing %q:\n%s", want, body)
+		}
+	}
+	// Binary frame "AAEC" is base64 for bytes 0x00 0x01 0x02 — must be decoded.
+	if !strings.Contains(body, "\x00\x01\x02") {
+		t.Errorf("binary frame not decoded from base64:\n%q", body)
+	}
+}
+
+func TestResources_KeepsUndecodableBody(t *testing.T) {
+	const doc = `{"log":{"version":"1.2","entries":[
+      {"request":{"method":"GET","url":"https://x.com/a.js"},
+       "response":{"status":200,"content":{"mimeType":"application/javascript","encoding":"base64","text":"!!!not base64!!!"}}}
+    ]}}`
+	h := mustParse(t, doc)
+	res := h.Resources(false)
+	if len(res) != 1 {
+		t.Fatalf("Resources = %d, want 1 (bad base64 must not drop the file)", len(res))
+	}
+	if string(res[0].Body) != "!!!not base64!!!" {
+		t.Errorf("body = %q, want raw undecoded text", res[0].Body)
+	}
+}
+
+func TestWriteZip_SkipsBadPathsAndContinues(t *testing.T) {
+	res := []Resource{
+		{ZipPath: "", Body: []byte("dropped")},
+		{ZipPath: "host/a.js", Body: []byte("one")},
+		{ZipPath: "host/b.js", Body: []byte("two")},
+	}
+	var buf bytes.Buffer
+	n, err := WriteZip(&buf, res)
+	if err != nil {
+		t.Fatalf("WriteZip: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("wrote %d, want 2 (empty path skipped, rest written)", n)
+	}
+}
+
+func TestWriteDir_ContinuesPastFailures(t *testing.T) {
+	res := []Resource{
+		{ZipPath: "host/good1.js", Body: []byte("one")},
+		{ZipPath: "host/bad.js", Body: []byte("two")},
+		{ZipPath: "host/good2.js", Body: []byte("three")},
+	}
+	files := map[string]string{}
+	n, err := WriteDir("/out", res,
+		func(string) error { return nil },
+		func(p string, b []byte) error {
+			if strings.Contains(p, "bad.js") {
+				return os.ErrPermission
+			}
+			files[filepath.ToSlash(p)] = string(b)
+			return nil
+		},
+	)
+	if err != nil {
+		t.Fatalf("WriteDir must not abort on a single failure: %v", err)
+	}
+	if n != 2 {
+		t.Fatalf("wrote %d, want 2 (bad file skipped, others written)", n)
+	}
+	if files["/out/host/good1.js"] != "one" || files["/out/host/good2.js"] != "three" {
+		t.Errorf("surviving files not written: %v", keys(files))
 	}
 }
 
