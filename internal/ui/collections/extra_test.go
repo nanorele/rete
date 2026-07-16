@@ -785,3 +785,58 @@ func TestAssignParentsEnablesEditor(t *testing.T) {
 		t.Errorf("child editor not configured")
 	}
 }
+
+func TestAuthCookiesRoundTrip(t *testing.T) {
+	cases := []model.ParsedRequest{
+		{Method: "GET", URL: "http://x", Auth: model.ParsedAuth{Type: "bearer", Token: "tok123"}},
+		{Method: "GET", URL: "http://x", Auth: model.ParsedAuth{Type: "basic", Username: "u", Password: "p"}},
+		{Method: "GET", URL: "http://x", Cookies: []model.ParsedKV{{Key: "sid", Value: "abc"}, {Key: "t", Value: "dark"}}},
+	}
+	for i, src := range cases {
+		out := persist.MarshalRequest(&src)
+		data, err := json.Marshal(out)
+		if err != nil {
+			t.Fatalf("case %d marshal: %v", i, err)
+		}
+		got := parseRequestRaw(json.RawMessage(data), "n")
+		if got == nil {
+			t.Fatalf("case %d parse returned nil", i)
+		}
+		if got.Auth != src.Auth {
+			t.Errorf("case %d auth: got %+v want %+v", i, got.Auth, src.Auth)
+		}
+		if len(got.Cookies) != len(src.Cookies) {
+			t.Fatalf("case %d cookies len: got %d want %d", i, len(got.Cookies), len(src.Cookies))
+		}
+		for j := range src.Cookies {
+			if got.Cookies[j] != src.Cookies[j] {
+				t.Errorf("case %d cookie[%d]: got %+v want %+v", i, j, got.Cookies[j], src.Cookies[j])
+			}
+		}
+		if _, ok := got.Extras["auth"]; ok {
+			t.Errorf("case %d: auth leaked into Extras", i)
+		}
+		if _, ok := got.Extras["_tracto_cookies"]; ok {
+			t.Errorf("case %d: cookies leaked into Extras", i)
+		}
+	}
+}
+
+func TestUnknownAuthPreserved(t *testing.T) {
+	raw := json.RawMessage(`{"method":"GET","url":"http://x","auth":{"type":"oauth2","oauth2":[{"key":"accessToken","value":"xyz"}]}}`)
+	req := parseRequestRaw(raw, "n")
+	if req == nil {
+		t.Fatal("nil req")
+	}
+	if req.Auth.Type != "" {
+		t.Errorf("unknown auth should not populate typed Auth, got %q", req.Auth.Type)
+	}
+	if _, ok := req.Extras["auth"]; !ok {
+		t.Fatal("unknown auth not preserved in Extras")
+	}
+	out := persist.MarshalRequest(req)
+	data, _ := json.Marshal(out)
+	if !strings.Contains(string(data), "oauth2") {
+		t.Errorf("oauth2 auth lost on re-marshal: %s", data)
+	}
+}

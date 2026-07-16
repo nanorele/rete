@@ -43,6 +43,55 @@ func auditPairs() []pair {
 	}
 }
 
+func maxChannelDelta(a, b color.NRGBA) int {
+	d := func(x, y uint8) int {
+		v := int(x) - int(y)
+		if v < 0 {
+			v = -v
+		}
+		return v
+	}
+	m := d(a.R, b.R)
+	if v := d(a.G, b.G); v > m {
+		m = v
+	}
+	if v := d(a.B, b.B); v > m {
+		m = v
+	}
+	return m
+}
+
+func TestFieldSurfaceDistinctFromBg(t *testing.T) {
+	for _, def := range Registry {
+		def := def
+		t.Run(def.ID, func(t *testing.T) {
+			p := def.Palette
+			if d := maxChannelDelta(p.BgField, p.Bg); d < 8 {
+				t.Errorf("%s: BgField %v too close to Bg %v (delta %d < 8)", def.Name, p.BgField, p.Bg, d)
+			}
+		})
+	}
+}
+
+func TestBorderContrastFloor(t *testing.T) {
+	for _, def := range Registry {
+		def := def
+		t.Run(def.ID, func(t *testing.T) {
+			p := def.Palette
+			borderMin, borderLightMin := float32(1.185), float32(1.485)
+			if RelLuminance(p.Bg) > 0.5 {
+				borderMin, borderLightMin = 1.375, 1.695
+			}
+			if r := ContrastRatio(p.Border, p.Bg); r < borderMin {
+				t.Errorf("%s: Border contrast %.3f < %.3f (border=%v bg=%v)", def.Name, r, borderMin, p.Border, p.Bg)
+			}
+			if r := ContrastRatio(p.BorderLight, p.Bg); r < borderLightMin {
+				t.Errorf("%s: BorderLight contrast %.3f < %.3f (border=%v bg=%v)", def.Name, r, borderLightMin, p.BorderLight, p.Bg)
+			}
+		})
+	}
+}
+
 func TestThemeContrast(t *testing.T) {
 	for _, def := range Registry {
 		def := def

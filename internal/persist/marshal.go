@@ -42,7 +42,41 @@ func MarshalRequest(req *model.ParsedRequest) map[string]any {
 
 	out["header"] = marshalRequestHeaders(req)
 	out["body"] = marshalRequestBody(req)
+	if a := marshalRequestAuth(req.Auth); a != nil {
+		out["auth"] = a
+	}
+	if len(req.Cookies) > 0 {
+		arr := make([]any, 0, len(req.Cookies))
+		for _, c := range req.Cookies {
+			if c.Key == "" {
+				continue
+			}
+			arr = append(arr, map[string]any{"key": c.Key, "value": c.Value})
+		}
+		out["_tracto_cookies"] = arr
+	} else {
+		delete(out, "_tracto_cookies")
+	}
 	return out
+}
+
+func marshalRequestAuth(a model.ParsedAuth) any {
+	switch a.Type {
+	case "bearer":
+		return map[string]any{
+			"type":   "bearer",
+			"bearer": []any{map[string]any{"key": "token", "value": a.Token, "type": "string"}},
+		}
+	case "basic":
+		return map[string]any{
+			"type": "basic",
+			"basic": []any{
+				map[string]any{"key": "username", "value": a.Username, "type": "string"},
+				map[string]any{"key": "password", "value": a.Password, "type": "string"},
+			},
+		}
+	}
+	return nil
 }
 
 func marshalRequestHeaders(req *model.ParsedRequest) []any {

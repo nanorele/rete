@@ -798,17 +798,6 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 	v.lastLineHeight = lineHeight
 	v.lastViewportH = innerH
 
-	if s.Wrap != v.chunkHeightsWrap || (s.Wrap && v.chunkHeightsWidth != innerW) {
-		v.invalidateChunkHeights()
-		v.chunkHeightsWrap = s.Wrap
-		v.chunkHeightsWidth = innerW
-		v.maxLineWidth = 0
-		v.scrollX = 0
-		v.invalidateAllWrapPlans()
-	}
-	v.padChunkHeights()
-	v.padWrapPlans()
-
 	textColorMacro := op.Record(gtx.Ops)
 	paint.ColorOp{Color: s.Color}.Add(gtx.Ops)
 	textColor := textColorMacro.Stop()
@@ -821,6 +810,20 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 	v.lastLineHeight = exactLineH
 	v.descOvershoot = measureDescentOvershoot(s.Shaper, s.Font, s.TextSize, gtx)
 	v.lineBox = measureLineBox(s.Shaper, s.Font, s.TextSize, gtx)
+
+	if s.Wrap != v.chunkHeightsWrap || (s.Wrap && v.chunkHeightsWidth != innerW) {
+		anchorLine, anchorSub := v.scrollAnchor(exactLineH, charAdv, v.chunkHeightsWidth, v.chunkHeightsWrap)
+		v.invalidateChunkHeights()
+		v.chunkHeightsWrap = s.Wrap
+		v.chunkHeightsWidth = innerW
+		v.maxLineWidth = 0
+		v.scrollX = 0
+		v.invalidateAllWrapPlans()
+		v.padChunkHeights()
+		v.scrollY = v.scrollYForAnchor(anchorLine, anchorSub, exactLineH, charAdv, innerW, s.Wrap)
+	}
+	v.padChunkHeights()
+	v.padWrapPlans()
 
 	totalH := 0
 	for i, h := range v.chunkHeights {
@@ -910,11 +913,12 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		}
 		off := v.coordToByteOffset(gtx, ev.Position.X-pad, ev.Position.Y-pad, charAdv, exactLineH, innerW, s.Wrap)
 		gtx.Execute(key.FocusCmd{Tag: v})
+		clicks := v.resolveClickCount(gtx.Now, ev.Position)
 		switch {
-		case ev.NumClicks >= 3:
+		case clicks >= 3:
 			v.selStart, v.selEnd = v.sourceLineBoundsAt(off)
 			v.dragActive = false
-		case ev.NumClicks == 2:
+		case clicks == 2:
 			v.selStart, v.selEnd = v.wordBoundsAt(off)
 			v.dragActive = false
 		case ev.Modifiers&key.ModShift != 0:
@@ -1421,6 +1425,9 @@ func (v *RequestEditor) paintChunk(
 	var dims layout.Dimensions
 	if tokenizing && len(v.tokens) > 0 {
 		spans := v.spansForChunk(absStart, absEnd, s.Syntax, s.BracketCycle)
+		if len(v.text) <= requestEditorVarScanCutoff {
+			spans = clipSpansToVars(spans, v.text[absStart:absEnd])
+		}
 		dims = widgets.PaintColoredText(labelGtx, s.Shaper, s.Font, s.TextSize, chunkText, spans, s.Color, s.Wrap, innerW)
 	} else {
 		dims = lbl.Layout(labelGtx, s.Shaper, s.Font, s.TextSize, chunkText, textColor)

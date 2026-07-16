@@ -71,6 +71,21 @@ func (ui *AppUI) loadTabFromState(ts persist.TabState) *workspace.RequestTab {
 			rt.BinaryFileSize = fi.Size()
 		}
 	}
+	if ts.Auth != nil {
+		rt.ApplyAuth(model.ParsedAuth{
+			Type:     ts.Auth.Type,
+			Token:    ts.Auth.Token,
+			Username: ts.Auth.Username,
+			Password: ts.Auth.Password,
+		})
+	}
+	if len(ts.Cookies) > 0 {
+		cookies := make([]model.ParsedKV, 0, len(ts.Cookies))
+		for _, c := range ts.Cookies {
+			cookies = append(cookies, model.ParsedKV{Key: c.Key, Value: c.Value})
+		}
+		rt.ApplyCookies(cookies)
+	}
 	rt.UpdateSystemHeaders()
 	if ts.WS != nil {
 		ws := rt.EnsureWS()
@@ -169,6 +184,17 @@ func (ui *AppUI) tabStateFromTab(rt *workspace.RequestTab) persist.TabState {
 				ts.Headers = append(ts.Headers, persist.HeaderState{Key: k, Value: h.Value.Text()})
 			}
 		}
+	}
+	if am := rt.AuthModel(); am.Type != "" {
+		ts.Auth = &persist.AuthState{
+			Type:     am.Type,
+			Token:    am.Token,
+			Username: am.Username,
+			Password: am.Password,
+		}
+	}
+	for _, c := range rt.CookieModels() {
+		ts.Cookies = append(ts.Cookies, persist.HeaderState{Key: c.Key, Value: c.Value})
 	}
 	if rt.WS != nil {
 		wsState := &persist.WSTabState{

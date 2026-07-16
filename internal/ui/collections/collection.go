@@ -213,6 +213,10 @@ func cloneNode(node *CollectionNode, parent *CollectionNode, addSuffix bool) *Co
 			Body:       node.Request.Body,
 			BodyType:   node.Request.BodyType,
 			BinaryPath: node.Request.BinaryPath,
+			Auth:       node.Request.Auth,
+		}
+		if len(node.Request.Cookies) > 0 {
+			dup.Request.Cookies = append([]model.ParsedKV(nil), node.Request.Cookies...)
 		}
 		dup.Request.Headers = make(map[string]string)
 		for k, v := range node.Request.Headers {
@@ -540,6 +544,14 @@ func parseRequestRaw(raw json.RawMessage, name string) *model.ParsedRequest {
 			req.Headers, req.RawHeaders = parseHeaderArray(v)
 		case "body":
 			parseBodyInto(v, req)
+		case "auth":
+			if a, ok := parseAuth(v); ok {
+				req.Auth = a
+			} else {
+				req.Extras[k] = v
+			}
+		case "_tracto_cookies":
+			req.Cookies = parseCookies(v)
 		default:
 			req.Extras[k] = v
 		}
@@ -583,6 +595,61 @@ func parseHeaderArray(raw json.RawMessage) (map[string]string, json.RawMessage) 
 		}
 	}
 	return headers, raw
+}
+
+func parseAuth(raw json.RawMessage) (model.ParsedAuth, bool) {
+	var obj map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &obj); err != nil {
+		return model.ParsedAuth{}, false
+	}
+	var typ string
+	_ = json.Unmarshal(obj["type"], &typ)
+	switch typ {
+	case "noauth":
+		return model.ParsedAuth{}, true
+	case "bearer":
+		return model.ParsedAuth{Type: "bearer", Token: authParamValue(obj["bearer"], "token")}, true
+	case "basic":
+		return model.ParsedAuth{
+			Type:     "basic",
+			Username: authParamValue(obj["basic"], "username"),
+			Password: authParamValue(obj["basic"], "password"),
+		}, true
+	}
+	return model.ParsedAuth{}, false
+}
+
+func authParamValue(raw json.RawMessage, key string) string {
+	var arr []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &arr); err != nil {
+		return ""
+	}
+	for _, m := range arr {
+		var k string
+		_ = json.Unmarshal(m["key"], &k)
+		if k == key {
+			var v string
+			_ = json.Unmarshal(m["value"], &v)
+			return utils.SanitizeText(v)
+		}
+	}
+	return ""
+}
+
+func parseCookies(raw json.RawMessage) []model.ParsedKV {
+	var arr []model.ExtKVPart
+	if err := json.Unmarshal(raw, &arr); err != nil {
+		return nil
+	}
+	out := make([]model.ParsedKV, 0, len(arr))
+	for _, kv := range arr {
+		k := strings.TrimSpace(utils.SanitizeText(kv.Key))
+		if k == "" {
+			continue
+		}
+		out = append(out, model.ParsedKV{Key: k, Value: utils.SanitizeText(kv.Value)})
+	}
+	return out
 }
 
 func parseBodyInto(raw json.RawMessage, req *model.ParsedRequest) {

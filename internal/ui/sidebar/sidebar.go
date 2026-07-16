@@ -286,7 +286,8 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				break
 			}
 		}
-		blockHovered := host.ColsBodyHover.Update(gtx.Source) || anyColMenuOpen
+		blockHovered := host.ColsBodyHover.Update(gtx.Source) || anyColMenuOpen ||
+		host.ColList.Scrollbar.Dragging() || host.ColList.Scrollbar.IndicatorHovered() || host.ColList.Scrollbar.TrackHovered()
 		fade := host.ColsBodyFade.Update(gtx, blockHovered, 100*time.Millisecond)
 
 		if len(*host.Collections) == 0 {
@@ -563,12 +564,8 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		(*host.ColRowYs) = make(map[int]int, len(colsSnapshot))
 		*host.ColAfterLastY = trackY
 
-		colList := material.List(host.Theme, host.ColList)
-		colList.AnchorStrategy = material.Overlay
-		colList.Indicator.Color.A = uint8(float32(colList.Indicator.Color.A) * fade)
-		colList.Indicator.HoverColor.A = uint8(float32(colList.Indicator.HoverColor.A) * fade)
-		colBarW := gtx.Dp(colList.Width())
-		dim := colList.Layout(gtx, len(colsSnapshot), func(gtx layout.Context, i int) layout.Dimensions {
+		colBarW := sidebarBarWidth(gtx, host.Theme, host.ColList)
+		dim := host.ColList.List.Layout(gtx, len(colsSnapshot), func(gtx layout.Context, i int) layout.Dimensions {
 			node := colsSnapshot[i]
 
 			nodeClick := func(x float32) {
@@ -1638,7 +1635,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		lgtx.Constraints.Min.Y = 0
 		lgtx.Constraints.Max.Y = total
 		listMacro := op.Record(gtx.Ops)
-		colsBody(lgtx)
+		listDim := colsBody(lgtx)
 		listCall := listMacro.Stop()
 
 		bgtx := gtx
@@ -1649,6 +1646,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 		listCall.Add(gtx.Ops)
 		bandCall.Add(gtx.Ops)
+
+		sbMacro := op.Record(gtx.Ops)
+		layoutSidebarScrollbar(gtx, host.Theme, host.ColList, len(*host.VisibleCols), listDim.Size.Y, host.ColsBodyFade.Value())
+		op.Defer(gtx.Ops, sbMacro.Stop())
 
 		if DebugBand != nil {
 			DebugBand(0, bandDim.Size.Y)
@@ -1747,7 +1748,8 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				break
 			}
 		}
-		blockHovered := host.EnvsBodyHover.Update(gtx.Source) || anyEnvMenuOpen
+		blockHovered := host.EnvsBodyHover.Update(gtx.Source) || anyEnvMenuOpen ||
+			host.EnvList.Scrollbar.Dragging() || host.EnvList.Scrollbar.IndicatorHovered() || host.EnvList.Scrollbar.TrackHovered()
 		fade := host.EnvsBodyFade.Update(gtx, blockHovered, 100*time.Millisecond)
 
 		if len((*host.Environments)) == 0 {
@@ -1863,12 +1865,8 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		}
 
 		var envToDelete *environments.EnvironmentUI
-		envList := material.List(host.Theme, host.EnvList)
-		envList.AnchorStrategy = material.Overlay
-		envList.Indicator.Color.A = uint8(float32(envList.Indicator.Color.A) * fade)
-		envList.Indicator.HoverColor.A = uint8(float32(envList.Indicator.HoverColor.A) * fade)
-		envBarW := gtx.Dp(envList.Width())
-		dim := envList.Layout(gtx, len(envSnapshot), func(gtx layout.Context, idx int) layout.Dimensions {
+		envBarW := sidebarBarWidth(gtx, host.Theme, host.EnvList)
+		dim := host.EnvList.List.Layout(gtx, len(envSnapshot), func(gtx layout.Context, idx int) layout.Dimensions {
 			if idx >= len(envSnapshot) {
 				return layout.Dimensions{}
 			}
@@ -2204,6 +2202,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 		addScrollBarStrip(gtx, host.EnvBarScroll, dim.Size, envBarW)
 
+		sbMacro := op.Record(gtx.Ops)
+		layoutSidebarScrollbar(gtx, host.Theme, host.EnvList, len(envSnapshot), dim.Size.Y, host.EnvsBodyFade.Value())
+		op.Defer(gtx.Ops, sbMacro.Stop())
+
 		return dim
 	}
 
@@ -2302,17 +2304,18 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	}
 	fit()
 
-	readDrag := func(d *gesture.Drag, startY *float32) (moved, released bool, finalY float32) {
+	readDrag := func(d *gesture.Drag, startY *float32, dividerY int) (moved, released bool, finalY float32) {
 		for {
 			e, ok := d.Update(gtx.Metric, gtx.Source, gesture.Vertical)
 			if !ok {
 				break
 			}
+			pos := e.Position.Y + float32(dividerY)
 			switch e.Kind {
 			case pointer.Press:
-				*startY = e.Position.Y
+				*startY = pos
 			case pointer.Drag:
-				finalY = e.Position.Y
+				finalY = pos
 				moved = true
 			case pointer.Cancel, pointer.Release:
 				released = true
@@ -2370,9 +2373,11 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	}
 
 	if *host.ScriptsExpanded {
-		moved, released, finalY := readDrag(host.ScriptsDrag, host.ScriptsDragY)
+		moved, released, finalY := readDrag(host.ScriptsDrag, host.ScriptsDragY, *host.ScriptsDividerY)
 		if moved {
-			*host.ScriptsDragY = finalY - float32(resizeScripts(int(finalY-*host.ScriptsDragY)))
+			delta := finalY - *host.ScriptsDragY
+			applied := resizeScripts(int(delta))
+			*host.ScriptsDragY = finalY - (delta - float32(applied))
 			storeHeights()
 			host.Window.Invalidate()
 		}
@@ -2383,16 +2388,16 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	}
 
 	if *host.EnvsExpanded {
-		moved, released, finalY := readDrag(host.SidebarEnvDrag, host.SidebarEnvDragY)
+		moved, released, finalY := readDrag(host.SidebarEnvDrag, host.SidebarEnvDragY, *host.EnvDividerY)
 		if moved {
-			delta := int(finalY - *host.SidebarEnvDragY)
+			delta := finalY - *host.SidebarEnvDragY
 			var applied int
 			if !*host.ColsExpanded && *host.ScriptsExpanded {
-				applied = resizeScriptsBottom(delta)
+				applied = resizeScriptsBottom(int(delta))
 			} else {
-				applied = resizeEnv(delta)
+				applied = resizeEnv(int(delta))
 			}
-			*host.SidebarEnvDragY = finalY - float32(applied)
+			*host.SidebarEnvDragY = finalY - (delta - float32(applied))
 			storeHeights()
 			host.Window.Invalidate()
 		}
@@ -2459,7 +2464,9 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			out = append(out, rg(func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.Y = scriptsPx
 				gtx.Constraints.Max.Y = scriptsPx
-				return scriptsBody(gtx, host)
+				d := scriptsBody(gtx, host)
+				d.Size.Y = scriptsPx
+				return d
 			}))
 		}
 		return out
@@ -2471,7 +2478,9 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	envBodyW := func(gtx layout.Context) layout.Dimensions {
 		gtx.Constraints.Min.Y = envPx
 		gtx.Constraints.Max.Y = envPx
-		return envsBody(gtx)
+		d := envsBody(gtx)
+		d.Size.Y = envPx
+		return d
 	}
 
 	netlimitMode := host.SidebarSection != nil && *host.SidebarSection == "netlimit"
@@ -2629,14 +2638,18 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		}),
 	)
 
-	if host.DropZones != nil && !netlimitMode && !mitmMode {
-		prefix := func(n int) int {
-			s := 0
-			for i := 0; i < n && i < len(vChildH); i++ {
-				s += vChildH[i]
-			}
-			return s
+	prefix := func(n int) int {
+		s := 0
+		for i := 0; i < n && i < len(vChildH); i++ {
+			s += vChildH[i]
 		}
+		return s
+	}
+	if !netlimitMode && !mitmMode {
+		*host.ScriptsDividerY = prefix(scriptsStartIdx)
+		*host.EnvDividerY = prefix(varsStartIdx)
+	}
+	if host.DropZones != nil && !netlimitMode && !mitmMode {
 		x0, x1 := gtx.Dp(unit.Dp(36)), size.X
 		yScripts, yVars, contentH := prefix(scriptsStartIdx), prefix(varsStartIdx), size.Y
 		if x1 > x0 && yScripts >= 0 && yScripts <= yVars && yVars <= contentH {

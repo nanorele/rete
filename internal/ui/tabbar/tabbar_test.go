@@ -633,3 +633,35 @@ func TestOverflowRow_FirstRowWidthMatchesOthers(t *testing.T) {
 		t.Errorf("row width %d exceeds maxWidth %d", ref, maxWidth)
 	}
 }
+
+func TestOverflowMaxRows1_PlusButtonWithinFrame(t *testing.T) {
+	th := newTestTheme()
+	s := NewStrip()
+	var tabs []*workspace.RequestTab
+	for i := 0; i < 30; i++ {
+		tabs = append(tabs, workspace.NewRequestTab("tab"))
+	}
+	active := 0
+
+	// Measure natural tab width, then pick a width where the last (only visible)
+	// row packs 2 tabs plus the add button and sits just under capacity, so that
+	// prepending the overflow chevron would push the + button past the frame.
+	s.Layout(makeGtx(2000, 200), th, &tabs, &active, false, 0, nil, nil)
+	natW := s.widthCache[tabs[0]].width
+	maxWidth := 2*natW + 58
+	winW := maxWidth + 2
+
+	gtx := layout.Context{
+		Ops:         new(op.Ops),
+		Metric:      unit.Metric{PxPerDp: 1, PxPerSp: 1},
+		Constraints: layout.Constraints{Max: image.Pt(winW, 800)},
+	}
+	s.Layout(gtx, th, &tabs, &active, true, 1, nil, nil)
+
+	if len(s.rowWidthsBuf) != 1 {
+		t.Fatalf("maxRows=1 must show exactly one visible row, got %d", len(s.rowWidthsBuf))
+	}
+	if got := s.rowWidthsBuf[0]; got > maxWidth {
+		t.Errorf("visible row width %d exceeds maxWidth %d — the + button overflows the frame", got, maxWidth)
+	}
+}

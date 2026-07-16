@@ -179,7 +179,7 @@ func (t *RequestTab) layoutGraphQLHeadersList(gtx layout.Context, th *material.T
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return layout.Inset{Top: unit.Dp(1), Left: unit.Dp(1), Right: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return widgets.KVRow(gtx, th, &hd.Key, &hd.Value, &hd.DelBtn, &t.HeaderKeyW, &hd.SplitDrag, &hd.splitLastX, &t.HeaderKeyBelowMin, minKey, env)
+							return widgets.KVRow(gtx, th, &hd.Key, &hd.Value, &hd.DelBtn, &t.HeaderKeyW, &hd.SplitDrag, &hd.splitLastX, &t.HeaderKeyBelowMin, minKey, env, nil, nil)
 						})
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -198,6 +198,9 @@ func (t *RequestTab) layoutGraphQLQueryVars(gtx layout.Context, th *material.The
 	g := t.EnsureGQL()
 
 	flexExtent := float32(gtx.Constraints.Max.Y - gtx.Dp(unit.Dp(4)))
+	if pool := g.varsPaneRec + g.varsSecRec; pool > 0 {
+		flexExtent = float32(pool)
+	}
 	var moved bool
 	var finalPos float32
 	var released bool
@@ -206,11 +209,13 @@ func (t *RequestTab) layoutGraphQLQueryVars(gtx layout.Context, th *material.The
 		if !ok {
 			break
 		}
+		pos := e.Position.Y + float32(g.varsDrawn)
 		switch e.Kind {
 		case pointer.Press:
-			g.VarsSplitDragX = e.Position.Y
+			g.VarsSplitDragX = pos
+			g.varsPanePx = g.VarsSplitRatio * flexExtent
 		case pointer.Drag:
-			finalPos = e.Position.Y
+			finalPos = pos
 			moved = true
 		case pointer.Cancel, pointer.Release:
 			released = true
@@ -224,15 +229,15 @@ func (t *RequestTab) layoutGraphQLQueryVars(gtx layout.Context, th *material.The
 		g.VarsSplitRatio = maxR
 	}
 	if moved && flexExtent > 0 {
-		delta := finalPos - g.VarsSplitDragX
-		oldRatio := g.VarsSplitRatio
-		g.VarsSplitRatio += delta / flexExtent
-		if g.VarsSplitRatio < minR {
-			g.VarsSplitRatio = minR
-		} else if g.VarsSplitRatio > maxR {
-			g.VarsSplitRatio = maxR
+		g.varsPanePx += finalPos - g.VarsSplitDragX
+		g.VarsSplitDragX = finalPos
+		pane := g.varsPanePx
+		if pane < minR*flexExtent {
+			pane = minR * flexExtent
+		} else if pane > maxR*flexExtent {
+			pane = maxR * flexExtent
 		}
-		g.VarsSplitDragX = finalPos - ((g.VarsSplitRatio - oldRatio) * flexExtent)
+		g.VarsSplitRatio = pane / flexExtent
 		win.Invalidate()
 	}
 	if released {
@@ -241,7 +246,10 @@ func (t *RequestTab) layoutGraphQLQueryVars(gtx layout.Context, th *material.The
 
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Flexed(g.VarsSplitRatio, func(gtx layout.Context) layout.Dimensions {
-			return gqlEditorPanel(gtx, th, "Query", &g.Query, &g.QueryCopyBtn, "query { ... }")
+			g.varsPaneRec = gtx.Constraints.Max.Y
+			d := gqlEditorPanel(gtx, th, "Query", &g.Query, &g.QueryCopyBtn, "query { ... }")
+			g.varsDrawn = d.Size.Y
+			return d
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			thick := gtx.Dp(unit.Dp(4))
@@ -253,6 +261,7 @@ func (t *RequestTab) layoutGraphQLQueryVars(gtx layout.Context, th *material.The
 			return layout.Dimensions{Size: size}
 		}),
 		layout.Flexed(1-g.VarsSplitRatio, func(gtx layout.Context) layout.Dimensions {
+			g.varsSecRec = gtx.Constraints.Max.Y
 			return gqlEditorPanel(gtx, th, "Variables (JSON)", &g.Variables, &g.VarsCopyBtn, "{ }")
 		}),
 	)

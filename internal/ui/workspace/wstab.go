@@ -14,11 +14,6 @@ import (
 
 const MethodWS = "WS"
 
-const (
-	wsListHeaders = iota
-	wsListSubprotos
-)
-
 type WSState int32
 
 const (
@@ -98,10 +93,6 @@ type WSSession struct {
 	SubprotosAbsHeight int
 	FitSubprotos       bool
 	AddSubprotoBtn     widget.Clickable
-	ListMode           int
-	HeadersTabBtn      widget.Clickable
-	SubprotosTabBtn    widget.Clickable
-	ListAddBtn         widget.Clickable
 	OptionsExpanded    bool
 	OptionsBtn         widget.Clickable
 	OfferDeflate       bool
@@ -126,6 +117,26 @@ type WSSession struct {
 	ComposerWrapBtn  widget.Clickable
 	ComposerCopyBtn  widget.Clickable
 	ComposerSendBtn  widget.Clickable
+
+	HeadersCollapsed    bool
+	HeadersAddBtn       widget.Clickable
+	HeadersCollapseBtn  widget.Clickable
+	HeadersAbsHeight    int
+	HeadersComposeDrag  gesture.Drag
+	HeadersComposeDragX float32
+	hcComposePx         int
+	hcHeadersPx         float32
+	headersRenderH      int
+	composerPaneH       int
+	wsRowH              int
+	optionsRowH         int
+	ComposeCollapsed    bool
+	ComposeCollapseBtn  widget.Clickable
+	composeSavedRatio   float32
+	MessagesCollapsed   bool
+	MessagesCollapseBtn widget.Clickable
+	statusRowH          int
+	msgsSavedRatio      float32
 
 	SavedSends     []*WSSavedSend
 	SavedSendsList widget.List
@@ -153,6 +164,11 @@ type WSSession struct {
 	SplitDrag     gesture.Drag
 	SplitDragX    float32
 	ComposerRatio float32
+	splitPaneRec  int
+	msgsPaneRec   int
+	splitPanePx   float32
+	paneDrawn     int
+	hcSliderY     int
 
 	state         atomic.Int32
 	sessionCount  int

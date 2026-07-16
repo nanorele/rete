@@ -222,17 +222,21 @@ func (t *Table) updateResize(gtx layout.Context) {
 				t.lastX[i] = ev.Position.X
 			case pointer.Drag:
 				d := ev.Position.X - t.lastX[i]
-				t.lastX[i] = ev.Position.X
 				if i > t.flexIdx {
 					d = -d
 				}
-				t.resizeCol(gtx, i, int(d))
+				applied := t.resizeCol(gtx, i, int(d))
+				rem := d - float32(applied)
+				if i > t.flexIdx {
+					rem = -rem
+				}
+				t.lastX[i] = ev.Position.X - rem
 			}
 		}
 	}
 }
 
-func (t *Table) resizeCol(gtx layout.Context, i, delta int) {
+func (t *Table) resizeCol(gtx layout.Context, i, delta int) int {
 	cur := t.fixedPx(gtx, i)
 	left := gtx.Dp(unit.Dp(TableHInset))
 	contentW := gtx.Constraints.Max.X - 2*left
@@ -251,4 +255,5 @@ func (t *Table) resizeCol(gtx layout.Context, i, delta int) {
 		newW = minCol
 	}
 	t.override[i] = newW
+	return newW - cur
 }

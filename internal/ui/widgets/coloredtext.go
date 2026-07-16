@@ -140,7 +140,7 @@ func PaintColoredText(
 		lineGlyphs = append(lineGlyphs, g)
 		lineColors = append(lineColors, col)
 
-		for r := uint16(0); r < g.Runes; r++ {
+		for r := uint32(0); r < g.Runes; r++ {
 			if byteIdx >= len(txt) {
 				break
 			}
@@ -204,7 +204,7 @@ func ShapeChunkForWrap(
 	byteAccum := 0
 	for g, ok := shaper.NextGlyph(); ok; g, ok = shaper.NextGlyph() {
 		runeBytes := 0
-		for r := uint16(0); r < g.Runes && byteAccum+runeBytes < len(chunkText); r++ {
+		for r := uint32(0); r < g.Runes && byteAccum+runeBytes < len(chunkText); r++ {
 			_, sz := utf8.DecodeRune(chunkText[byteAccum+runeBytes:])
 			runeBytes += sz
 		}

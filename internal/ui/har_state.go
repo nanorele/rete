@@ -60,11 +60,19 @@ type harState struct {
 	SplitRatio     float32
 	SplitDrag      gesture.Drag
 	SplitDragX     float32
+	splitPx        float32
+	leftDrawn      int
 	InspTab        int
 	InspTabReq     widget.Clickable
 	InspTabResp    widget.Clickable
 	ReqHdrList     widget.List
 	RespHdrList    widget.List
+	HdrSplitDrag   gesture.Drag
+	HdrDragY       float32
+	hdrPx          float32
+	hdrSliderY     int
+	hdrDrawnH      int
+	HdrH           float32
 	RunBtn         widget.Clickable
 	ReqCopyBtn     widget.Clickable
 	Pretty         bool
@@ -73,6 +81,7 @@ type harState struct {
 	ReqViewerKey   string
 	ReqScrollDrag  gesture.Drag
 	ReqScrollDragY float32
+	BodySearch     workspace.SearchBox
 
 	FileList        widget.List
 	FileRows        []*widget.Clickable
@@ -82,6 +91,7 @@ type harState struct {
 	FileViewerKey   string
 	FileScrollDrag  gesture.Drag
 	FileScrollDragY float32
+	FileSearch      workspace.SearchBox
 
 	ExportDirBtn widget.Clickable
 	ExportZipBtn widget.Clickable
@@ -121,6 +131,9 @@ func (st *harState) ensure() {
 	}
 	if st.SplitRatio <= 0 {
 		st.SplitRatio = 0.42
+	}
+	if st.HdrH <= 0 {
+		st.HdrH = 150
 	}
 	if st.SelReq == 0 && st.Doc == nil {
 		st.SelReq = -1

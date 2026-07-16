@@ -65,6 +65,7 @@ type Host struct {
 	SidebarEnvHeight *int
 	SidebarEnvDrag   *gesture.Drag
 	SidebarEnvDragY  *float32
+	EnvDividerY      *int
 
 	ColList         *widget.List
 	EnvList         *widget.List
@@ -96,6 +97,7 @@ type Host struct {
 	ScriptsHeight      *int
 	ScriptsDrag        *gesture.Drag
 	ScriptsDragY       *float32
+	ScriptsDividerY    *int
 
 	DropZones *[]DropZoneRect
 
@@ -188,5 +190,11 @@ func (h *Host) ensureScripts() {
 	}
 	if h.ScriptsDragY == nil {
 		h.ScriptsDragY = new(float32)
+	}
+	if h.ScriptsDividerY == nil {
+		h.ScriptsDividerY = new(int)
+	}
+	if h.EnvDividerY == nil {
+		h.EnvDividerY = new(int)
 	}
 }

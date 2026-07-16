@@ -218,7 +218,7 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 
 					r := env.Rows[i]
 					return layout.Inset{Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return widgets.KVRow(gtx, th, &r.KeyEditor, &r.ValEditor, &r.DelBtn, &env.KeyColW, &r.SplitDrag, &r.splitLX, &env.KeyColBelowMin, minKey, nil)
+						return widgets.KVRow(gtx, th, &r.KeyEditor, &r.ValEditor, &r.DelBtn, &env.KeyColW, &r.SplitDrag, &r.splitLX, &env.KeyColBelowMin, minKey, nil, nil, nil)
 					})
 				})
 			}),

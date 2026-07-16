@@ -94,6 +94,10 @@ type AppUI struct {
 	SidebarWidth     int
 	SidebarDrag      gesture.Drag
 	SidebarDragX     float32
+	sidebarDrawnW    int
+	sidebarWidthPx   float32
+	scriptsDivY      int
+	envDivY          int
 	BtnSidebarToggle widget.Clickable
 	ColList          widget.List
 	prevColFirst     int
@@ -1175,6 +1179,8 @@ func (ui *AppUI) openRequestInTab(node *collections.CollectionNode) {
 			rt.BinaryFileSize = fi.Size()
 		}
 	}
+	rt.ApplyAuth(req.Auth)
+	rt.ApplyCookies(req.Cookies)
 	rt.Examples = req.Examples
 	rt.ExampleSel = -1
 
@@ -1488,6 +1494,9 @@ func (ui *AppUI) renderColorPickerOverlay(gtx layout.Context, p *colorpicker.Sta
 	if py+pickerH > gtx.Constraints.Max.Y {
 		py = int(p.Anchor.Y) - pickerH - gap
 	}
+	if py+pickerH > gtx.Constraints.Max.Y {
+		py = gtx.Constraints.Max.Y - pickerH
+	}
 	if px < 0 {
 		px = 0
 	}
@@ -1595,6 +1604,10 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 					ui.closeTab(ui.ActiveIdx)
 				}
 			case "F":
+				if ui.SidebarSection == "har" {
+					ui.harHandleSearchShortcut(gtx)
+					break
+				}
 				if ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
 					ui.Tabs[ui.ActiveIdx].HandleSearchShortcut(gtx)
 				}
@@ -1705,11 +1718,13 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 		if !ok {
 			break
 		}
+		pos := e.Position.X + float32(ui.sidebarDrawnW)
 		switch e.Kind {
 		case pointer.Press:
-			ui.SidebarDragX = e.Position.X
+			ui.SidebarDragX = pos
+			ui.sidebarWidthPx = float32(ui.SidebarWidth)
 		case pointer.Drag:
-			finalX = e.Position.X
+			finalX = pos
 			moved = true
 		case pointer.Cancel, pointer.Release:
 			released = true
@@ -1726,17 +1741,15 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 	}
 
 	if moved {
-		delta := finalX - ui.SidebarDragX
-		oldWidth := ui.SidebarWidth
-		ui.SidebarWidth += int(delta)
+		ui.sidebarWidthPx += finalX - ui.SidebarDragX
+		ui.SidebarDragX = finalX
+		ui.SidebarWidth = int(ui.sidebarWidthPx + 0.5)
 		if ui.SidebarWidth < minSidebarWidth {
 			ui.SidebarWidth = minSidebarWidth
 		}
 		if ui.SidebarWidth > maxSidebarWidth && maxSidebarWidth > minSidebarWidth {
 			ui.SidebarWidth = maxSidebarWidth
 		}
-		actualDelta := ui.SidebarWidth - oldWidth
-		ui.SidebarDragX = finalX - float32(actualDelta)
 		ui.Window.Invalidate()
 	}
 	if released {
@@ -1768,6 +1781,10 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.X = sidebarW
 					gtx.Constraints.Max.X = sidebarW
 					d := ui.layoutSidebar(gtx)
+					d.Size.X = sidebarW
+					if !gutterOnly {
+						ui.sidebarDrawnW = d.Size.X
+					}
 					if probeRegion != nil {
 						probeRegion("sidebar", d)
 					}

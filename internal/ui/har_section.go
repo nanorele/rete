@@ -248,7 +248,9 @@ func (ui *AppUI) harRequestsView(gtx layout.Context) layout.Dimensions {
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min.X = leftW
 			gtx.Constraints.Max.X = leftW
-			return ui.harRequestTable(gtx)
+			d := ui.harRequestTable(gtx)
+			d.Size.X = leftW
+			return d
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ui.harSplitHandle(gtx, handleW) }),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -262,9 +264,23 @@ func (ui *AppUI) harRequestsView(gtx layout.Context) layout.Dimensions {
 func (ui *AppUI) harSplit(gtx layout.Context, st *harState) (leftW, handleW, rightW int) {
 	totalW := gtx.Constraints.Max.X
 	handleW = gtx.Dp(unit.Dp(6))
-	flexExtent := float32(totalW - handleW)
 
-	const minRatio, maxRatio = 0.2, 0.8
+	clampLeft := func(w int) int {
+		if w > totalW-handleW-280 {
+			w = totalW - handleW - 280
+		}
+		if w < 240 {
+			w = 240
+		}
+		if w < 0 {
+			w = 0
+		}
+		return w
+	}
+	leftFromRatio := func() int {
+		return clampLeft(int(float32(totalW)*st.SplitRatio) - handleW/2)
+	}
+
 	var moved bool
 	var finalX float32
 	for {
@@ -272,42 +288,26 @@ func (ui *AppUI) harSplit(gtx layout.Context, st *harState) (leftW, handleW, rig
 		if !ok {
 			break
 		}
+		pos := e.Position.X + float32(st.leftDrawn)
 		switch e.Kind {
 		case pointer.Press:
-			st.SplitDragX = e.Position.X
+			st.SplitDragX = pos
+			st.splitPx = float32(leftFromRatio())
 		case pointer.Drag:
-			finalX = e.Position.X
+			finalX = pos
 			moved = true
 		}
 	}
-	if st.SplitRatio < minRatio {
-		st.SplitRatio = minRatio
-	} else if st.SplitRatio > maxRatio {
-		st.SplitRatio = maxRatio
-	}
-	if moved && flexExtent > 0 {
-		delta := finalX - st.SplitDragX
-		old := st.SplitRatio
-		st.SplitRatio += delta / flexExtent
-		if st.SplitRatio < minRatio {
-			st.SplitRatio = minRatio
-		} else if st.SplitRatio > maxRatio {
-			st.SplitRatio = maxRatio
-		}
-		st.SplitDragX = finalX - ((st.SplitRatio - old) * flexExtent)
+	if moved && totalW > 0 {
+		st.splitPx += finalX - st.SplitDragX
+		st.SplitDragX = finalX
+		left := clampLeft(int(st.splitPx + 0.5))
+		st.SplitRatio = (float32(left) + float32(handleW)/2) / float32(totalW)
 		ui.Window.Invalidate()
 	}
 
-	leftW = int(float32(totalW)*st.SplitRatio) - handleW/2
-	if leftW < 240 {
-		leftW = 240
-	}
-	if leftW > totalW-handleW-280 {
-		leftW = totalW - handleW - 280
-	}
-	if leftW < 0 {
-		leftW = 0
-	}
+	leftW = leftFromRatio()
+	st.leftDrawn = leftW
 	rightW = totalW - leftW - handleW
 	return leftW, handleW, rightW
 }
@@ -499,14 +499,16 @@ func (ui *AppUI) harInspector(gtx layout.Context) layout.Dimensions {
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ui.harInspectorHeader(gtx, e) }),
 		layout.Rigid(mitmHLine),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return ui.harTab(gtx, &st.InspTabReq, "Request", "", st.InspTab == 0)
-				}),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					return ui.harTab(gtx, &st.InspTabResp, respLabel, respCount, st.InspTab == 1)
-				}),
-			)
+			return mitmBgBar(gtx, theme.BgDark, func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return ui.harTab(gtx, &st.InspTabReq, "Request", "", st.InspTab == 0)
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return ui.harTab(gtx, &st.InspTabResp, respLabel, respCount, st.InspTab == 1)
+					}),
+				)
+			})
 		}),
 		layout.Rigid(mitmHLine),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -562,63 +564,170 @@ func (ui *AppUI) harInspectorHeader(gtx layout.Context, e *har.Entry) layout.Dim
 	})
 }
 
-func (ui *AppUI) harBodyPane(gtx layout.Context, headers []har.Header, hdrList *widget.List, body []byte, mime, identity string) layout.Dimensions {
-	st := &ui.HARView
-	return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-			layout.Rigid(harSectionLabel(ui.Theme, "Headers")),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Max.Y = gtx.Dp(unit.Dp(180))
-				return harDarkBoxed(gtx, func(gtx layout.Context) layout.Dimensions {
-					if len(headers) == 0 {
-						return harCentered(ui.Theme, gtx, "no headers")
-					}
-					return layout.UniformInset(unit.Dp(6)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						hdrList.Axis = layout.Vertical
-						return material.List(ui.Theme, hdrList).Layout(gtx, len(headers), func(gtx layout.Context, i int) layout.Dimensions {
-							return harHeaderRow(ui.Theme, gtx, headers[i])
-						})
-					})
-				})
-			}),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return ui.harBodyHeader(gtx, "Body", mime, len(body), &st.PrettyBtn, st.Pretty, &st.ReqCopyBtn, len(body) > 0)
-			}),
-			layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
-			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				return mitmBoxed(gtx, func(gtx layout.Context) layout.Dimensions {
-					return ui.harBodyViewer(gtx, st.ReqViewer, &st.ReqViewerKey, &st.ReqScrollDrag, &st.ReqScrollDragY, identity, body, mime, st.Pretty)
-				})
-			}),
-		)
-	})
+func harPaneRowPx(gtx layout.Context) int {
+	return gtx.Dp(unit.Dp(32))
 }
 
-func (ui *AppUI) harBodyHeader(gtx layout.Context, label, mime string, size int, prettyBtn *widget.Clickable, pretty bool, copyBtn *widget.Clickable, enabled bool) layout.Dimensions {
-	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+func harPaneRow(gtx layout.Context, rowH int, content layout.Widget) layout.Dimensions {
+	inner := gtx
+	inner.Constraints.Min.Y = 0
+	inner.Constraints.Max.Y = rowH
+	macro := op.Record(gtx.Ops)
+	dims := content(inner)
+	call := macro.Stop()
+	off := (rowH - dims.Size.Y) / 2
+	if off < 0 {
+		off = 0
+	}
+	stk := op.Offset(image.Pt(0, off)).Push(gtx.Ops)
+	call.Add(gtx.Ops)
+	stk.Pop()
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, rowH)}
+}
+
+func harPaneSurface(gtx layout.Context, w layout.Widget) layout.Dimensions {
+	bdr := gtx.Dp(unit.Dp(1))
+	sz := gtx.Constraints.Max
+	paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Max: sz}.Op())
+	inner := image.Rect(bdr, 0, sz.X-bdr, sz.Y-bdr)
+	paint.FillShape(gtx.Ops, widgets.KVSurface(), clip.Rect(inner).Op())
+	gtx.Constraints.Min = image.Pt(inner.Dx(), inner.Dy())
+	gtx.Constraints.Max = gtx.Constraints.Min
+	defer op.Offset(image.Pt(bdr, 0)).Push(gtx.Ops).Pop()
+	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
+	w(gtx)
+	return layout.Dimensions{Size: sz}
+}
+
+func (ui *AppUI) harBodyPane(gtx layout.Context, headers []har.Header, hdrList *widget.List, body []byte, mime, identity string) layout.Dimensions {
+	st := &ui.HARView
+
+	var hdrMoved bool
+	var hdrFinalY float32
+	for {
+		e, ok := st.HdrSplitDrag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
+		if !ok {
+			break
+		}
+		pos := e.Position.Y + float32(st.hdrSliderY)
+		switch e.Kind {
+		case pointer.Press:
+			st.HdrDragY = pos
+			st.hdrPx = float32(st.hdrDrawnH)
+		case pointer.Drag:
+			hdrFinalY = pos
+			hdrMoved = true
+		}
+	}
+	if hdrMoved {
+		st.hdrPx += hdrFinalY - st.HdrDragY
+		st.HdrDragY = hdrFinalY
+		st.HdrH = st.hdrPx / gtx.Metric.PxPerDp
+		ui.Window.Invalidate()
+	}
+
+	line := gtx.Dp(unit.Dp(1))
+	rowH := harPaneRowPx(gtx)
+	sliderH := gtx.Dp(unit.Dp(4))
+	h := gtx.Dp(unit.Dp(st.HdrH))
+	avail := gtx.Constraints.Max.Y - 2*rowH - 3*line - sliderH - gtx.Dp(unit.Dp(60))
+	if h > avail {
+		h = avail
+	}
+	if minH := gtx.Dp(unit.Dp(40)); h < minH {
+		h = minH
+	}
+	st.hdrDrawnH = h
+	st.hdrSliderY = rowH + line + h
+
+	headersRow := func(gtx layout.Context) layout.Dimensions {
+		return harPaneRow(gtx, rowH, func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Left: unit.Dp(9)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				lbl := widgets.MonoLabel(ui.Theme, unit.Sp(12), "Headers")
+				lbl.Font.Weight = font.Bold
+				return lbl.Layout(gtx)
+			})
+		})
+	}
+
+	headersContent := func(gtx layout.Context) layout.Dimensions {
+		gtx.Constraints.Min.Y = h
+		gtx.Constraints.Max.Y = h
+		return harPaneSurface(gtx, func(gtx layout.Context) layout.Dimensions {
+			if len(headers) == 0 {
+				return harCentered(ui.Theme, gtx, "no headers")
+			}
+			return layout.UniformInset(unit.Dp(6)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				hdrList.Axis = layout.Vertical
+				return material.List(ui.Theme, hdrList).Layout(gtx, len(headers), func(gtx layout.Context, i int) layout.Dimensions {
+					return harHeaderRow(ui.Theme, gtx, headers[i])
+				})
+			})
+		})
+	}
+
+	sliderHandle := func(gtx layout.Context) layout.Dimensions {
+		size := image.Point{X: gtx.Constraints.Max.X, Y: sliderH}
+		defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+		pointer.CursorRowResize.Add(gtx.Ops)
+		st.HdrSplitDrag.Add(gtx.Ops)
+		for {
+			_, ok := gtx.Event(pointer.Filter{Target: &st.HdrSplitDrag, Kinds: pointer.Move | pointer.Enter | pointer.Leave})
+			if !ok {
+				break
+			}
+		}
+		return layout.Dimensions{Size: size}
+	}
+
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(headersRow),
+		layout.Rigid(mitmHLine),
+		layout.Rigid(headersContent),
+		layout.Rigid(sliderHandle),
+		layout.Rigid(mitmHLine),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			txt := label
-			if mime != "" {
-				txt = label + " — " + mime
-			}
-			if size > 0 {
-				txt += "  (" + humanSize(int64(size)) + ")"
-			}
-			return harSectionLabel(ui.Theme, txt)(gtx)
+			return ui.harBodyHeader(gtx, rowH, "Body", mime, len(body), &st.PrettyBtn, st.Pretty, &st.ReqCopyBtn, len(body) > 0)
 		}),
+		layout.Rigid(mitmHLine),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, 0)}
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return ui.harToggleBtn(gtx, prettyBtn, "Pretty", pretty, enabled)
-		}),
-		layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return mitmBtn(gtx, ui.Theme, copyBtn, "Copy", widgets.IconDup, theme.Border, ui.Theme.Fg, enabled)
+			return harPaneSurface(gtx, func(gtx layout.Context) layout.Dimensions {
+				return ui.harBodyViewer(gtx, st.ReqViewer, &st.ReqViewerKey, &st.BodySearch, &st.ReqScrollDrag, &st.ReqScrollDragY, identity, body, mime, st.Pretty)
+			})
 		}),
 	)
+}
+
+func (ui *AppUI) harBodyHeader(gtx layout.Context, rowH int, label, mime string, size int, prettyBtn *widget.Clickable, pretty bool, copyBtn *widget.Clickable, enabled bool) layout.Dimensions {
+	return harPaneRow(gtx, rowH, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Left: unit.Dp(9)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					txt := label
+					if mime != "" {
+						txt = label + " — " + mime
+					}
+					if size > 0 {
+						txt += "  (" + humanSize(int64(size)) + ")"
+					}
+					lbl := widgets.MonoLabel(ui.Theme, unit.Sp(12), txt)
+					lbl.Font.Weight = font.Bold
+					lbl.MaxLines = 1
+					lbl.Truncator = "…"
+					return lbl.Layout(gtx)
+				})
+			}),
+			layout.Flexed(1, layout.Spacer{Width: unit.Dp(1)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ui.harToggleBtn(gtx, prettyBtn, "Pretty", pretty, enabled)
+			}),
+			layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return mitmBtn(gtx, ui.Theme, copyBtn, "Copy", widgets.IconDup, theme.Border, ui.Theme.Fg, enabled)
+			}),
+			layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+		)
+	})
 }
 
 func (ui *AppUI) harToggleBtn(gtx layout.Context, clk *widget.Clickable, label string, active, enabled bool) layout.Dimensions {
@@ -631,7 +740,7 @@ func (ui *AppUI) harToggleBtn(gtx layout.Context, clk *widget.Clickable, label s
 	return mitmBtn(gtx, ui.Theme, clk, label, nil, bg, fg, enabled)
 }
 
-func (ui *AppUI) harBodyViewer(gtx layout.Context, viewer *workspace.ResponseViewer, key *string, scrollDrag *gesture.Drag, scrollDragY *float32, identity string, body []byte, mime string, pretty bool) layout.Dimensions {
+func (ui *AppUI) harBodyViewer(gtx layout.Context, viewer *workspace.ResponseViewer, key *string, search *workspace.SearchBox, scrollDrag *gesture.Drag, scrollDragY *float32, identity string, body []byte, mime string, pretty bool) layout.Dimensions {
 	if len(body) == 0 {
 		return harCentered(ui.Theme, gtx, "no body")
 	}
@@ -648,7 +757,9 @@ func (ui *AppUI) harBodyViewer(gtx layout.Context, viewer *workspace.ResponseVie
 			}
 		}
 		viewer.SetText(string(text))
+		search.Invalidate()
 	}
+	search.Process(gtx, viewer)
 	vs := workspace.ResponseViewerStyle{
 		Viewer:           viewer,
 		Shaper:           ui.Theme.Shaper,
@@ -668,6 +779,9 @@ func (ui *AppUI) harBodyViewer(gtx layout.Context, viewer *workspace.ResponseVie
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions { return vs.Layout(gtx) }),
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 			return ui.harBodyScrollbar(gtx, viewer, scrollDrag, scrollDragY)
+		}),
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			return workspace.SearchOverlay(gtx, ui.Theme, search)
 		}),
 	)
 }
@@ -737,17 +851,6 @@ func (ui *AppUI) harBodyScrollbar(gtx layout.Context, viewer *workspace.Response
 	)
 	paint.FillShape(gtx.Ops, theme.ScrollThumb, clip.UniformRRect(rect, gtx.Dp(unit.Dp(3))).Op(gtx.Ops))
 	return layout.Dimensions{Size: gtx.Constraints.Max}
-}
-
-func harDarkBoxed(gtx layout.Context, w layout.Widget) layout.Dimensions {
-	macro := op.Record(gtx.Ops)
-	dims := w(gtx)
-	call := macro.Stop()
-	sz := dims.Size
-	paint.FillShape(gtx.Ops, theme.BgDark, clip.UniformRRect(image.Rectangle{Max: sz}, 4).Op(gtx.Ops))
-	call.Add(gtx.Ops)
-	widgets.PaintBorder1px(gtx, sz, theme.Border)
-	return dims
 }
 
 func harHeaderRow(th *material.Theme, gtx layout.Context, h har.Header) layout.Dimensions {
@@ -856,15 +959,12 @@ func (ui *AppUI) harFilePreview(gtx layout.Context) layout.Dimensions {
 		}),
 		layout.Rigid(mitmHLine),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(4), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return ui.harBodyHeader(gtx, "Content", r.MimeType, len(r.Body), &st.PrettyBtn, st.Pretty, &st.CopyBodyBtn, true)
-			})
+			return ui.harBodyHeader(gtx, harPaneRowPx(gtx), "Content", r.MimeType, len(r.Body), &st.PrettyBtn, st.Pretty, &st.CopyBodyBtn, true)
 		}),
+		layout.Rigid(mitmHLine),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Bottom: unit.Dp(8), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return mitmBoxed(gtx, func(gtx layout.Context) layout.Dimensions {
-					return ui.harBodyViewer(gtx, st.FileViewer, &st.FileViewerKey, &st.FileScrollDrag, &st.FileScrollDragY, "file/"+strconv.Itoa(st.SelFile), r.Body, r.MimeType, st.Pretty)
-				})
+			return harPaneSurface(gtx, func(gtx layout.Context) layout.Dimensions {
+				return ui.harBodyViewer(gtx, st.FileViewer, &st.FileViewerKey, &st.FileSearch, &st.FileScrollDrag, &st.FileScrollDragY, "file/"+strconv.Itoa(st.SelFile), r.Body, r.MimeType, st.Pretty)
 			})
 		}),
 	)
@@ -1107,6 +1207,23 @@ func (ui *AppUI) harExportDir() {
 	}()
 }
 
+func (ui *AppUI) harHandleSearchShortcut(gtx layout.Context) {
+	st := &ui.HARView
+	if st.Doc == nil {
+		return
+	}
+	switch st.TopTab {
+	case harTabFiles:
+		if st.SelFile >= 0 && st.SelFile < len(st.Resources) {
+			st.FileSearch.Toggle(gtx, st.FileViewer)
+		}
+	case harTabRequests:
+		if st.SelReq >= 0 && st.SelReq < len(st.Doc.Entries) {
+			st.BodySearch.Toggle(gtx, st.ReqViewer)
+		}
+	}
+}
+
 func (ui *AppUI) harCopySelectedFile(gtx layout.Context) {
 	st := &ui.HARView
 	if st.SelFile < 0 || st.SelFile >= len(st.Resources) {
@@ -1283,16 +1400,6 @@ func harCentered(th *material.Theme, gtx layout.Context, msg string) layout.Dime
 		lbl.Alignment = text.Middle
 		return lbl.Layout(gtx)
 	})
-}
-
-func harSectionLabel(th *material.Theme, s string) layout.Widget {
-	return func(gtx layout.Context) layout.Dimensions {
-		lbl := material.Label(th, unit.Sp(11), s)
-		lbl.Color = theme.FgMuted
-		lbl.Font.Weight = font.Bold
-		lbl.MaxLines = 1
-		return lbl.Layout(gtx)
-	}
 }
 
 func harSplitURL(rawURL string) (domain, file string) {

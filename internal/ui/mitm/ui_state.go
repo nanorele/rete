@@ -27,6 +27,8 @@ type UIState struct {
 	SplitRatio float32
 	SplitDrag  gesture.Drag
 	SplitDragX float32
+	SplitPx    float32
+	LeftDrawn  int
 
 	TabReq  widget.Clickable
 	TabResp widget.Clickable

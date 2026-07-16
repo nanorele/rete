@@ -3,6 +3,7 @@ package workspace
 import (
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"
+	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op/clip"
 	"github.com/nanorele/gio/op/paint"
@@ -19,6 +20,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 )
+
+const scrollbarFadeDur = 100 * time.Millisecond
 
 type textCore struct {
 	text       []byte
@@ -44,10 +47,17 @@ type textCore struct {
 	selEnd     int
 	dragActive bool
 
+	lastClickTime time.Time
+	lastClickPos  image.Point
+	multiClickN   int
+
 	Scroller  gesture.Scroll
 	ScrollerH gesture.Scroll
 	Drag      gesture.Drag
 	Click     gesture.Click
+
+	scrollbarHover widgets.Hover
+	scrollbarFade  widgets.Fade
 
 	lastLineHeight int
 	lastTotalH     int
@@ -100,6 +110,67 @@ func (v *textCore) spansForChunk(chunkStart, chunkEnd int, sp theme.SyntaxPalett
 		})
 	}
 	return out
+}
+
+func clipSpansToVars(spans []widgets.ColoredSpan, chunk []byte) []widgets.ColoredSpan {
+	var vars []matchSpan
+	for idx := 0; idx < len(chunk); {
+		s := bytesIndex(chunk[idx:], "{{")
+		if s == -1 {
+			break
+		}
+		s += idx
+		rel := bytesIndex(chunk[s+2:], "}}")
+		if rel == -1 {
+			break
+		}
+		e := s + 2 + rel + 2
+		vars = append(vars, matchSpan{start: s, end: e})
+		idx = e
+	}
+	if len(vars) == 0 {
+		return spans
+	}
+	res := make([]widgets.ColoredSpan, 0, len(spans)+len(vars))
+	for _, span := range spans {
+		segStart := span.Start
+		for _, vr := range vars {
+			if vr.end <= segStart || vr.start >= span.End {
+				continue
+			}
+			if vr.start > segStart {
+				res = append(res, widgets.ColoredSpan{Start: segStart, End: vr.start, Color: span.Color})
+			}
+			if vr.end > segStart {
+				segStart = vr.end
+			}
+		}
+		if segStart < span.End {
+			res = append(res, widgets.ColoredSpan{Start: segStart, End: span.End, Color: span.Color})
+		}
+	}
+	return res
+}
+
+func (v *textCore) resolveClickCount(now time.Time, pos image.Point) int {
+	const interval = 500 * time.Millisecond
+	const slop = 5
+	dx := pos.X - v.lastClickPos.X
+	dy := pos.Y - v.lastClickPos.Y
+	if dx < 0 {
+		dx = -dx
+	}
+	if dy < 0 {
+		dy = -dy
+	}
+	if !v.lastClickTime.IsZero() && now.Sub(v.lastClickTime) <= interval && dx <= slop && dy <= slop {
+		v.multiClickN++
+	} else {
+		v.multiClickN = 1
+	}
+	v.lastClickTime = now
+	v.lastClickPos = pos
+	return v.multiClickN
 }
 
 func (v *textCore) SelectedText() string {
@@ -211,6 +282,22 @@ func (v *textCore) SetSearchSpans(spans []matchSpan) { v.searchSpans = spans }
 
 func (v *textCore) SetScrollCaret(bool) {}
 
+func (v *textCore) LayoutScrollbarHover(gtx layout.Context, keepVisible bool) layout.Dimensions {
+	on := v.scrollbarHover.Update(gtx.Source) || keepVisible
+	v.scrollbarFade.Update(gtx, on, scrollbarFadeDur)
+	size := gtx.Constraints.Max
+	if size.X > 0 && size.Y > 0 {
+		pass := pointer.PassOp{}.Push(gtx.Ops)
+		cl := clip.Rect{Max: size}.Push(gtx.Ops)
+		v.scrollbarHover.Add(gtx.Ops)
+		cl.Pop()
+		pass.Pop()
+	}
+	return layout.Dimensions{}
+}
+
+func (v *textCore) ScrollbarFade() float32 { return v.scrollbarFade.Value() }
+
 func (v *textCore) GetScrollY() int { return v.scrollY }
 
 func (v *textCore) SetScrollY(y int) {
@@ -256,6 +343,39 @@ func (v *textCore) clampScroll() {
 	if v.scrollX < 0 {
 		v.scrollX = 0
 	}
+}
+
+func (v *textCore) scrollAnchor(lineH int, adv fixed.Int26_6, width int, wrap bool) (int, int) {
+	if lineH <= 0 || v.scrollY <= 0 {
+		return 0, 0
+	}
+	accum := 0
+	for i := range v.chunkHeights {
+		h := v.chunkHeights[i]
+		if h <= 0 {
+			h = v.estimateChunkHeight(i, lineH, adv, width, wrap)
+		}
+		if accum+h > v.scrollY {
+			return i, (v.scrollY - accum) / lineH
+		}
+		accum += h
+	}
+	return len(v.chunkHeights), 0
+}
+
+func (v *textCore) scrollYForAnchor(line, sub, lineH int, adv fixed.Int26_6, width int, wrap bool) int {
+	if lineH <= 0 {
+		return v.scrollY
+	}
+	y := 0
+	for i := 0; i < line && i < len(v.chunkHeights); i++ {
+		h := v.chunkHeights[i]
+		if h <= 0 {
+			h = v.estimateChunkHeight(i, lineH, adv, width, wrap)
+		}
+		y += h
+	}
+	return y + sub*lineH
 }
 
 func (v *textCore) lineForByteOffset(off int) int {
@@ -334,7 +454,7 @@ func (v *textCore) coordToByteOffset(
 
 	if !wrap {
 		chunkRunes := utf8.RuneCount(chunkText)
-		col := int(fixed.I(posX+v.scrollX) / advance)
+		col := int((fixed.I(posX+v.scrollX) + advance/2) / advance)
 		if col < 0 {
 			col = 0
 		}

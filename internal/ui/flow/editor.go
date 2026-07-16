@@ -107,9 +107,11 @@ type Editor struct {
 	pendingSnap string
 	clipboard   string
 
-	panelW     int
-	panelDrag  gesture.Drag
-	panelDragX float32
+	panelW      int
+	panelDrag   gesture.Drag
+	panelDragX  float32
+	panelPx     float32
+	canvasDrawn int
 
 	palDragKind   NodeKind
 	palDragOn     bool
@@ -612,30 +614,33 @@ func (ed *Editor) Layout(gtx layout.Context, th *material.Theme, host *Host) lay
 		if !ok {
 			break
 		}
+		pos := e.Position.X + float32(ed.canvasDrawn)
 		switch e.Kind {
 		case pointer.Press:
-			ed.panelDragX = e.Position.X
+			ed.panelDragX = pos
+			ed.panelPx = float32(ed.panelW)
 		case pointer.Drag:
-			finalX = e.Position.X
+			finalX = pos
 			moved = true
 		}
 	}
 	if moved {
-		delta := finalX - ed.panelDragX
-		old := ed.panelW
-		ed.panelW -= int(delta)
+		ed.panelPx -= finalX - ed.panelDragX
+		ed.panelDragX = finalX
+		ed.panelW = int(ed.panelPx + 0.5)
 		if ed.panelW < minPanel {
 			ed.panelW = minPanel
 		}
 		if ed.panelW > maxPanel && maxPanel > minPanel {
 			ed.panelW = maxPanel
 		}
-		ed.panelDragX = finalX - float32(old-ed.panelW)
 	}
 
 	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-			return ed.layoutCanvas(gtx, th, host)
+			d := ed.layoutCanvas(gtx, th, host)
+			ed.canvasDrawn = d.Size.X
+			return d
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			hit := gtx.Dp(unit.Dp(4))

@@ -3,6 +3,7 @@ package widgets
 import (
 	"image"
 	"image/color"
+	"time"
 
 	"tracto/internal/ui/theme"
 
@@ -44,8 +45,17 @@ func KVSurface() color.NRGBA {
 }
 
 func DeleteButtonInside(gtx layout.Context) layout.Dimensions {
-	bg := theme.Mix(theme.Bg, theme.Danger, 0.6)
-	fg := theme.ContrastOn(bg)
+	return DeleteButtonInsideAlpha(gtx, 1)
+}
+
+func DeleteButtonInsideAlpha(gtx layout.Context, reveal float32) layout.Dimensions {
+	if reveal > 1 {
+		reveal = 1
+	}
+	a := uint8(reveal * 255)
+	base := theme.Mix(theme.Bg, theme.Danger, 0.6)
+	bg := theme.WithAlpha(base, a)
+	fg := theme.WithAlpha(theme.ContrastOn(base), a)
 	sz := gtx.Constraints.Min
 	rect := clip.UniformRRect(image.Rectangle{Max: sz}, 2)
 	paint.FillShape(gtx.Ops, bg, rect.Op(gtx.Ops))
@@ -56,11 +66,19 @@ func DeleteButtonInside(gtx layout.Context) layout.Dimensions {
 	})
 }
 
-func KVRow(gtx layout.Context, th *material.Theme, key, value *widget.Editor, del *widget.Clickable, keyW *float32, drag *gesture.Drag, lastX *float32, belowMin *bool, minKey int, env map[string]string) layout.Dimensions {
+func KVRow(gtx layout.Context, th *material.Theme, key, value *widget.Editor, del *widget.Clickable, keyW *float32, drag *gesture.Drag, lastX *float32, belowMin *bool, minKey int, env map[string]string, rowHover *Hover, rowFade *Fade) layout.Dimensions {
+	reveal := float32(1)
+	if rowHover != nil && rowFade != nil {
+		reveal = rowFade.Update(gtx, rowHover.Update(gtx.Source), 100*time.Millisecond)
+	}
 	fieldH := gtx.Dp(unit.Dp(26))
 	dividerW := gtx.Dp(unit.Dp(kvDividerHitDp))
-	spacerW := gtx.Dp(unit.Dp(2))
-	delW := gtx.Dp(unit.Dp(20))
+	spacerW := 0
+	delW := 0
+	if reveal > 0 {
+		spacerW = gtx.Dp(unit.Dp(2))
+		delW = gtx.Dp(unit.Dp(20))
+	}
 	valueMin := gtx.Dp(unit.Dp(kvValueMinDp))
 	dragFloor := gtx.Dp(unit.Dp(8))
 
@@ -115,9 +133,6 @@ func KVRow(gtx layout.Context, th *material.Theme, key, value *widget.Editor, de
 				if nw < float32(dragFloor) {
 					nw = float32(dragFloor)
 				}
-				if mx := float32(flexTotal - valueMin); nw > mx {
-					nw = mx
-				}
 				*keyW = nw
 				if belowMin != nil {
 					*belowMin = int(nw) < minKey
@@ -156,7 +171,12 @@ func KVRow(gtx layout.Context, th *material.Theme, key, value *widget.Editor, de
 		}),
 		gap(spacerW),
 		cell(delW, func(gtx layout.Context) layout.Dimensions {
-			return del.Layout(gtx, DeleteButtonInside)
+			if reveal <= 0 {
+				return layout.Dimensions{Size: gtx.Constraints.Min}
+			}
+			return del.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return DeleteButtonInsideAlpha(gtx, reveal)
+			})
 		}),
 	)
 
@@ -175,6 +195,14 @@ func KVRow(gtx layout.Context, th *material.Theme, key, value *widget.Editor, de
 	}
 	cx := kw + dividerW/2
 	paint.FillShape(gtx.Ops, col, clip.Rect{Min: image.Pt(cx-line/2, 0), Max: image.Pt(cx-line/2+line, fieldH)}.Op())
+
+	if rowHover != nil {
+		pass := pointer.PassOp{}.Push(gtx.Ops)
+		ov := clip.Rect{Max: dims.Size}.Push(gtx.Ops)
+		rowHover.Add(gtx.Ops)
+		ov.Pop()
+		pass.Pop()
+	}
 
 	return dims
 }

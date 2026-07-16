@@ -12,28 +12,63 @@ type Def struct {
 	Palette Palette
 }
 
+func fieldSurface(bg color.NRGBA, isLight bool) color.NRGBA {
+	if !isLight {
+		return Shade(bg, 0.08)
+	}
+	lift := func(v uint8) uint8 {
+		x := int(v) + 10
+		if x > 255 {
+			x = 255
+		}
+		return uint8(x)
+	}
+	f := color.NRGBA{R: lift(bg.R), G: lift(bg.G), B: lift(bg.B), A: bg.A}
+	d := func(a, b uint8) int {
+		v := int(a) - int(b)
+		if v < 0 {
+			v = -v
+		}
+		return v
+	}
+	if d(f.R, bg.R) < 6 && d(f.G, bg.G) < 6 && d(f.B, bg.B) < 6 {
+		return Shade(bg, -0.035)
+	}
+	return f
+}
+
 func MakeTheme(bg, fg, accent, danger color.NRGBA, isLight bool) Palette {
 	var (
-		bgDirDark, fieldDir, menuDir, popupDir, hoverDir, secDir float32
+		bgDirDark, menuDir, popupDir, hoverDir, secDir float32
+		borderMix, borderLightMix                      float32
+		borderMinRatio, borderLightMinRatio            float32
 	)
 	if isLight {
 		bgDirDark = -0.06
-		fieldDir = 0.04
 		menuDir = 0.02
 		popupDir = 0.03
 		hoverDir = -0.06
 		secDir = -0.04
+		borderMix = 0.17
+		borderLightMix = 0.27
+		borderMinRatio = 1.38
+		borderLightMinRatio = 1.70
 	} else {
 		bgDirDark = -0.18
-		fieldDir = -0.05
 		menuDir = -0.06
 		popupDir = 0.05
 		hoverDir = 0.12
 		secDir = 0.08
+		borderMix = 0.08
+		borderLightMix = 0.17
+		borderMinRatio = 1.19
+		borderLightMinRatio = 1.49
 	}
 	white := color.NRGBA{R: 255, G: 255, B: 255, A: 255}
+	divider := color.NRGBA{R: 255, G: 255, B: 255, A: 60}
 	if isLight {
 		white = color.NRGBA{R: 20, G: 20, B: 20, A: 255}
+		divider = color.NRGBA{R: 0, G: 0, B: 0, A: 40}
 	}
 	accentHover := Shade(accent, 0.14)
 	cancel := Shade(danger, -0.1)
@@ -45,7 +80,7 @@ func MakeTheme(bg, fg, accent, danger color.NRGBA, isLight bool) Palette {
 	p := Palette{
 		Bg:           bg,
 		BgDark:       Shade(bg, bgDirDark),
-		BgField:      Shade(bg, fieldDir),
+		BgField:      fieldSurface(bg, isLight),
 		BgMenu:       Shade(bg, menuDir),
 		BgPopup:      Shade(bg, popupDir),
 		BgHover:      Shade(bg, hoverDir),
@@ -53,8 +88,8 @@ func MakeTheme(bg, fg, accent, danger color.NRGBA, isLight bool) Palette {
 		BgLoadMore:   Shade(bg, secDir*1.2),
 		BgDragHolder: Shade(bg, bgDirDark*1.4),
 		BgDragGhost:  WithAlpha(bg, 240),
-		Border:       Mix(bg, fg, 0.22),
-		BorderLight:  Mix(bg, fg, 0.4),
+		Border:       AdjustForContrast(Mix(bg, fg, borderMix), bg, borderMinRatio),
+		BorderLight:  AdjustForContrast(Mix(bg, fg, borderLightMix), bg, borderLightMinRatio),
 		Fg:           fg,
 		FgMuted:      AdjustForContrast(Mix(bg, fg, 0.72), bg, 3.2),
 		FgDim:        AdjustForContrast(Mix(bg, fg, 0.62), bg, 3.0),
@@ -72,7 +107,7 @@ func MakeTheme(bg, fg, accent, danger color.NRGBA, isLight bool) Palette {
 		ScrollThumb:  Mix(bg, fg, 0.32),
 		VarFound:     WithAlpha(accent, 100),
 		VarMissing:   WithAlpha(danger, 100),
-		DividerLight: WithAlpha(fg, 60),
+		DividerLight: divider,
 	}
 	p.Syntax = DeriveSyntax(p)
 	return p

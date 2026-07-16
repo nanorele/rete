@@ -11,6 +11,7 @@ import (
 	"github.com/nanorele/gio/io/key"
 	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
+	"github.com/nanorele/gio/op"
 	"github.com/nanorele/gio/op/clip"
 	"github.com/nanorele/gio/op/paint"
 	"github.com/nanorele/gio/text"
@@ -148,7 +149,8 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 			break
 		}
 	}
-	blockHovered := host.ScriptsBodyHover.Update(gtx.Source) || anyScriptMenuOpen
+	blockHovered := host.ScriptsBodyHover.Update(gtx.Source) || anyScriptMenuOpen ||
+		host.ScriptList.Scrollbar.Dragging() || host.ScriptList.Scrollbar.IndicatorHovered() || host.ScriptList.Scrollbar.TrackHovered()
 	fade := host.ScriptsBodyFade.Update(gtx, blockHovered, 100*time.Millisecond)
 
 	rows := *host.Scripts
@@ -190,12 +192,8 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 		}
 	}
 
-	list := material.List(host.Theme, host.ScriptList)
-	list.AnchorStrategy = material.Overlay
-	list.Indicator.Color.A = uint8(float32(list.Indicator.Color.A) * fade)
-	list.Indicator.HoverColor.A = uint8(float32(list.Indicator.HoverColor.A) * fade)
-	scriptBarW := gtx.Dp(list.Width())
-	dim := list.Layout(gtx, len(rows), func(gtx layout.Context, i int) layout.Dimensions {
+	scriptBarW := sidebarBarWidth(gtx, host.Theme, host.ScriptList)
+	dim := host.ScriptList.List.Layout(gtx, len(rows), func(gtx layout.Context, i int) layout.Dimensions {
 		row := rows[i]
 		isActive := row.ID == activeID
 
@@ -401,6 +399,10 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 	pass.Pop()
 
 	addScrollBarStrip(gtx, host.ScriptBarScroll, dim.Size, scriptBarW)
+
+	sbMacro := op.Record(gtx.Ops)
+	layoutSidebarScrollbar(gtx, host.Theme, host.ScriptList, len(rows), dim.Size.Y, host.ScriptsBodyFade.Value())
+	op.Defer(gtx.Ops, sbMacro.Stop())
 
 	return dim
 }

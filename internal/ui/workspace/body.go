@@ -135,7 +135,7 @@ func (t *RequestTab) layoutURLEncodedBody(gtx layout.Context, th *material.Theme
 					p := p
 					children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return layout.Inset{Top: unit.Dp(1), Bottom: unit.Dp(0), Left: unit.Dp(1), Right: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return widgets.KVRow(gtx, th, &p.Key, &p.Value, &p.DelBtn, &t.HeaderKeyW, &p.SplitDrag, &p.splitLastX, &t.HeaderKeyBelowMin, minKey, env)
+							return widgets.KVRow(gtx, th, &p.Key, &p.Value, &p.DelBtn, &t.HeaderKeyW, &p.SplitDrag, &p.splitLastX, &t.HeaderKeyBelowMin, minKey, env, nil, nil)
 						})
 					}))
 					if i < len(t.URLEncoded)-1 {

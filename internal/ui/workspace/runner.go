@@ -228,13 +228,15 @@ func splitValues(s string) []string {
 }
 
 type runSpec struct {
-	method      string
-	urlTmpl     string
-	headers     [][2]string
-	useTmplBody bool
-	bodyTmpl    string
-	bodyBytes   []byte
-	explicitCT  string
+	method       string
+	urlTmpl      string
+	headers      [][2]string
+	useTmplBody  bool
+	bodyTmpl     string
+	bodyBytes    []byte
+	explicitCT   string
+	authHeader   string
+	cookieHeader string
 }
 
 func (t *RequestTab) buildRunSpec(ctx context.Context, env map[string]string) (*runSpec, error) {
@@ -249,6 +251,8 @@ func (t *RequestTab) buildRunSpec(ctx context.Context, env map[string]string) (*
 		}
 		s.headers = append(s.headers, [2]string{h.Key.Text(), h.Value.Text()})
 	}
+	s.authHeader = t.authHeaderValue(env)
+	s.cookieHeader = t.cookieHeaderValue(env)
 	if t.Method == MethodGraphQL {
 		reader, ct, err := t.buildBody(ctx, env)
 		if err != nil {
@@ -315,6 +319,12 @@ func (s *runSpec) newRequest(ctx context.Context, env map[string]string) (*http.
 			continue
 		}
 		req.Header.Add(k, strings.TrimSpace(processTemplate(h[1], env)))
+	}
+	if s.authHeader != "" {
+		req.Header.Set("Authorization", s.authHeader)
+	}
+	if s.cookieHeader != "" {
+		req.Header.Set("Cookie", s.cookieHeader)
 	}
 	for _, dh := range settings.DefaultHeaders {
 		k := strings.TrimSpace(dh.Key)
@@ -1039,7 +1049,7 @@ func (t *RequestTab) layoutRunner(gtx layout.Context, th *material.Theme, win *a
 	rsz := gtx.Constraints.Max
 	paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Max: rsz}.Op())
 	inner := image.Rect(bdr, 0, rsz.X-bdr, rsz.Y-bdr)
-	paint.FillShape(gtx.Ops, theme.BgField, clip.Rect(inner).Op())
+	paint.FillShape(gtx.Ops, widgets.KVSurface(), clip.Rect(inner).Op())
 	op.Offset(image.Pt(bdr, 0)).Add(gtx.Ops)
 	gtx.Constraints.Min = image.Pt(inner.Dx(), inner.Dy())
 	gtx.Constraints.Max = gtx.Constraints.Min

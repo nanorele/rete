@@ -211,6 +211,7 @@ func (ui *AppUI) mitmCABar(gtx layout.Context) layout.Dimensions {
 						return layout.Dimensions{}
 					}
 					lbl := material.Label(ui.Theme, unit.Sp(11), st.CABanner)
+					lbl.MaxLines = 1
 					col := theme.FgMuted
 					switch {
 					case strings.HasPrefix(st.CABanner, "CA generated"), strings.HasPrefix(st.CABanner, "CA installed"):
@@ -471,6 +472,7 @@ func (ui *AppUI) mitmToolbar(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(ui.Theme, unit.Sp(13), "MITM Proxy")
 					lbl.Font.Weight = font.Bold
+					lbl.MaxLines = 1
 					return lbl.Layout(gtx)
 				}),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(16)}.Layout),
@@ -483,6 +485,7 @@ func (ui *AppUI) mitmToolbar(gtx layout.Context) layout.Dimensions {
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(ui.Theme, unit.Sp(11), "Bind:")
 					lbl.Color = theme.FgMuted
+					lbl.MaxLines = 1
 					return lbl.Layout(gtx)
 				}),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
@@ -501,6 +504,7 @@ func (ui *AppUI) mitmToolbar(gtx layout.Context) layout.Dimensions {
 					count := st.Store.Len()
 					lbl := material.Label(ui.Theme, unit.Sp(11), fmt.Sprintf("%d flows", count))
 					lbl.Color = theme.FgMuted
+					lbl.MaxLines = 1
 					return lbl.Layout(gtx)
 				}),
 			)
@@ -541,6 +545,7 @@ func (ui *AppUI) mitmCAStatusBrief(gtx layout.Context) layout.Dimensions {
 			lbl := material.Label(ui.Theme, unit.Sp(11), msg)
 			lbl.Color = col
 			lbl.Font.Weight = font.Bold
+			lbl.MaxLines = 1
 			return lbl.Layout(gtx)
 		}),
 	)
@@ -585,6 +590,7 @@ func (ui *AppUI) mitmStartBtn(gtx layout.Context) layout.Dimensions {
 						lbl := material.Label(ui.Theme, unit.Sp(12), label)
 						lbl.Color = fg
 						lbl.Font.Weight = font.Bold
+						lbl.MaxLines = 1
 						return lbl.Layout(gtx)
 					}),
 				)
@@ -604,9 +610,20 @@ func (ui *AppUI) mitmBody(gtx layout.Context) layout.Dimensions {
 
 	totalW := gtx.Constraints.Max.X
 	handleW := gtx.Dp(unit.Dp(6))
-	flexExtent := float32(totalW - handleW)
 
-	const minRatio, maxRatio = 0.15, 0.85
+	clampLeft := func(w int) int {
+		if w > totalW-handleW-260 {
+			w = totalW - handleW - 260
+		}
+		if w < 200 {
+			w = 200
+		}
+		return w
+	}
+	leftFromRatio := func() int {
+		return clampLeft(int(float32(totalW)*st.SplitRatio) - handleW/2)
+	}
+
 	var moved bool
 	var finalX float32
 	for {
@@ -614,46 +631,35 @@ func (ui *AppUI) mitmBody(gtx layout.Context) layout.Dimensions {
 		if !ok {
 			break
 		}
+		pos := e.Position.X + float32(st.LeftDrawn)
 		switch e.Kind {
 		case pointer.Press:
-			st.SplitDragX = e.Position.X
+			st.SplitDragX = pos
+			st.SplitPx = float32(leftFromRatio())
 		case pointer.Drag:
-			finalX = e.Position.X
+			finalX = pos
 			moved = true
 		}
 	}
-	if st.SplitRatio < minRatio {
-		st.SplitRatio = minRatio
-	} else if st.SplitRatio > maxRatio {
-		st.SplitRatio = maxRatio
-	}
-	if moved && flexExtent > 0 {
-		delta := finalX - st.SplitDragX
-		oldRatio := st.SplitRatio
-		st.SplitRatio += delta / flexExtent
-		if st.SplitRatio < minRatio {
-			st.SplitRatio = minRatio
-		} else if st.SplitRatio > maxRatio {
-			st.SplitRatio = maxRatio
-		}
-		st.SplitDragX = finalX - ((st.SplitRatio - oldRatio) * flexExtent)
+	if moved && totalW > 0 {
+		st.SplitPx += finalX - st.SplitDragX
+		st.SplitDragX = finalX
+		left := clampLeft(int(st.SplitPx + 0.5))
+		st.SplitRatio = (float32(left) + float32(handleW)/2) / float32(totalW)
 		ui.Window.Invalidate()
 	}
 
-	leftW := int(float32(totalW)*st.SplitRatio) - handleW/2
-	if leftW < 200 {
-		leftW = 200
-	}
-	if leftW > totalW-handleW-260 {
-		leftW = totalW - handleW - 260
-	}
+	leftW := leftFromRatio()
 	rightW := totalW - leftW - handleW
 
 	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min.X = leftW
 			gtx.Constraints.Max.X = leftW
-			return ui.mitmFlowTable(gtx)
+			d := ui.mitmFlowTable(gtx)
+			d.Size.X = leftW
+			st.LeftDrawn = leftW
+			return d
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			h := gtx.Constraints.Max.Y
@@ -1185,6 +1191,7 @@ func mitmAdminBtn(gtx layout.Context, th *material.Theme, clk *widget.Clickable,
 				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(th, unit.Sp(12), label)
 					lbl.Color = fg
+					lbl.MaxLines = 1
 					return lbl.Layout(gtx)
 				}))
 				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, children...)
@@ -1226,6 +1233,7 @@ func mitmBtn(gtx layout.Context, th *material.Theme, clk *widget.Clickable, labe
 				children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(th, unit.Sp(12), label)
 					lbl.Color = col
+					lbl.MaxLines = 1
 					return lbl.Layout(gtx)
 				}))
 				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, children...)

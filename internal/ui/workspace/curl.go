@@ -45,6 +45,16 @@ func BuildCurlCommand(t *RequestTab, env map[string]string) string {
 		sb.WriteString(shellQuote(k + ": " + v))
 		headerSet[strings.ToLower(k)] = true
 	}
+	if av := t.authHeaderValue(env); av != "" {
+		sb.WriteString(" \\\n  -H ")
+		sb.WriteString(shellQuote("Authorization: " + av))
+		headerSet["authorization"] = true
+	}
+	if cv := t.cookieHeaderValue(env); cv != "" {
+		sb.WriteString(" \\\n  -H ")
+		sb.WriteString(shellQuote("Cookie: " + cv))
+		headerSet["cookie"] = true
+	}
 	for _, dh := range settings.DefaultHeaders {
 		k := strings.TrimSpace(dh.Key)
 		if k == "" || headerSet[strings.ToLower(k)] {

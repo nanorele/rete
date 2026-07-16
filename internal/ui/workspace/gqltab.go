@@ -23,6 +23,10 @@ type GQLSession struct {
 	VarsSplitRatio float32
 	VarsSplitDrag  gesture.Drag
 	VarsSplitDragX float32
+	varsPaneRec    int
+	varsSecRec     int
+	varsPanePx     float32
+	varsDrawn      int
 }
 
 func newGQLSession() *GQLSession {

@@ -425,6 +425,12 @@ func (t *RequestTab) prepareRequest(parent context.Context, env map[string]strin
 			req.Header.Add(k, v)
 		}
 	}
+	if av := t.authHeaderValue(env); av != "" {
+		req.Header.Set("Authorization", av)
+	}
+	if cv := t.cookieHeaderValue(env); cv != "" {
+		req.Header.Set("Cookie", cv)
+	}
 	for _, dh := range settings.DefaultHeaders {
 		k := strings.TrimSpace(dh.Key)
 		if k == "" || req.Header.Get(k) != "" {

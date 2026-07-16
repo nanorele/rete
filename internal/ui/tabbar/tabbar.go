@@ -275,7 +275,14 @@ func (s *Strip) Layout(
 				rowTotalNatW += overflowBtnW
 			}
 
-			if isLastRow {
+			isChevronRow := overflowActive && rIdx == firstVisible
+			extraSpace := maxWidth - rowTotalNatW
+
+			// The last row normally keeps its tabs at natural (left-aligned) width.
+			// But when it also carries the overflow chevron and would exceed the
+			// frame, it must shrink like a justified row so the trailing + button
+			// stays in view instead of overflowing to the right.
+			if isLastRow && !(isChevronRow && extraSpace < 0) {
 				for _, i := range row {
 					if i >= 0 {
 						infos[i].FinalWidth = infos[i].NatWidth
@@ -284,8 +291,6 @@ func (s *Strip) Layout(
 				continue
 			}
 
-			isChevronRow := overflowActive && rIdx == firstVisible
-			extraSpace := maxWidth - rowTotalNatW
 			if rowTabsNatW > 0 && (extraSpace > 0 || isChevronRow) {
 				allocated := 0
 				lastTabInRowIdx := -1

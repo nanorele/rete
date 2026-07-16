@@ -63,6 +63,9 @@ func dragNodeDrop(host *Host, metric unit.Metric) (drop nodeDropTarget, ok bool)
 		if y, exists := (*host.ColRowYs)[idx]; exists {
 			return y
 		}
+		for aIdx, aY := range *host.ColRowYs {
+			return aY + (idx-aIdx)**host.ColRowH
+		}
 		return idx * *host.ColRowH
 	}
 
@@ -142,6 +145,28 @@ func dragChildDrop(host *Host, src *collections.CollectionNode, srcStart, cursor
 	srcEnd := srcStart + 1
 	for srcEnd < len(visible) && visible[srcEnd].Depth > src.Depth {
 		srcEnd++
+	}
+
+	for i, node := range visible {
+		if i >= srcStart && i < srcEnd {
+			continue
+		}
+		if node.Parent != nil || !node.IsFolder || isAncestorOrSelf(src, node) {
+			continue
+		}
+		y, onScreen := (*host.ColRowYs)[i]
+		if !onScreen {
+			continue
+		}
+		if cursorY >= y && cursorY < y+*host.ColRowH {
+			return nodeDropTarget{
+				parent:    node,
+				insertIdx: 0,
+				intoNode:  node,
+				lineIdx:   -1,
+				lineDepth: node.Depth + 1,
+			}, true
+		}
 	}
 
 	depthPx := func(d int) int {

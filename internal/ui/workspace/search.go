@@ -27,9 +27,12 @@ type matchSpan struct {
 
 type searchableEditor interface {
 	Text() string
+	SelectedText() string
 	SetCaret(start, end int)
 	SetSearchSpans(spans []matchSpan)
 }
+
+type SearchableEditor = searchableEditor
 
 type SearchBox struct {
 	Open          bool
@@ -50,6 +53,8 @@ type SearchBox struct {
 }
 
 func (s *SearchBox) invalidate() { s.cacheDirty = true }
+
+func (s *SearchBox) Invalidate() { s.invalidate() }
 
 func (s *SearchBox) recompute(text string) {
 	if s.cacheDirty || s.cache == "" {
@@ -153,16 +158,31 @@ func (t *RequestTab) HandleSearchShortcut(gtx layout.Context) {
 }
 
 func (t *RequestTab) toggleSearch(gtx layout.Context, box *SearchBox, ed searchableEditor) {
+	box.Toggle(gtx, ed)
+}
+
+func (s *SearchBox) Toggle(gtx layout.Context, ed SearchableEditor) {
+	box := s
 	if box.Open && gtx.Focused(&box.Editor) {
 		box.closeOn(ed)
 		return
 	}
+	seeded := false
+	if sel := ed.SelectedText(); sel != "" && !strings.ContainsRune(sel, '\n') {
+		box.Editor.SetText(sel)
+		seeded = true
+	}
 	box.Open = true
 	box.wantFocus = true
-	box.refresh(ed, ed.Text(), false)
+	box.refresh(ed, ed.Text(), seeded)
 }
 
 func (t *RequestTab) updateSearch(gtx layout.Context, box *SearchBox, ed searchableEditor) {
+	box.Process(gtx, ed)
+}
+
+func (s *SearchBox) Process(gtx layout.Context, ed SearchableEditor) {
+	box := s
 	if !box.Open {
 		return
 	}
@@ -229,6 +249,10 @@ func (t *RequestTab) updateSearch(gtx layout.Context, box *SearchBox, ed searcha
 }
 
 func (t *RequestTab) layoutSearchOverlay(gtx layout.Context, th *material.Theme, box *SearchBox) layout.Dimensions {
+	return SearchOverlay(gtx, th, box)
+}
+
+func SearchOverlay(gtx layout.Context, th *material.Theme, box *SearchBox) layout.Dimensions {
 	if !box.Open {
 		return layout.Dimensions{}
 	}
@@ -310,10 +334,6 @@ func searchPanelBackground(gtx layout.Context, w layout.Widget) layout.Dimension
 	rr := clip.UniformRRect(image.Rectangle{Max: dims.Size}, radius)
 	paint.FillShape(gtx.Ops, theme.Bg, rr.Op(gtx.Ops))
 	widgets.PaintBorder1px(gtx, dims.Size, theme.Border)
-
-	lineH := gtx.Dp(unit.Dp(1))
-	lineRect := image.Rect(radius, dims.Size.Y-lineH, dims.Size.X-radius, dims.Size.Y)
-	paint.FillShape(gtx.Ops, theme.Mix(theme.Border, theme.Fg, 0.4), clip.Rect(lineRect).Op())
 
 	call.Add(gtx.Ops)
 	return dims

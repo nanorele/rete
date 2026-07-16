@@ -273,6 +273,8 @@ type hScrollState struct {
 	scroller      gesture.Scroll
 	thumbDrag     gesture.Drag
 	fallbackClick gesture.Click
+	hover         Hover
+	fade          Fade
 	dragLastX     float32
 	scrollX       int
 	prevCaret     int
@@ -280,6 +282,8 @@ type hScrollState struct {
 	initialized   bool
 	lastSeen      time.Time
 }
+
+const hScrollFadeDur = 100 * time.Millisecond
 
 var editorHScrolls = make(map[*widget.Editor]*hScrollState)
 
@@ -379,11 +383,26 @@ func UpdateHScroll(gtx layout.Context, ed *widget.Editor, viewW, contentW int) (
 		s.scrollX = maxScroll
 	}
 
+	hovered := s.hover.Update(gtx.Source)
+	s.fade.Update(gtx, (hovered || s.thumbDrag.Dragging()) && maxScroll > 0, hScrollFadeDur)
+
 	scrollX = s.scrollX
 	addGesture = func() {
 		s.scroller.Add(gtx.Ops)
 	}
 	return scrollX, maxScroll, addGesture
+}
+
+func AddFieldHover(gtx layout.Context, ed *widget.Editor, size image.Point) {
+	if size.X <= 0 || size.Y <= 0 {
+		return
+	}
+	s := GetHScroll(ed)
+	pass := pointer.PassOp{}.Push(gtx.Ops)
+	cl := clip.Rect{Max: size}.Push(gtx.Ops)
+	s.hover.Add(gtx.Ops)
+	cl.Pop()
+	pass.Pop()
 }
 
 func ResetEditorHScroll(ed *widget.Editor) {
@@ -541,6 +560,7 @@ func TextFieldOverlayBg(gtx layout.Context, th *material.Theme, ed *widget.Edito
 	HandleFieldFallbackClick(gtx, th, ed, finalSize, editorRect, scrollX, textSize)
 
 	DrawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, pX, 1)
+	AddFieldHover(gtx, ed, finalSize)
 
 	if len(varRects) > 0 {
 		macroClick := op.Record(gtx.Ops)
@@ -749,6 +769,7 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 	HandleFieldFallbackClick(gtx, th, ed, finalSize, editorRect, scrollX, textSize)
 
 	DrawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, p, 1)
+	AddFieldHover(gtx, ed, finalSize)
 
 	if len(varRects) > 0 {
 		macroClick := op.Record(gtx.Ops)
@@ -927,6 +948,7 @@ func InlineRenameFieldPadded(gtx layout.Context, th *material.Theme, ed *widget.
 	HandleFieldFallbackClick(gtx, th, ed, finalSize, editorRect, scrollX, unit.Sp(12))
 
 	DrawHScrollbar(gtx, ed, contentW, scrollX, finalSize, viewW, pad, 1)
+	AddFieldHover(gtx, ed, finalSize)
 
 	return layout.Dimensions{Size: finalSize, Baseline: dims.Baseline + padYPx}
 }
@@ -1001,12 +1023,19 @@ func DrawHScrollbar(gtx layout.Context, ed *widget.Editor, contentW, scrollX int
 	state.thumbDrag.Add(gtx.Ops)
 	hitClip.Pop()
 
+	fade := state.fade.Value()
+	if fade <= 0 {
+		return
+	}
+	col := theme.EditorScroll
+	col.A = uint8(float32(col.A) * fade)
+
 	thumb := image.Rect(
 		padX+posOffset, trackY,
 		padX+posOffset+thumbW, trackY+h,
 	)
 	r := h / 2
-	paint.FillShape(gtx.Ops, theme.EditorScroll, clip.UniformRRect(thumb, r).Op(gtx.Ops))
+	paint.FillShape(gtx.Ops, col, clip.UniformRRect(thumb, r).Op(gtx.Ops))
 }
 
 func PaintBorder1px(gtx layout.Context, sz image.Point, color color.NRGBA) {

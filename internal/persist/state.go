@@ -36,8 +36,17 @@ type TabState struct {
 	FormParts        []FormPartState `json:"form_parts,omitempty"`
 	URLEncoded       []HeaderState   `json:"url_encoded,omitempty"`
 	BinaryPath       string          `json:"binary_path,omitempty"`
+	Auth             *AuthState      `json:"auth,omitempty"`
+	Cookies          []HeaderState   `json:"cookies,omitempty"`
 	WS               *WSTabState     `json:"ws,omitempty"`
 	GQL              *GQLTabState    `json:"gql,omitempty"`
+}
+
+type AuthState struct {
+	Type     string `json:"type,omitempty"`
+	Token    string `json:"token,omitempty"`
+	Username string `json:"username,omitempty"`
+	Password string `json:"password,omitempty"`
 }
 
 type GQLTabState struct {

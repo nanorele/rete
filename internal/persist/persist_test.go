@@ -720,3 +720,27 @@ func TestSaveStateAtomic(t *testing.T) {
 		t.Errorf("ActiveIdx = %d", state.ActiveIdx)
 	}
 }
+
+func TestTabStateAuthCookiesRoundTrip(t *testing.T) {
+	ts := persist.TabState{
+		Title:   "t",
+		Method:  "GET",
+		URL:     "http://x",
+		Auth:    &persist.AuthState{Type: "basic", Username: "u", Password: "p"},
+		Cookies: []persist.HeaderState{{Key: "sid", Value: "abc"}},
+	}
+	data, err := ts.MarshalJSON()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got persist.TabState
+	if err := got.UnmarshalJSON(data); err != nil {
+		t.Fatal(err)
+	}
+	if got.Auth == nil || *got.Auth != *ts.Auth {
+		t.Errorf("auth: got %+v want %+v", got.Auth, ts.Auth)
+	}
+	if len(got.Cookies) != 1 || got.Cookies[0] != ts.Cookies[0] {
+		t.Errorf("cookies: got %+v", got.Cookies)
+	}
+}

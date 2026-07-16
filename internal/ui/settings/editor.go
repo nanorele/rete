@@ -1946,12 +1946,41 @@ func stepperEditableRow(th *material.Theme, dec, inc *widget.Clickable, ed *widg
 	}
 }
 
+var stepperWasFocused = map[*widget.Editor]bool{}
+
 func intStepperUpdate(gtx layout.Context, ed *widget.Editor, current, lo, hi int) (int, bool) {
 	if !ed.SingleLine {
 		ed.SingleLine = true
 		ed.Submit = true
 	}
-	if !gtx.Focused(ed) {
+	commit := func() (int, bool) {
+		s := strings.TrimSpace(ed.Text())
+		s = strings.TrimSuffix(s, "%")
+		if v, err := strconv.Atoi(s); err == nil {
+			if v < lo {
+				v = lo
+			}
+			if v > hi {
+				v = hi
+			}
+			ed.SetText(strconv.Itoa(v))
+			if v != current {
+				return v, true
+			}
+		} else {
+			ed.SetText(strconv.Itoa(current))
+		}
+		return current, false
+	}
+	focused := gtx.Focused(ed)
+	blurred := stepperWasFocused[ed] && !focused
+	stepperWasFocused[ed] = focused
+	if blurred {
+		if v, ok := commit(); ok {
+			return v, true
+		}
+	}
+	if !focused {
 		txt := strconv.Itoa(current)
 		if ed.Text() != txt {
 			ed.SetText(txt)
@@ -1963,21 +1992,8 @@ func intStepperUpdate(gtx layout.Context, ed *widget.Editor, current, lo, hi int
 			break
 		}
 		if _, ok := ev.(widget.SubmitEvent); ok {
-			s := strings.TrimSpace(ed.Text())
-			s = strings.TrimSuffix(s, "%")
-			if v, err := strconv.Atoi(s); err == nil {
-				if v < lo {
-					v = lo
-				}
-				if v > hi {
-					v = hi
-				}
-				ed.SetText(strconv.Itoa(v))
-				if v != current {
-					return v, true
-				}
-			} else {
-				ed.SetText(strconv.Itoa(current))
+			if v, ok := commit(); ok {
+				return v, true
 			}
 		}
 	}
@@ -1990,7 +2006,37 @@ func floatStepperUpdate(gtx layout.Context, ed *widget.Editor, current, lo, hi f
 		ed.Submit = true
 	}
 	displayed := current * multiplier
-	if !gtx.Focused(ed) {
+	commit := func() (float32, bool) {
+		s := strings.TrimSpace(ed.Text())
+		s = strings.TrimSuffix(s, "%")
+		s = strings.TrimSuffix(s, "x")
+		s = strings.TrimSpace(s)
+		if v, err := strconv.ParseFloat(s, 32); err == nil {
+			fv := float32(v) / multiplier
+			if fv < lo {
+				fv = lo
+			}
+			if fv > hi {
+				fv = hi
+			}
+			ed.SetText(fmt.Sprintf(format, fv*multiplier))
+			if fv != current {
+				return fv, true
+			}
+		} else {
+			ed.SetText(fmt.Sprintf(format, displayed))
+		}
+		return current, false
+	}
+	focused := gtx.Focused(ed)
+	blurred := stepperWasFocused[ed] && !focused
+	stepperWasFocused[ed] = focused
+	if blurred {
+		if v, ok := commit(); ok {
+			return v, true
+		}
+	}
+	if !focused {
 		txt := fmt.Sprintf(format, displayed)
 		if ed.Text() != txt {
 			ed.SetText(txt)
@@ -2002,24 +2048,8 @@ func floatStepperUpdate(gtx layout.Context, ed *widget.Editor, current, lo, hi f
 			break
 		}
 		if _, ok := ev.(widget.SubmitEvent); ok {
-			s := strings.TrimSpace(ed.Text())
-			s = strings.TrimSuffix(s, "%")
-			s = strings.TrimSuffix(s, "x")
-			s = strings.TrimSpace(s)
-			if v, err := strconv.ParseFloat(s, 32); err == nil {
-				fv := float32(v) / multiplier
-				if fv < lo {
-					fv = lo
-				}
-				if fv > hi {
-					fv = hi
-				}
-				ed.SetText(fmt.Sprintf(format, fv*multiplier))
-				if fv != current {
-					return fv, true
-				}
-			} else {
-				ed.SetText(fmt.Sprintf(format, displayed))
+			if v, ok := commit(); ok {
+				return v, true
 			}
 		}
 	}

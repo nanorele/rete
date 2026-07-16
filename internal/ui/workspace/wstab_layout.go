@@ -76,14 +76,69 @@ func (t *RequestTab) layoutWSBody(gtx layout.Context, th *material.Theme, win *a
 	var ratio *float32
 	var flexExtent float32
 	var dragAxis gesture.Axis
+	var compMinPx, msgsMinPx float32
 	if stacked {
 		ratio = &s.ComposerRatio
-		flexExtent = float32(gtx.Constraints.Max.Y - gtx.Dp(unit.Dp(40)))
+		flexExtent = float32(gtx.Constraints.Max.Y - gtx.Dp(unit.Dp(2)) - t.layoutModeBarHeight(gtx) - gtx.Dp(unit.Dp(4)))
+		if pool := s.splitPaneRec + s.msgsPaneRec; pool > 0 {
+			flexExtent = float32(pool)
+		}
+		if flexExtent < 1 {
+			flexExtent = 1
+		}
 		dragAxis = gesture.Vertical
+		compMinPx = float32(s.composerMinPx(gtx))
+		msgsMinPx = float32(gtx.Dp(unit.Dp(120)))
+		if s.MessagesCollapsed {
+			msgsMinPx = float32(s.msgsCollapsedMinPx(gtx))
+		}
 	} else {
 		ratio = &s.SplitRatio
 		flexExtent = float32(gtx.Constraints.Max.X - gtx.Dp(unit.Dp(8)))
+		if pool := s.splitPaneRec + s.msgsPaneRec; pool > 0 {
+			flexExtent = float32(pool)
+		}
 		dragAxis = gesture.Horizontal
+		compMinPx = 0.2 * flexExtent
+		msgsMinPx = 0.2 * flexExtent
+	}
+
+	for s.ComposeCollapseBtn.Clicked(gtx) {
+		s.ComposeCollapsed = !s.ComposeCollapsed
+		if stacked && flexExtent > 0 {
+			if s.ComposeCollapsed {
+				s.composeSavedRatio = *ratio
+				*ratio = float32(s.composerMinPx(gtx)) / flexExtent
+			} else {
+				restore := s.composeSavedRatio
+				minOpen := (float32(s.composerMinPx(gtx)) + float32(gtx.Dp(unit.Dp(120)))) / flexExtent
+				if restore < minOpen {
+					restore = minOpen
+				}
+				*ratio = restore
+			}
+			compMinPx = float32(s.composerMinPx(gtx))
+		}
+		win.Invalidate()
+	}
+	for s.MessagesCollapseBtn.Clicked(gtx) {
+		s.MessagesCollapsed = !s.MessagesCollapsed
+		if stacked && flexExtent > 0 {
+			if s.MessagesCollapsed {
+				s.msgsSavedRatio = *ratio
+				msgsMinPx = float32(s.msgsCollapsedMinPx(gtx))
+				*ratio = 1 - msgsMinPx/flexExtent
+			} else {
+				msgsMinPx = float32(gtx.Dp(unit.Dp(120)))
+				restore := s.msgsSavedRatio
+				maxOpen := 1 - msgsMinPx/flexExtent
+				if restore <= 0 || restore > maxOpen {
+					restore = maxOpen
+				}
+				*ratio = restore
+			}
+		}
+		win.Invalidate()
 	}
 
 	var moved bool
@@ -94,15 +149,16 @@ func (t *RequestTab) layoutWSBody(gtx layout.Context, th *material.Theme, win *a
 		if !ok {
 			break
 		}
-		var pos float32
+		pos := float32(s.paneDrawn)
 		if stacked {
-			pos = e.Position.Y
+			pos += e.Position.Y
 		} else {
-			pos = e.Position.X
+			pos += e.Position.X
 		}
 		switch e.Kind {
 		case pointer.Press:
 			s.SplitDragX = pos
+			s.splitPanePx = *ratio * flexExtent
 		case pointer.Drag:
 			finalPos = pos
 			moved = true
@@ -111,7 +167,25 @@ func (t *RequestTab) layoutWSBody(gtx layout.Context, th *material.Theme, win *a
 		}
 	}
 
-	const minR, maxR = 0.2, 0.8
+	minR := float32(0.2)
+	maxR := float32(0.8)
+	if flexExtent > 0 {
+		minR = compMinPx / flexExtent
+		maxR = 1 - msgsMinPx/flexExtent
+	}
+	if minR > maxR {
+		minR, maxR = 0.5, 0.5
+		if flexExtent > 0 {
+			r := compMinPx / flexExtent
+			if cap := 1 - float32(s.msgsCollapsedMinPx(gtx))/flexExtent; r > cap {
+				r = cap
+			}
+			if r < 0 {
+				r = 0
+			}
+			minR, maxR = r, r
+		}
+	}
 	if *ratio < minR {
 		*ratio = minR
 	}
@@ -121,17 +195,131 @@ func (t *RequestTab) layoutWSBody(gtx layout.Context, th *material.Theme, win *a
 
 	if moved && flexExtent > 0 {
 		delta := finalPos - s.SplitDragX
-		oldRatio := *ratio
-		*ratio += delta / flexExtent
-		if *ratio < minR {
-			*ratio = minR
-		} else if *ratio > maxR {
-			*ratio = maxR
+		oldSnap := int(*ratio*flexExtent + 0.5)
+		newPane := s.splitPanePx + delta
+		if stacked {
+			if !s.ComposeCollapsed && newPane < float32(s.composerMinPx(gtx))-0.5 {
+				s.ComposeCollapsed = true
+				minR = float32(s.composerMinPx(gtx)) / flexExtent
+			} else if s.ComposeCollapsed && newPane > float32(s.composerMinPx(gtx))+float32(gtx.Dp(unit.Dp(6))) {
+				s.ComposeCollapsed = false
+				minR = float32(s.composerMinPx(gtx)) / flexExtent
+			}
+			if s.MessagesCollapsed && flexExtent-newPane > float32(s.msgsCollapsedMinPx(gtx))+float32(gtx.Dp(unit.Dp(6))) {
+				s.MessagesCollapsed = false
+				maxR = 1 - float32(gtx.Dp(unit.Dp(120)))/flexExtent
+			}
+			if minR > maxR {
+				r := float32(s.composerMinPx(gtx)) / flexExtent
+				if cap := 1 - float32(s.msgsCollapsedMinPx(gtx))/flexExtent; r > cap {
+					r = cap
+				}
+				if r < 0 {
+					r = 0
+				}
+				minR, maxR = r, r
+			}
 		}
-		s.SplitDragX = finalPos - ((*ratio - oldRatio) * flexExtent)
+		s.splitPanePx = newPane
+		if newPane < minR*flexExtent {
+			newPane = minR * flexExtent
+		} else if newPane > maxR*flexExtent {
+			newPane = maxR * flexExtent
+		}
+		snap := oldSnap
+		if d := newPane - float32(oldSnap); d >= 0.75 || d <= -0.75 {
+			snap = int(newPane + 0.5)
+		}
+		*ratio = float32(snap) / flexExtent
+		s.SplitDragX = finalPos
 		win.Invalidate()
 	}
 	if released {
+		win.Invalidate()
+	}
+
+	var hcMoved, hcReleased bool
+	var hcPos float32
+	for {
+		e, ok := s.HeadersComposeDrag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
+		if !ok {
+			break
+		}
+		switch e.Kind {
+		case pointer.Press:
+			s.HeadersComposeDragX = e.Position.Y + float32(s.hcSliderY)
+			s.hcHeadersPx = 0
+			if !s.HeadersCollapsed {
+				s.hcHeadersPx = float32(s.headersRenderH)
+			}
+			if stacked && flexExtent > 0 {
+				headersNow := 0
+				if !s.HeadersCollapsed {
+					headersNow = s.headersRenderH
+				}
+				s.hcComposePx = int(*ratio*flexExtent) - s.composerChromeExceptHeadersPx(gtx) - gtx.Dp(unit.Dp(3)) - headersNow
+				if s.hcComposePx < 0 {
+					s.hcComposePx = 0
+				}
+			}
+		case pointer.Drag:
+			hcPos = e.Position.Y + float32(s.hcSliderY)
+			hcMoved = true
+		case pointer.Cancel, pointer.Release:
+			hcReleased = true
+		}
+	}
+	if hcMoved {
+		delta := hcPos - s.HeadersComposeDragX
+		oldSnap := float32(0)
+		if !s.HeadersCollapsed {
+			oldSnap = float32(gtx.Dp(unit.Dp(s.HeadersAbsHeight)))
+		}
+		newH := s.hcHeadersPx + delta
+		wasCollapsed := s.HeadersCollapsed
+		s.HeadersCollapsed = false
+		chromeOpen := float32(s.composerChromeExceptHeadersPx(gtx))
+		s.HeadersCollapsed = wasCollapsed
+		pad := float32(gtx.Dp(unit.Dp(3)))
+		hcMax := newH
+		if stacked && flexExtent > 0 {
+			hcMax = flexExtent - msgsMinPx - chromeOpen - pad - float32(s.hcComposePx)
+		} else if s.composerPaneH > 0 {
+			hcMax = float32(s.composerPaneH) - chromeOpen
+		}
+		if hcMax < 0 {
+			hcMax = 0
+		}
+		s.hcHeadersPx = newH
+		if newH > hcMax {
+			newH = hcMax
+		}
+		if newH < 0 {
+			newH = 0
+		}
+		if newH <= 0.5 {
+			if !s.HeadersCollapsed {
+				s.HeadersCollapsed = true
+				s.HeadersAbsHeight = 120
+			}
+			if stacked && flexExtent > 0 {
+				*ratio = (float32(s.composerChromeExceptHeadersPx(gtx)) + pad + float32(s.hcComposePx)) / flexExtent
+			}
+		} else {
+			wasOpen := !s.HeadersCollapsed
+			s.HeadersCollapsed = false
+			if d := newH - oldSnap; !wasOpen || d >= 0.75 || d <= -0.75 {
+				s.HeadersAbsHeight = int(newH/gtx.Metric.PxPerDp + 0.5)
+			}
+			if stacked && flexExtent > 0 {
+				newSnap := float32(gtx.Dp(unit.Dp(s.HeadersAbsHeight)))
+				*ratio = (chromeOpen + pad + newSnap + float32(s.hcComposePx)) / flexExtent
+			}
+		}
+		s.HeadersComposeDragX = hcPos
+		win.Invalidate()
+	}
+	if hcReleased {
 		win.Invalidate()
 	}
 
@@ -152,9 +340,20 @@ func (t *RequestTab) layoutWSBody(gtx layout.Context, th *material.Theme, win *a
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: flexAxis}.Layout(gtx,
 					layout.Flexed(*ratio, func(gtx layout.Context) layout.Dimensions {
-						return leftInset.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						if stacked {
+							s.splitPaneRec = gtx.Constraints.Max.Y
+						} else {
+							s.splitPaneRec = gtx.Constraints.Max.X
+						}
+						d := leftInset.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return t.layoutWSComposerPane(gtx, th, activeEnv)
 						})
+						if stacked {
+							s.paneDrawn = d.Size.Y
+						} else {
+							s.paneDrawn = d.Size.X
+						}
+						return d
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						thick := gtx.Dp(unit.Dp(4))
@@ -174,6 +373,11 @@ func (t *RequestTab) layoutWSBody(gtx layout.Context, th *material.Theme, win *a
 						return layout.Dimensions{Size: size}
 					}),
 					layout.Flexed(1-*ratio, func(gtx layout.Context) layout.Dimensions {
+						if stacked {
+							s.msgsPaneRec = gtx.Constraints.Max.Y
+						} else {
+							s.msgsPaneRec = gtx.Constraints.Max.X
+						}
 						return rightInset.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return t.layoutWSMessagesPane(gtx, th)
 						})
@@ -203,20 +407,17 @@ func (t *RequestTab) handleWSButtons(gtx layout.Context) {
 	for s.OptionsBtn.Clicked(gtx) {
 		s.OptionsExpanded = !s.OptionsExpanded
 	}
-	for s.HeadersTabBtn.Clicked(gtx) {
-		s.ListMode = wsListHeaders
-	}
-	for s.SubprotosTabBtn.Clicked(gtx) {
-		s.ListMode = wsListSubprotos
-	}
-	for s.ListAddBtn.Clicked(gtx) {
+	for s.AddSubprotoBtn.Clicked(gtx) {
 		s.OptionsExpanded = true
-		if s.ListMode == wsListSubprotos {
-			s.AddSubprotocol("")
-			s.FitSubprotos = true
-		} else {
-			t.AddHeader("", "")
-		}
+		s.AddSubprotocol("")
+		s.FitSubprotos = true
+	}
+	for s.HeadersAddBtn.Clicked(gtx) {
+		s.HeadersCollapsed = false
+		t.AddHeader("", "")
+	}
+	for s.HeadersCollapseBtn.Clicked(gtx) {
+		s.HeadersCollapsed = !s.HeadersCollapsed
 	}
 	for s.OfferDeflateBtn.Clicked(gtx) {
 		s.OfferDeflate = !s.OfferDeflate
@@ -335,13 +536,6 @@ func (t *RequestTab) layoutWSComposerPane(gtx layout.Context, th *material.Theme
 		gtx.Constraints.Min = image.Pt(inner.Dx(), inner.Dy())
 		gtx.Constraints.Max = gtx.Constraints.Min
 		op.Offset(image.Pt(bdr, 0)).Add(gtx.Ops)
-		if len(s.Subprotocols) == 0 {
-			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				lbl := widgets.MonoLabel(th, unit.Sp(11), "No subprotocols")
-				lbl.Color = theme.FgMuted
-				return lbl.Layout(gtx)
-			})
-		}
 		return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return s.SubprotosList.Layout(gtx, len(s.Subprotocols), func(gtx layout.Context, i int) layout.Dimensions {
 				sp := s.Subprotocols[i]
@@ -380,12 +574,12 @@ func (t *RequestTab) layoutWSComposerPane(gtx layout.Context, th *material.Theme
 		}
 		minKey := widgets.KVKeysMinWidth(gtx, th, len(t.Headers), func(i int) *widget.Editor { return &t.Headers[i].Key })
 		return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return t.HeadersList.Layout(gtx, len(t.Headers), func(gtx layout.Context, i int) layout.Dimensions {
+			return widgets.VScrollList(gtx, th, &t.HeadersList, len(t.Headers), func(gtx layout.Context, i int) layout.Dimensions {
 				hd := t.Headers[i]
 				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return layout.Inset{Top: unit.Dp(1), Left: unit.Dp(1), Right: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return widgets.KVRow(gtx, th, &hd.Key, &hd.Value, &hd.DelBtn, &t.HeaderKeyW, &hd.SplitDrag, &hd.splitLastX, &t.HeaderKeyBelowMin, minKey, activeEnv)
+							return widgets.KVRow(gtx, th, &hd.Key, &hd.Value, &hd.DelBtn, &t.HeaderKeyW, &hd.SplitDrag, &hd.splitLastX, &t.HeaderKeyBelowMin, minKey, activeEnv, &hd.RowHover, &hd.RowFade)
 						})
 					}),
 					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -417,113 +611,195 @@ func (t *RequestTab) layoutWSComposerPane(gtx layout.Context, th *material.Theme
 		})
 	}
 
+	s.composerPaneH = gtx.Constraints.Max.Y
+
+	sliderTop := 0
+	acc := func(w layout.Widget) layout.FlexChild {
+		return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			d := w(gtx)
+			sliderTop += d.Size.Y
+			return d
+		})
+	}
+	children := []layout.FlexChild{
+		acc(func(gtx layout.Context) layout.Dimensions {
+			d := t.layoutWSConnectionHeader(gtx, th)
+			s.wsRowH = d.Size.Y
+			return d
+		}),
+	}
+	if s.OptionsExpanded {
+		children = append(children,
+			acc(wsHLine),
+			acc(func(gtx layout.Context) layout.Dimensions {
+				d := t.layoutWSOptions(gtx, th)
+				s.optionsRowH = d.Size.Y
+				return d
+			}),
+		)
+		if s.FitSubprotos {
+			fit := len(s.Subprotocols)*28 + 11
+			if fit > s.SubprotosAbsHeight {
+				s.SubprotosAbsHeight = fit
+			}
+			s.FitSubprotos = false
+		}
+		if len(s.Subprotocols) > 0 {
+			children = append(children,
+				acc(wsHLine),
+				acc(func(gtx layout.Context) layout.Dimensions {
+					h := s.subprotosListPx(gtx)
+					if avail := s.composerPaneH - (s.composerChromeExceptHeadersPx(gtx) - h) - gtx.Dp(unit.Dp(3)); h > avail {
+						h = avail
+					}
+					if h < 0 {
+						h = 0
+					}
+					gtx.Constraints.Min.Y = h
+					gtx.Constraints.Max.Y = h
+					d := subprotosBody(gtx)
+					d.Size.Y = h
+					return d
+				}),
+			)
+		}
+	}
+	children = append(children,
+		acc(wsHLine),
+		acc(func(gtx layout.Context) layout.Dimensions { return t.layoutWSHeadersHeader(gtx, th) }),
+	)
+	if !s.HeadersCollapsed {
+		children = append(children,
+			acc(wsHLine),
+			acc(func(gtx layout.Context) layout.Dimensions {
+				if s.HeadersAbsHeight <= 0 {
+					s.HeadersAbsHeight = 120
+				}
+				h := gtx.Dp(unit.Dp(s.HeadersAbsHeight))
+				available := s.composerPaneH - s.composerChromeExceptHeadersPx(gtx)
+				if available < 0 {
+					available = 0
+				}
+				if h > available {
+					h = available
+				}
+				if h < 0 {
+					h = 0
+				}
+				s.headersRenderH = h
+				gtx.Constraints.Min.Y = h
+				gtx.Constraints.Max.Y = h
+				d := headersBody(gtx)
+				d.Size.Y = h
+				return d
+			}),
+		)
+	}
+	children = append(children,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			s.hcSliderY = sliderTop
+			thick := gtx.Dp(unit.Dp(4))
+			size := image.Point{X: gtx.Constraints.Max.X, Y: thick}
+			defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+			pointer.CursorRowResize.Add(gtx.Ops)
+			s.HeadersComposeDrag.Add(gtx.Ops)
+			for {
+				_, ok := gtx.Event(pointer.Filter{Target: &s.HeadersComposeDrag, Kinds: pointer.Move | pointer.Enter | pointer.Leave})
+				if !ok {
+					break
+				}
+			}
+			return layout.Dimensions{Size: size}
+		}),
+		layout.Rigid(wsHLine),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSComposerHeader(gtx, th) }),
+	)
+	if !s.ComposeCollapsed {
+		children = append(children,
+			layout.Rigid(wsHLine),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSProtoFields(gtx, th) }),
+			layout.Flexed(1, composeBody),
+		)
+	}
+
 	return widget.Border{
 		Color:        theme.Border,
 		CornerRadius: unit.Dp(2),
 		Width:        unit.Dp(1),
 	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		paint.FillShape(gtx.Ops, theme.Bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2).Op(gtx.Ops))
-		if s.OptionsExpanded {
-			return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSSubprotocolsHeader(gtx, th) }),
-				layout.Rigid(wsHLine),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSOptions(gtx, th) }),
-				layout.Rigid(wsHLine),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSListHeader(gtx, th) }),
-				layout.Rigid(wsHLine),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					minH := gtx.Dp(unit.Dp(60))
-					if s.SubprotosAbsHeight <= 0 {
-						s.SubprotosAbsHeight = 120
-					}
-					if s.FitSubprotos {
-						n := len(s.Subprotocols)
-						if s.ListMode == wsListHeaders {
-							n = len(t.Headers)
-						}
-						fit := n*28 + 11
-						if fit > s.SubprotosAbsHeight {
-							s.SubprotosAbsHeight = fit
-						}
-						s.FitSubprotos = false
-					}
-					h := gtx.Dp(unit.Dp(s.SubprotosAbsHeight))
-					origPx := h
-					available := gtx.Constraints.Max.Y - gtx.Dp(unit.Dp(80))
-					if available < minH {
-						available = minH
-					}
-					if h > available {
-						h = available
-					}
-					if h < minH {
-						h = minH
-					}
-					if h != origPx {
-						s.SubprotosAbsHeight = int(float32(h) / gtx.Metric.PxPerDp)
-					}
-					gtx.Constraints.Min.Y = h
-					gtx.Constraints.Max.Y = h
-					if s.ListMode == wsListSubprotos {
-						return subprotosBody(gtx)
-					}
-					return headersBody(gtx)
-				}),
-				layout.Rigid(wsHLine),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSComposerHeader(gtx, th) }),
-				layout.Rigid(wsHLine),
-				layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSProtoFields(gtx, th) }),
-				layout.Flexed(1, composeBody),
-			)
-		}
-		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSSubprotocolsHeader(gtx, th) }),
-			layout.Rigid(wsHLine),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSComposerHeader(gtx, th) }),
-			layout.Rigid(wsHLine),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSProtoFields(gtx, th) }),
-			layout.Flexed(1, composeBody),
-		)
+		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 	})
 }
 
-func (t *RequestTab) layoutWSListHeader(gtx layout.Context, th *material.Theme) layout.Dimensions {
-	s := t.EnsureWS()
-	tab := func(clk *widget.Clickable, label string, active bool) layout.FlexChild {
-		return layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return material.Clickable(gtx, clk, func(gtx layout.Context) layout.Dimensions {
-				if !active {
-					pointer.CursorPointer.Add(gtx.Ops)
-				}
-				return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(6), Right: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					lbl := widgets.MonoLabel(th, unit.Sp(12), label)
-					if active {
-						lbl.Font.Weight = font.Bold
-						lbl.Color = theme.Fg
-					} else {
-						lbl.Color = theme.FgMuted
-					}
-					return lbl.Layout(gtx)
-				})
-			})
-		})
+func (s *WSSession) sectionRowPx(gtx layout.Context) int {
+	if s.wsRowH > 0 {
+		return s.wsRowH
 	}
-	return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-			layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
-			tab(&s.HeadersTabBtn, "Headers", s.ListMode == wsListHeaders),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				lbl := widgets.MonoLabel(th, unit.Sp(12), "|")
-				lbl.Color = theme.Border
-				return lbl.Layout(gtx)
-			}),
-			tab(&s.SubprotosTabBtn, "Subprotocols", s.ListMode == wsListSubprotos),
-			layout.Flexed(1, layout.Spacer{Width: unit.Dp(1)}.Layout),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return widgets.SquareBtn(gtx, &s.ListAddBtn, widgets.IconAdd, th)
-			}),
-		)
-	})
+	return gtx.Dp(unit.Dp(32))
+}
+
+func (s *WSSession) subprotosListPx(gtx layout.Context) int {
+	if s.SubprotosAbsHeight <= 0 {
+		s.SubprotosAbsHeight = 90
+	}
+	h := gtx.Dp(unit.Dp(s.SubprotosAbsHeight))
+	if maxH := gtx.Dp(unit.Dp(200)); h > maxH {
+		h = maxH
+	}
+	if minH := gtx.Dp(unit.Dp(60)); h < minH {
+		h = minH
+	}
+	return h
+}
+
+func (s *WSSession) composerChromeExceptHeadersPx(gtx layout.Context) int {
+	row := s.sectionRowPx(gtx)
+	line := gtx.Dp(unit.Dp(1))
+	h := row
+	if s.OptionsExpanded {
+		opt := s.optionsRowH
+		if opt <= 0 {
+			opt = gtx.Dp(unit.Dp(33))
+		}
+		h += line + opt
+		if len(s.Subprotocols) > 0 {
+			h += line + s.subprotosListPx(gtx)
+		}
+	}
+	h += line + row
+	if !s.HeadersCollapsed {
+		h += line
+	}
+	h += gtx.Dp(unit.Dp(4))
+	h += line + row
+	if !s.ComposeCollapsed {
+		h += line
+		if s.UseMsgpackProto {
+			h += gtx.Dp(unit.Dp(31))
+		}
+	}
+	return h + 2*line
+}
+
+func (s *WSSession) composerMinPx(gtx layout.Context) int {
+	h := s.composerChromeExceptHeadersPx(gtx) + gtx.Dp(unit.Dp(3))
+	if !s.HeadersCollapsed {
+		hd := s.HeadersAbsHeight
+		if hd <= 0 {
+			hd = 120
+		}
+		h += gtx.Dp(unit.Dp(hd))
+	}
+	return h
+}
+
+func (s *WSSession) msgsCollapsedMinPx(gtx layout.Context) int {
+	h := s.statusRowH
+	if h <= 0 {
+		h = gtx.Dp(unit.Dp(32))
+	}
+	return h + 2*gtx.Dp(unit.Dp(1)) + gtx.Dp(unit.Dp(1)) + gtx.Dp(unit.Dp(2))
 }
 
 func (t *RequestTab) layoutWSProtoFields(gtx layout.Context, th *material.Theme) layout.Dimensions {
@@ -575,7 +851,7 @@ func (t *RequestTab) layoutWSProtoFields(gtx layout.Context, th *material.Theme)
 	)
 }
 
-func (t *RequestTab) layoutWSSubprotocolsHeader(gtx layout.Context, th *material.Theme) layout.Dimensions {
+func (t *RequestTab) layoutWSConnectionHeader(gtx layout.Context, th *material.Theme) layout.Dimensions {
 	s := t.EnsureWS()
 	return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
@@ -588,11 +864,32 @@ func (t *RequestTab) layoutWSSubprotocolsHeader(gtx layout.Context, th *material
 			}),
 			layout.Flexed(1, layout.Spacer{Width: unit.Dp(1)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				toggleIcon := widgets.IconExpandMore
-				if s.OptionsExpanded {
-					toggleIcon = widgets.IconExpandLess
-				}
-				return widgets.SquareBtn(gtx, &s.OptionsBtn, toggleIcon, th)
+				return widgets.SquareBtn(gtx, &s.AddSubprotoBtn, widgets.IconAdd, th)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return collapseChevron(gtx, th, &s.OptionsBtn, !s.OptionsExpanded)
+			}),
+		)
+	})
+}
+
+func (t *RequestTab) layoutWSHeadersHeader(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	s := t.EnsureWS()
+	return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return layout.Inset{Left: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					lbl := widgets.MonoLabel(th, unit.Sp(12), "Headers")
+					lbl.Font.Weight = font.Bold
+					return lbl.Layout(gtx)
+				})
+			}),
+			layout.Flexed(1, layout.Spacer{Width: unit.Dp(1)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return widgets.SquareBtn(gtx, &s.HeadersAddBtn, widgets.IconAdd, th)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return collapseChevron(gtx, th, &s.HeadersCollapseBtn, s.HeadersCollapsed)
 			}),
 		)
 	})
@@ -660,6 +957,7 @@ func (t *RequestTab) layoutWSComposerHeader(gtx layout.Context, th *material.The
 						lbl := widgets.MonoLabel(th, unit.Sp(11), "Send")
 						lbl.Color = fg
 						lbl.Font.Weight = font.Bold
+						lbl.MaxLines = 1
 						return lbl.Layout(gtx)
 					})
 					call := macro.Stop()
@@ -669,7 +967,9 @@ func (t *RequestTab) layoutWSComposerHeader(gtx layout.Context, th *material.The
 					return dims
 				})
 			}),
-			layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return collapseChevron(gtx, th, &s.ComposeCollapseBtn, s.ComposeCollapsed)
+			}),
 		)
 	})
 }
@@ -735,14 +1035,29 @@ func (t *RequestTab) layoutWSOpcodeSelector(gtx layout.Context, th *material.The
 
 func (t *RequestTab) layoutWSMessagesPane(gtx layout.Context, th *material.Theme) layout.Dimensions {
 	s := t.EnsureWS()
+	if s.MessagesCollapsed && s.statusRowH > 0 {
+		capped := s.statusRowH + 2*gtx.Dp(unit.Dp(1))
+		if gtx.Constraints.Max.Y > capped {
+			gtx.Constraints.Max.Y = capped
+		}
+		gtx.Constraints.Min.Y = gtx.Constraints.Max.Y
+	}
 	return widget.Border{
 		Color:        theme.Border,
 		CornerRadius: unit.Dp(2),
 		Width:        unit.Dp(1),
 	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		paint.FillShape(gtx.Ops, theme.Bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 2).Op(gtx.Ops))
+		statusRow := layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			d := t.layoutWSStatusRow(gtx, th)
+			s.statusRowH = d.Size.Y
+			return d
+		})
+		if s.MessagesCollapsed {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, statusRow)
+		}
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return t.layoutWSStatusRow(gtx, th) }),
+			statusRow,
 			layout.Rigid(wsHLine),
 			layout.Rigid(wsTableHeader(th)),
 			layout.Rigid(wsHLine),
@@ -813,6 +1128,9 @@ func (t *RequestTab) layoutWSStatusRow(gtx layout.Context, th *material.Theme) l
 			}),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				return widgets.SquareBtn(gtx, &s.ClearBtn, widgets.IconClear, th)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return collapseChevron(gtx, th, &s.MessagesCollapseBtn, s.MessagesCollapsed)
 			}),
 		)
 	})

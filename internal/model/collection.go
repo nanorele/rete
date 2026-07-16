@@ -68,6 +68,13 @@ type ParsedKV struct {
 	Disabled   bool
 }
 
+type ParsedAuth struct {
+	Type     string
+	Token    string
+	Username string
+	Password string
+}
+
 type ParsedRequest struct {
 	Name       string
 	Method     string
@@ -78,6 +85,8 @@ type ParsedRequest struct {
 	FormParts  []ParsedFormPart
 	URLEncoded []ParsedKV
 	BinaryPath string
+	Auth       ParsedAuth
+	Cookies    []ParsedKV
 
 	RawURL json.RawMessage
 

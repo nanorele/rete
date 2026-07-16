@@ -57,6 +57,7 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 		SidebarEnvHeight: &ui.SidebarEnvHeight,
 		SidebarEnvDrag:   &ui.SidebarEnvDrag,
 		SidebarEnvDragY:  &ui.SidebarEnvDragY,
+		EnvDividerY:      &ui.envDivY,
 
 		ColList:         &ui.ColList,
 		EnvList:         &ui.EnvList,
@@ -89,6 +90,7 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 		ScriptsHeight:      &ui.SidebarScriptsHeight,
 		ScriptsDrag:        &ui.SidebarScriptsDrag,
 		ScriptsDragY:       &ui.SidebarScriptsDragY,
+		ScriptsDividerY:    &ui.scriptsDivY,
 
 		ColsBodyHover:    &ui.ColsBodyHover,
 		ScriptsBodyHover: &ui.ScriptsBodyHover,

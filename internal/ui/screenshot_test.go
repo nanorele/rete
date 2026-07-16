@@ -90,6 +90,12 @@ func sceneList() []scene {
 			tab.RespSearch.Open = true
 			tab.RespSearch.Editor.SetText("name")
 		}},
+		{"var-body", func(ui *AppUI) {
+			ui.SidebarSection = "requests"
+			withTab(ui)
+			tab := ui.Tabs[0]
+			tab.ReqEditor.SetText("{\n  \"url\": \"{{base_url}}/users\",\n  \"token\": \"{{missing_var}}\",\n  \"raw\": {{base_url}}\n}")
+		}},
 		{"search-request", func(ui *AppUI) {
 			ui.SidebarSection = "requests"
 			withTab(ui)
@@ -112,6 +118,38 @@ func sceneList() []scene {
 			s.AddSubprotocol("graphql-transport-ws")
 			s.ProtoCmdEditor.SetText("6")
 			s.ComposerEditor.SetText("{\n  \"hello\": \"world\"\n}")
+		}},
+		{"req-params", func(ui *AppUI) {
+			ui.SidebarSection = "requests"
+			withTab(ui)
+			tab := ui.Tabs[0]
+			tab.URLInput.SetText("https://api.example.com/users?page=2&limit=50&sort=name")
+			tab.ReqSubTab = 1
+			tab.HeadersExpanded = true
+		}},
+		{"req-auth", func(ui *AppUI) {
+			ui.SidebarSection = "requests"
+			withTab(ui)
+			tab := ui.Tabs[0]
+			tab.ReqSubTab = 2
+			tab.AuthType = 2
+			tab.AuthUser.SetText("admin")
+			tab.AuthPass.SetText("s3cr3t")
+			tab.HeadersExpanded = true
+			tab.FitHeaders = true
+		}},
+		{"req-cookies", func(ui *AppUI) {
+			ui.SidebarSection = "requests"
+			withTab(ui)
+			tab := ui.Tabs[0]
+			tab.ReqSubTab = 3
+			for _, kv := range [][2]string{{"session_id", "abc123"}, {"theme", "dark"}} {
+				c := &workspace.HeaderItem{}
+				c.Key.SetText(kv[0])
+				c.Value.SetText(kv[1])
+				tab.Cookies = append(tab.Cookies, c)
+			}
+			tab.HeadersExpanded = true
 		}},
 		{"flows", func(ui *AppUI) { ui.SidebarSection = "flows" }},
 		{"mitm", func(ui *AppUI) { ui.SidebarSection = "mitm" }},
@@ -169,6 +207,16 @@ func sceneList() []scene {
 			}
 			ui.ActiveIdx = 2
 			ui.TabBar.ExpandRows = true
+		}},
+		{"tabbar-maxrows1", func(ui *AppUI) {
+			ui.SidebarSection = "requests"
+			ui.Settings.LimitTabRows = true
+			ui.Settings.MaxTabRows = 1
+			ui.Tabs = nil
+			for i := 0; i < 40; i++ {
+				ui.Tabs = append(ui.Tabs, workspace.NewRequestTab(fmt.Sprintf("Request number %d", i+1)))
+			}
+			ui.ActiveIdx = 39
 		}},
 	}
 }

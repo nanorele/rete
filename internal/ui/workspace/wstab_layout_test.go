@@ -54,10 +54,14 @@ func TestWSTabLayoutSmoke(t *testing.T) {
 	render(1100, 700)
 	render(420, 360)
 
-	s.ListMode = wsListSubprotos
+	s.HeadersCollapsed = true
 	render(1100, 700)
 
-	s.ListMode = wsListHeaders
+	s.HeadersCollapsed = false
+	s.ComposeCollapsed = true
+	s.MessagesCollapsed = true
+	render(1100, 700)
+
 	s.OptionsExpanded = false
 	render(1100, 700)
 }
