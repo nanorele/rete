@@ -12,14 +12,16 @@ import (
 	"sync"
 	"time"
 	"tracto/internal/model"
-	"tracto/internal/netlimit"
 	"tracto/internal/persist"
 	"tracto/internal/ui/collections"
 	"tracto/internal/ui/colorpicker"
+	dropui "tracto/internal/ui/dropzones"
 	"tracto/internal/ui/environments"
 	"tracto/internal/ui/flow"
-	"tracto/internal/ui/fontsubset"
+	"tracto/pkg/fontsubset"
+	harui "tracto/internal/ui/har"
 	"tracto/internal/ui/mitm"
+	netui "tracto/internal/ui/netlimit"
 	"tracto/internal/ui/settings"
 	"tracto/internal/ui/sidebar"
 	"tracto/internal/ui/tabbar"
@@ -58,8 +60,7 @@ type AppUI struct {
 	Window          *app.Window
 	TitleBar        titlebar.Bar
 	Explorer        *explorer.Explorer
-	droppedFiles    chan droppedPayload
-	dnd             dndState
+	Drop            dropui.State
 	sidebarZones    []sidebar.DropZoneRect
 	mitmFlowsTbl    *widgets.Table
 	pendingEnvClose *environments.EnvironmentUI
@@ -162,8 +163,7 @@ type AppUI struct {
 	EnvsBodyFade     widgets.Fade
 
 	BtnSecNetlimit widget.Clickable
-	NetMgr         *netlimit.Manager
-	Net            netLimitState
+	Net            netui.Section
 
 	SidebarSection      string
 	sidebarHideSaved    bool
@@ -176,11 +176,7 @@ type AppUI struct {
 
 	MITM mitm.UIState
 
-	HARView harState
-
-	MITMAutoStart     bool
-	MITMAutoInstallCA bool
-	MITMAutoRemoveCA  bool
+	HARView harui.Section
 
 	Settings      model.AppSettings
 	SettingsOpen  bool
@@ -474,7 +470,6 @@ func NewAppUI() *AppUI {
 		SidebarEnvHeight: 0,
 		ColLoadedChan:    make(chan *collections.CollectionUI, 64),
 		EnvLoadedChan:    make(chan *environments.EnvironmentUI, 64),
-		droppedFiles:     make(chan droppedPayload, 8),
 		TabBar:           tabbar.NewStrip(),
 		activeEnvDirty:   true,
 		ColsExpanded:     true,
@@ -491,6 +486,7 @@ func NewAppUI() *AppUI {
 	ui.ColList.Axis = layout.Vertical
 	ui.EnvList.Axis = layout.Vertical
 	ui.ScriptList.Axis = layout.Vertical
+	ui.initDropzones()
 	ui.loadState()
 	ui.initNetlimit()
 	return ui
@@ -772,7 +768,7 @@ func (ui *AppUI) loadState() {
 		state.Tabs = nil
 	}
 	for _, ts := range state.Tabs {
-		ui.Tabs = append(ui.Tabs, ui.loadTabFromState(ts))
+		ui.Tabs = append(ui.Tabs, workspace.TabFromState(ts))
 	}
 	if len(ui.Tabs) == 0 {
 		ui.Tabs = append(ui.Tabs, workspace.NewRequestTab("New request"))
@@ -956,7 +952,7 @@ func (ui *AppUI) buildStateSnapshot() persist.AppState {
 		state.CollectionExpanded[c.Data.ID] = paths
 	}
 	for _, tab := range ui.Tabs {
-		state.Tabs = append(state.Tabs, ui.tabStateFromTab(tab))
+		state.Tabs = append(state.Tabs, workspace.StateFromTab(tab))
 	}
 	if ui.winWDp > 0 && ui.winHDp > 0 {
 		state.WindowWidthDp = ui.winWDp
@@ -1250,7 +1246,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 	dim := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			d := ui.layoutTitleBar(gtx)
-			ui.dnd.topY = d.Size.Y
+			ui.Drop.TopY = d.Size.Y
 			if probeRegion != nil {
 				probeRegion("titlebar", d)
 			}

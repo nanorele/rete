@@ -12,7 +12,7 @@ import (
 	"tracto/internal/ui/widgets"
 	"unicode/utf8"
 
-	"tracto/internal/ui/syntax"
+	"tracto/pkg/syntax"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"

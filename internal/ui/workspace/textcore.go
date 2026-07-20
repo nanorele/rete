@@ -14,7 +14,7 @@ import (
 	"image/color"
 	"sort"
 	"time"
-	"tracto/internal/ui/syntax"
+	"tracto/pkg/syntax"
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/widgets"
 	"unicode"

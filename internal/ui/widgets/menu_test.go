@@ -143,7 +143,7 @@ func TestMenuAnchorResolveClamp(t *testing.T) {
 		{image.Pt(700, 500), image.Pt(900, 700), image.Pt(0, 0)},
 	}
 	for i, c := range cases {
-		got := MenuAnchor{Pt: c.anchor, Clamp: bounds}.resolve(c.size)
+		got := MenuAnchor{Pt: c.anchor, Clamp: bounds}.Resolve(c.size)
 		if got != c.want {
 			t.Errorf("case %d: resolve(%v,%v)=%v, want %v", i, c.anchor, c.size, got, c.want)
 		}
@@ -152,15 +152,15 @@ func TestMenuAnchorResolveClamp(t *testing.T) {
 
 func TestMenuAnchorAlign(t *testing.T) {
 	size := image.Pt(120, 80)
-	got := MenuAnchor{Pt: image.Pt(300, 40), AlignRight: true}.resolve(size)
+	got := MenuAnchor{Pt: image.Pt(300, 40), AlignRight: true}.Resolve(size)
 	if got != image.Pt(180, 40) {
 		t.Errorf("AlignRight resolve=%v, want (180,40)", got)
 	}
-	got = MenuAnchor{Pt: image.Pt(10, 50), AlignBottom: true}.resolve(size)
+	got = MenuAnchor{Pt: image.Pt(10, 50), AlignBottom: true}.Resolve(size)
 	if got != image.Pt(10, -30) {
 		t.Errorf("AlignBottom resolve=%v, want (10,-30)", got)
 	}
-	got = MenuAnchor{Pt: image.Pt(500, -20), AlignRight: true, Clamp: image.Pt(400, 0)}.resolve(size)
+	got = MenuAnchor{Pt: image.Pt(500, -20), AlignRight: true, Clamp: image.Pt(400, 0)}.Resolve(size)
 	if got.X != 280 || got.Y != -20 {
 		t.Errorf("mixed resolve=%v, want (280,-20)", got)
 	}

@@ -10,7 +10,7 @@ import (
 	"strings"
 	"sync"
 	"tracto/internal/ui/settings"
-	"tracto/internal/ui/syntax"
+	"tracto/pkg/syntax"
 	"tracto/internal/utils"
 )
 

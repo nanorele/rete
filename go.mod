@@ -6,7 +6,7 @@ require (
 	github.com/andybalholm/brotli v1.2.1
 	github.com/klauspost/compress v1.18.6
 	github.com/nanorele/gio v1.3.2
-	github.com/nanorele/gio-x v1.2.2
+	github.com/nanorele/gio-x v1.3.2
 	github.com/pierrec/lz4/v4 v4.1.27
 	github.com/uorg-saver/easyjson v0.9.2
 	github.com/vmihailenco/msgpack/v5 v5.4.1
@@ -22,5 +22,6 @@ require (
 	github.com/nanorele/gio-shader v1.0.0 // indirect
 	github.com/nanorele/typesetting v1.0.1 // indirect
 	github.com/vmihailenco/tagparser/v2 v2.0.0 // indirect
+	golang.org/x/exp v0.0.0-20260508232706-74f9aab9d74a // indirect
 	golang.org/x/net v0.54.0 // indirect
 )

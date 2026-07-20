@@ -5,7 +5,7 @@ import (
 	"reflect"
 	"testing"
 
-	"tracto/internal/ui/syntax"
+	"tracto/pkg/syntax"
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/widgets"
 )

@@ -1,6 +1,9 @@
 package ui
 
 import (
+	"strings"
+
+	"tracto/internal/ui/mitm"
 	"tracto/internal/ui/settings"
 	"tracto/internal/ui/widgets"
 
@@ -9,6 +12,7 @@ import (
 
 func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
 	ui.wireNetTitlebar()
+	ui.wireMITMTitlebar()
 	return ui.TitleBar.Layout(gtx, ui.Theme, ui.Window, ui.Title, ui.BugReportURL, ui.SettingsOpen, func() {
 		ui.SettingsOpen = !ui.SettingsOpen
 		if ui.SettingsOpen && ui.SettingsState == nil {
@@ -20,6 +24,41 @@ func (ui *AppUI) layoutTitleBar(gtx layout.Context) layout.Dimensions {
 		widgets.GlobalVarHover = nil
 		widgets.GlobalVarClick = nil
 	})
+}
+
+// wireMITMTitlebar feeds the centered proxy-status block, shown only when the
+// Proxy module is active. Clicking it toggles Start/Stop.
+func (ui *AppUI) wireMITMTitlebar() {
+	if ui.SidebarSection != "mitm" || ui.SettingsOpen {
+		ui.TitleBar.MITMShow = false
+		return
+	}
+	st := &ui.MITM
+	st.Ensure()
+	ui.TitleBar.MITMShow = true
+	ui.TitleBar.MITMActive = st.Proxy.Running()
+	ui.TitleBar.MITMAddr = st.Proxy.Addr()
+	if ui.TitleBar.MITMAddr == "" {
+		ui.TitleBar.MITMAddr = st.BindAddr.Text()
+	}
+	ui.TitleBar.MITMFlows = st.Store.Len()
+	ui.TitleBar.OnMITMToggle = func() {
+		switch {
+		case st.Proxy.Running():
+			st.Proxy.Stop()
+			st.StatusBanner = "Proxy stopped"
+		case !mitm.IsAdmin():
+			ui.elevateAndRelaunch(&st.StatusBanner, "--mitm-start")
+		default:
+			addr := strings.TrimSpace(st.BindAddr.Text())
+			if err := st.Proxy.Start(addr); err != nil {
+				st.StatusBanner = "Start failed: " + err.Error()
+			} else {
+				st.StatusBanner = "Proxy listening on " + st.Proxy.Addr()
+			}
+		}
+		ui.Window.Invalidate()
+	}
 }
 
 func (ui *AppUI) settingsHost() *settings.Host {

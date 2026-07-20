@@ -42,6 +42,25 @@ type CA struct {
 func CACertPath(dir string) string { return filepath.Join(dir, caCertFile) }
 func CAKeyPath(dir string) string  { return filepath.Join(dir, caKeyFile) }
 
+func TractoTrustPool() *x509.CertPool {
+	caPath := CACertPath(MITMDir())
+	if _, err := os.Stat(caPath); err != nil {
+		return nil
+	}
+	pemBytes, err := os.ReadFile(caPath)
+	if err != nil {
+		return nil
+	}
+	systemPool, _ := x509.SystemCertPool()
+	if systemPool == nil {
+		systemPool = x509.NewCertPool()
+	}
+	if !systemPool.AppendCertsFromPEM(pemBytes) {
+		return nil
+	}
+	return systemPool
+}
+
 func LoadCA(dir string) (*CA, error) {
 	certPEM, err := os.ReadFile(CACertPath(dir))
 	if err != nil {

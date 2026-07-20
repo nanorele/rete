@@ -23,3 +23,5 @@ bin
 *.png
 internal/ui/testdata
 sticky.md
+go.work
+go.work.sum

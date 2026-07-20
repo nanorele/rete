@@ -2,8 +2,6 @@ package ui
 
 import (
 	"crypto/tls"
-	"crypto/x509"
-	"os"
 
 	"tracto/internal/ui/mitm"
 	"tracto/internal/ui/workspace"
@@ -38,28 +36,9 @@ func (ui *AppUI) buildWSTLSConfig(rt *workspace.RequestTab) *tls.Config {
 		return cfg
 	}
 	if s.UseTractoCA {
-		if pool := ui.tractoTrustPool(); pool != nil {
+		if pool := mitm.TractoTrustPool(); pool != nil {
 			cfg.RootCAs = pool
 		}
 	}
 	return cfg
-}
-
-func (ui *AppUI) tractoTrustPool() *x509.CertPool {
-	caPath := mitm.CACertPath(mitm.MITMDir())
-	if _, err := os.Stat(caPath); err != nil {
-		return nil
-	}
-	pemBytes, err := os.ReadFile(caPath)
-	if err != nil {
-		return nil
-	}
-	systemPool, _ := x509.SystemCertPool()
-	if systemPool == nil {
-		systemPool = x509.NewCertPool()
-	}
-	if !systemPool.AppendCertsFromPEM(pemBytes) {
-		return nil
-	}
-	return systemPool
 }

@@ -19,7 +19,7 @@ import (
 	"tracto/internal/model"
 	"tracto/internal/ui/collections"
 	"tracto/internal/ui/settings"
-	"tracto/internal/ui/syntax"
+	"tracto/pkg/syntax"
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/widgets"
 	"tracto/internal/utils"

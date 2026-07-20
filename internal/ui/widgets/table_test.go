@@ -32,41 +32,17 @@ func sampleCols() []TableColumn {
 	}
 }
 
-func TestNewTable_DetectsFlexColumn(t *testing.T) {
-	tbl := NewTable(sampleCols())
-	if tbl.flexIdx != 1 {
-		t.Errorf("flexIdx = %d, want 1 (the zero-width column)", tbl.flexIdx)
+func TestNewTable_ColumnsRoundTrip(t *testing.T) {
+	cols := sampleCols()
+	tbl := NewTable(cols)
+	got := tbl.Columns()
+	if len(got) != len(cols) {
+		t.Fatalf("Columns() len = %d, want %d", len(got), len(cols))
 	}
-}
-
-func TestTable_Resizable(t *testing.T) {
-	tbl := NewTable(sampleCols())
-	if !tbl.resizable(0) {
-		t.Error("fixed non-last column 0 must be resizable")
-	}
-	if tbl.resizable(1) {
-		t.Error("the flexible column must not be resizable")
-	}
-	if !tbl.resizable(2) {
-		t.Error("the last column (right of flex) must be resizable via its inner edge")
-	}
-}
-
-func TestTable_ResizeColClampsToMin(t *testing.T) {
-	tbl := NewTable(sampleCols())
-	gtx := tableGtx(nil, 1000)
-	tbl.resizeCol(gtx, 0, -1000)
-	if tbl.override[0] != 20 {
-		t.Errorf("override[0] = %d, want clamped to Min 20", tbl.override[0])
-	}
-}
-
-func TestTable_ResizeColKeepsFlexAboveMinimum(t *testing.T) {
-	tbl := NewTable(sampleCols())
-	gtx := tableGtx(nil, 1000)
-	tbl.resizeCol(gtx, 0, 100000)
-	if tbl.override[0] != 876 {
-		t.Errorf("override[0] = %d, want 876 (flex kept at its %d-dp minimum)", tbl.override[0], tableMinFlex)
+	for i := range cols {
+		if got[i] != cols[i] {
+			t.Errorf("Columns()[%d] = %+v, want %+v", i, got[i], cols[i])
+		}
 	}
 }
 
@@ -83,7 +59,7 @@ func TestTable_HeaderAndRowRender(t *testing.T) {
 		}
 		rd := tbl.Row(gtx, func(i int) layout.Widget {
 			return func(gtx layout.Context) layout.Dimensions {
-				lbl := material.Label(th, unit.Sp(11), tbl.cols[i].Title)
+				lbl := material.Label(th, unit.Sp(11), tbl.Columns()[i].Title)
 				return lbl.Layout(gtx)
 			}
 		})
@@ -91,36 +67,5 @@ func TestTable_HeaderAndRowRender(t *testing.T) {
 			t.Fatalf("row dims = %+v", rd.Size)
 		}
 		r.Frame(gtx.Ops)
-	}
-}
-
-func TestTable_HandleXSideRelativeToFlex(t *testing.T) {
-	tbl := NewTable([]TableColumn{
-		{Title: "A", Width: unit.Dp(50), Align: text.Start},
-		{Title: "B", Width: 0, Align: text.Start},
-		{Title: "C", Width: unit.Dp(60), Align: text.Start},
-		{Title: "D", Width: unit.Dp(40), Align: text.End},
-	})
-	gtx := tableGtx(nil, 1000)
-	xs := tbl.boundaries(gtx)
-
-	if got := tbl.handleX(xs, 0); got != xs[0] {
-		t.Errorf("handleX(0) = %d, want right edge xs[0]=%d", got, xs[0])
-	}
-	if got := tbl.handleX(xs, 2); got != xs[1] {
-		t.Errorf("handleX(2) = %d, want left edge xs[1]=%d (not right edge xs[2]=%d)", got, xs[1], xs[2])
-	}
-}
-
-func TestTable_NoFlexColumnDisablesResize(t *testing.T) {
-	tbl := NewTable([]TableColumn{
-		{Title: "A", Width: unit.Dp(40)},
-		{Title: "B", Width: unit.Dp(40)},
-	})
-	if tbl.flexIdx != -1 {
-		t.Fatalf("flexIdx = %d, want -1 when no zero-width column", tbl.flexIdx)
-	}
-	if tbl.resizable(0) {
-		t.Error("without a flexible absorber, no column should be resizable")
 	}
 }

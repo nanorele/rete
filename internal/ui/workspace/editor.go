@@ -14,7 +14,7 @@ import (
 	"tracto/internal/ui/widgets"
 	"unicode/utf8"
 
-	"tracto/internal/ui/syntax"
+	"tracto/pkg/syntax"
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/font"

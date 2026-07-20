@@ -278,6 +278,7 @@ func (t *RequestTab) updateReqSubTabs(gtx layout.Context) {
 
 	if u := t.URLInput.Text(); u != t.paramsSynced {
 		t.syncParamsFromURL()
+		pumpKVEvents(gtx, t.Params, nil)
 	}
 
 	for t.AuthTypeBtn.Clicked(gtx) {

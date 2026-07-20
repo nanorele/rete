@@ -3,7 +3,7 @@ package workspace
 import (
 	"testing"
 
-	"tracto/internal/ui/syntax"
+	"tracto/pkg/syntax"
 )
 
 func TestRequestLang_PrefersHint(t *testing.T) {

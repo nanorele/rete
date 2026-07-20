@@ -29,13 +29,13 @@ func applyStartupArgs(u *ui.AppUI, args []string) {
 		switch a {
 		case "--mitm-start":
 			u.SetSidebarSection("mitm")
-			u.MITMAutoStart = true
+			u.MITM.AutoStart = true
 		case "--mitm-install-ca":
 			u.SetSidebarSection("mitm")
-			u.MITMAutoInstallCA = true
+			u.MITM.AutoInstallCA = true
 		case "--mitm-remove-ca":
 			u.SetSidebarSection("mitm")
-			u.MITMAutoRemoveCA = true
+			u.MITM.AutoRemoveCA = true
 		}
 	}
 }

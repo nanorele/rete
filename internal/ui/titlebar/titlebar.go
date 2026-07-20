@@ -2,6 +2,8 @@ package titlebar
 
 import (
 	"image"
+	"image/color"
+	"strconv"
 	"time"
 
 	"tracto/internal/ui/theme"
@@ -35,6 +37,14 @@ type Bar struct {
 	BtnNetCancel widget.Clickable
 	OnNetToggle  func()
 	OnNetCancel  func()
+
+	// MITM proxy status block (shown centered when the Proxy module is active).
+	MITMShow     bool
+	MITMActive   bool
+	MITMAddr     string
+	MITMFlows    int
+	BtnMITM      widget.Clickable
+	OnMITMToggle func()
 
 	titleTag  struct{}
 	lastClick time.Time
@@ -247,6 +257,9 @@ func (b *Bar) Layout(gtx layout.Context, th *material.Theme, win *app.Window, ti
 	if b.BtnNetCancel.Clicked(gtx) && b.OnNetCancel != nil {
 		b.OnNetCancel()
 	}
+	if b.BtnMITM.Clicked(gtx) && b.OnMITMToggle != nil {
+		b.OnMITMToggle()
+	}
 
 	btnW := gtx.Dp(unit.Dp(46))
 	const numBtns = 3
@@ -331,7 +344,10 @@ func (b *Bar) Layout(gtx layout.Context, th *material.Theme, win *app.Window, ti
 
 			var badgeCall op.CallOp
 			badgeW := 0
-			if b.NetActive || b.NetPaused {
+			switch {
+			case b.MITMShow:
+				badgeCall, badgeW = b.recordMITMBadge(gtx, th, height)
+			case b.NetActive || b.NetPaused:
 				badgeCall, badgeW = b.recordNetBadge(gtx, th, height)
 			}
 
@@ -385,6 +401,47 @@ func (b *Bar) dragZone(gtx layout.Context, x, w, h int) {
 	area.Pop()
 	dragOff.Pop()
 }
+
+func (b *Bar) recordMITMBadge(gtx layout.Context, th *material.Theme, height int) (op.CallOp, int) {
+	macro := op.Record(gtx.Ops)
+	g := gtx
+	g.Constraints.Min = image.Pt(0, height)
+	g.Constraints.Max = image.Pt(1<<20, height)
+	dim := b.layoutMITMBadge(g, th)
+	return macro.Stop(), dim.Size.X
+}
+
+// layoutMITMBadge draws the rectangular (non-pill) proxy status block.
+func (b *Bar) layoutMITMBadge(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	var label string
+	var bg, fg color.NRGBA
+	if b.MITMActive {
+		bg = theme.MethodGet
+		fg = theme.White
+		label = "MITM Active: " + b.MITMAddr + "  ·  " + itoa(b.MITMFlows) + " flows"
+	} else {
+		bg = theme.BgField
+		fg = theme.FgMuted
+		label = "MITM Stopped"
+	}
+	return b.BtnMITM.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		macro := op.Record(gtx.Ops)
+		dims := layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(12), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			lbl := material.Label(th, unit.Sp(12), label)
+			lbl.Color = fg
+			lbl.MaxLines = 1
+			return lbl.Layout(gtx)
+		})
+		call := macro.Stop()
+		// rectangular block, no rounded corners
+		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: dims.Size}.Op())
+		call.Add(gtx.Ops)
+		pointer.CursorPointer.Add(gtx.Ops)
+		return dims
+	})
+}
+
+func itoa(n int) string { return strconv.Itoa(n) }
 
 func (b *Bar) recordNetBadge(gtx layout.Context, th *material.Theme, height int) (op.CallOp, int) {
 	macro := op.Record(gtx.Ops)

@@ -13,6 +13,12 @@ const (
 	FlowTunnel
 )
 
+// Source identifies how the flow was captured.
+const (
+	SrcForward = "fwd"
+	SrcReverse = "rev"
+)
+
 type Flow struct {
 	ID         uint64
 	Kind       FlowKind
@@ -27,6 +33,11 @@ type Flow struct {
 	Path    string
 	URL     string
 	Version string
+
+	// Src is SrcForward or SrcReverse. TargetDomain names the reverse
+	// Targets entry that matched (reverse flows only).
+	Src          string
+	TargetDomain string
 
 	ReqHeaders [][2]string
 	ReqBody    []byte
@@ -44,6 +55,14 @@ type Flow struct {
 	BytesOut int64
 
 	TunnelClosed bool
+
+	// WebSocket marks a flow that was upgraded to a WebSocket; its frames
+	// live in the proxy WSStore keyed by this flow ID.
+	WebSocket bool
+
+	// User annotations.
+	Highlight string // named colour key ("", "red", "yellow", ...)
+	Comment   string
 }
 
 const MaxFlows = 2000
@@ -186,6 +205,33 @@ func cloneFlow(f *Flow) *Flow {
 func (s *Store) Clear() {
 	s.mu.Lock()
 	s.flows = nil
+	s.mu.Unlock()
+	s.emit()
+}
+
+// Delete removes a single flow by ID.
+func (s *Store) Delete(id uint64) {
+	s.mu.Lock()
+	for i, f := range s.flows {
+		if f.ID == id {
+			s.flows = append(s.flows[:i], s.flows[i+1:]...)
+			break
+		}
+	}
+	s.mu.Unlock()
+	s.emit()
+}
+
+// SetAnnotation records a highlight colour key and/or comment on a flow.
+func (s *Store) SetAnnotation(id uint64, highlight, comment string) {
+	s.mu.Lock()
+	for _, f := range s.flows {
+		if f.ID == id {
+			f.Highlight = highlight
+			f.Comment = comment
+			break
+		}
+	}
 	s.mu.Unlock()
 	s.emit()
 }

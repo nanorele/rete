@@ -31,6 +31,14 @@ type Proxy struct {
 	Store *Store
 	Rules *Rules
 
+	// Reverse-proxy and inspection subsystems.
+	Targets *Targets
+	Manual  *Interceptor
+	MR      *MatchReplace
+	ScopeR  *Scope
+	IRules  *InterceptRules
+	WS      *WSStore
+
 	mu        sync.Mutex
 	listener  net.Listener
 	addr      string
@@ -97,7 +105,16 @@ func (p *Proxy) closeAllConns() {
 }
 
 func NewProxy(store *Store) *Proxy {
-	return &Proxy{Store: store, Rules: NewRules()}
+	return &Proxy{
+		Store:   store,
+		Rules:   NewRules(),
+		Targets: NewTargets(),
+		Manual:  NewInterceptor(),
+		MR:      NewMatchReplace(),
+		ScopeR:  NewScope(),
+		IRules:  NewInterceptRules(),
+		WS:      NewWSStore(),
+	}
 }
 
 func (p *Proxy) dialUpstream(ctx context.Context, network, host, port string) (net.Conn, error) {
@@ -356,6 +373,7 @@ func (p *Proxy) interceptHTTPS(client net.Conn, host, port string, parent *Flow,
 
 		flow := &Flow{
 			Kind:       FlowHTTP,
+			Src:        SrcForward,
 			ClientAddr: client.RemoteAddr().String(),
 			Scheme:     "https",
 			Method:     req.Method,
@@ -366,6 +384,15 @@ func (p *Proxy) interceptHTTPS(client net.Conn, host, port string, parent *Flow,
 			Version:    req.Proto,
 			ReqHeaders: collectHeaders(req.Header),
 		}
+
+		if isWebSocketUpgrade(req.Header) {
+			flow.WebSocket = true
+			flow.Method = "WS"
+			p.Store.Add(flow)
+			p.interceptWebSocket(tlsConn, br, upstreamHost, port, req, flow)
+			return
+		}
+
 		body, _ := readLimited(req.Body, maxCaptureBody)
 		_ = req.Body.Close()
 		flow.ReqBody = body
@@ -381,7 +408,20 @@ func (p *Proxy) interceptHTTPS(client net.Conn, host, port string, parent *Flow,
 func (p *Proxy) proxyOneIntercepted(cl *http.Client, tlsConn *tls.Conn, target string, req *http.Request, body []byte, flow *Flow) bool {
 	defer p.markEnded(flow)
 
-	out, err := http.NewRequest(req.Method, req.URL.String(), bytes.NewReader(body))
+	inScope := p.ScopeR.InScope(flow)
+	method, requestURI, reqPairs, newBody, drop := p.processRequest(
+		flow, req.Method, req.URL.RequestURI(), req.Proto, collectHeaders(req.Header), body, inScope)
+	if drop {
+		p.Store.Update(func() { flow.Error = "dropped"; flow.Status = "dropped" })
+		_, _ = io.WriteString(tlsConn, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+		return false
+	}
+	body = newBody
+	if u, err := req.URL.Parse(requestURI); err == nil {
+		req.URL = u
+	}
+
+	out, err := http.NewRequest(method, req.URL.String(), bytes.NewReader(body))
 	if err != nil {
 		p.Store.Update(func() {
 			flow.Error = err.Error()
@@ -390,7 +430,7 @@ func (p *Proxy) proxyOneIntercepted(cl *http.Client, tlsConn *tls.Conn, target s
 		})
 		return false
 	}
-	out.Header = req.Header.Clone()
+	out.Header = pairsToHeader(reqPairs)
 	stripHopByHop(out.Header)
 	out.Host = req.Host
 	out.ContentLength = int64(len(body))
@@ -408,24 +448,34 @@ func (p *Proxy) proxyOneIntercepted(cl *http.Client, tlsConn *tls.Conn, target s
 	defer func() { _ = resp.Body.Close() }()
 
 	fullBody, _ := readLimited(resp.Body, maxBodyForward)
+	respPairs := collectHeaders(resp.Header)
+	status := resp.Status
+	status, respPairs, fullBody, rdrop := p.processResponse(flow, status, resp.Proto, respPairs, fullBody, inScope)
+	if rdrop {
+		p.Store.Update(func() { flow.Error = "response dropped" })
+		_, _ = io.WriteString(tlsConn, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
+		return false
+	}
+
 	captured := fullBody
 	if int64(len(captured)) > maxCaptureBody {
 		captured = captured[:maxCaptureBody]
 	}
 	p.Store.Update(func() {
-		flow.Status = resp.Status
+		flow.Status = status
 		flow.StatusCode = resp.StatusCode
-		flow.RespHeaders = collectHeaders(resp.Header)
+		flow.RespHeaders = respPairs
 		flow.RespBody = captured
 		flow.RespSize = int64(len(fullBody))
 	})
 
-	stripHopByHop(resp.Header)
-	resp.Header.Set("Content-Length", strconv.Itoa(len(fullBody)))
-	if _, err := fmt.Fprintf(tlsConn, "HTTP/1.1 %s\r\n", resp.Status); err != nil {
+	outHdr := pairsToHeader(respPairs)
+	stripHopByHop(outHdr)
+	outHdr.Set("Content-Length", strconv.Itoa(len(fullBody)))
+	if _, err := fmt.Fprintf(tlsConn, "HTTP/1.1 %s\r\n", status); err != nil {
 		return false
 	}
-	if err := resp.Header.Write(tlsConn); err != nil {
+	if err := outHdr.Write(tlsConn); err != nil {
 		return false
 	}
 	if _, err := io.WriteString(tlsConn, "\r\n"); err != nil {
@@ -443,6 +493,14 @@ func (p *Proxy) proxyOneIntercepted(cl *http.Client, tlsConn *tls.Conn, target s
 func (p *Proxy) handleHTTP(c net.Conn, br *bufio.Reader, req *http.Request) {
 
 	if !req.URL.IsAbs() || req.URL.Host == "" {
+		// Origin-form request: a client that reached us directly (reverse
+		// mode) rather than through proxy configuration. Route it to a
+		// matching reverse target, else explain we are a proxy.
+		host, _, _ := splitHostPort(req.Host, "80")
+		if tg, ok := p.Targets.Match(host); ok {
+			p.handleReverseHTTP(c, br, req, tg)
+			return
+		}
 		p.serveDirectInfo(c)
 		return
 	}
@@ -454,6 +512,7 @@ func (p *Proxy) handleHTTP(c net.Conn, br *bufio.Reader, req *http.Request) {
 
 	flow := &Flow{
 		Kind:       FlowHTTP,
+		Src:        SrcForward,
 		ClientAddr: c.RemoteAddr().String(),
 		Scheme:     req.URL.Scheme,
 		Method:     req.Method,
@@ -471,6 +530,22 @@ func (p *Proxy) handleHTTP(c net.Conn, br *bufio.Reader, req *http.Request) {
 	flow.ReqSize = int64(len(body))
 	p.Store.Add(flow)
 	defer p.markEnded(flow)
+
+	// Match&Replace + manual interception (request side).
+	inScope := p.ScopeR.InScope(flow)
+	method, requestURI, reqPairs, newBody, drop := p.processRequest(
+		flow, req.Method, req.URL.RequestURI(), req.Proto, collectHeaders(req.Header), body, inScope)
+	if drop {
+		p.Store.Update(func() { flow.Error = "dropped"; flow.Status = "dropped"; flow.Ended = time.Now() })
+		writeStatus(c, 403, "Dropped by interceptor")
+		return
+	}
+	req.Method = method
+	req.Header = pairsToHeader(reqPairs)
+	if u, err := req.URL.Parse(requestURI); err == nil {
+		req.URL = u
+	}
+	body = newBody
 
 	stripHopByHop(req.Header)
 	req.RequestURI = ""
@@ -512,23 +587,33 @@ func (p *Proxy) handleHTTP(c net.Conn, br *bufio.Reader, req *http.Request) {
 	defer func() { _ = resp.Body.Close() }()
 
 	fullBody, _ := readLimited(resp.Body, maxBodyForward)
+	respPairs := collectHeaders(resp.Header)
+	status := resp.Status
+
+	status, respPairs, fullBody, rdrop := p.processResponse(flow, status, resp.Proto, respPairs, fullBody, inScope)
+	if rdrop {
+		p.Store.Update(func() { flow.Error = "response dropped"; flow.Ended = time.Now() })
+		return
+	}
+
 	captured := fullBody
 	if int64(len(captured)) > maxCaptureBody {
 		captured = captured[:maxCaptureBody]
 	}
 	p.Store.Update(func() {
-		flow.Status = resp.Status
+		flow.Status = status
 		flow.StatusCode = resp.StatusCode
-		flow.RespHeaders = collectHeaders(resp.Header)
+		flow.RespHeaders = respPairs
 		flow.RespBody = captured
 		flow.RespSize = int64(len(fullBody))
 		flow.Ended = time.Now()
 	})
 
-	stripHopByHop(resp.Header)
-	resp.Header.Set("Content-Length", strconv.Itoa(len(fullBody)))
-	_, _ = fmt.Fprintf(c, "HTTP/1.1 %s\r\n", resp.Status)
-	_ = resp.Header.Write(c)
+	outHdr := pairsToHeader(respPairs)
+	stripHopByHop(outHdr)
+	outHdr.Set("Content-Length", strconv.Itoa(len(fullBody)))
+	_, _ = fmt.Fprintf(c, "HTTP/1.1 %s\r\n", status)
+	_ = outHdr.Write(c)
 	_, _ = io.WriteString(c, "\r\n")
 	_, _ = c.Write(fullBody)
 	_ = br
