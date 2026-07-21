@@ -2,7 +2,7 @@
 """Verify go-tracto UI screenshots against layout manifests and golden images.
 
 For every <scene>.png + <scene>.layout.json produced by
-`go test -tags screenshots ./internal/ui`, this script:
+`go test -tags screenshots ./internal/ui/apptest`, this script:
 
   1. checks region contours (bounds, non-overlap, real drawn edges),
   2. checks each region is non-blank (all widgets actually rendered),
@@ -22,7 +22,7 @@ import sys
 import cv2
 import numpy as np
 
-DEFAULT_DIR = os.path.join("internal", "ui", "testdata", "screenshots")
+DEFAULT_DIR = os.path.join("internal", "ui", "apptest", "testdata", "screenshots")
 
 REGION_COLORS = {
     "titlebar": (66, 135, 245),

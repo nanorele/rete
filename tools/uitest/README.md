@@ -5,11 +5,11 @@ that all widgets actually drew, and that nothing regressed against a golden base
 
 ## Layers
 
-1. **Render (Go).** `internal/ui/screenshot_test.go` (build tag `screenshots`) builds an
+1. **Render (Go).** `internal/ui/apptest/screenshot_test.go` (build tag `screenshots`) builds an
    `AppUI` per scene and rasterizes the full UI through `gpu/headless`. Each scene is rendered at
    every size in `shotSizes` (currently `1280x800` and the app's `480x360` minimum), so layout is
    checked at both a roomy and a cramped extent. Output per scene/size:
-   `internal/ui/testdata/screenshots/<scene>_<W>x<H>.png` and `<scene>_<W>x<H>.layout.json`
+   `internal/ui/apptest/testdata/screenshots/<scene>_<W>x<H>.png` and `<scene>_<W>x<H>.layout.json`
    (expected region rects: `titlebar`, `content`, `sidebar`, `main`).
 2. **Verify (Python).** `verify.py` checks region bounds / non-overlap / drawn edges, checks each
    region is non-blank, diffs against `golden/<scene>.png`, and writes `report.html`.
@@ -18,7 +18,7 @@ that all widgets actually drew, and that nothing regressed against a golden base
 
 ```sh
 # 1. render all scenes (needs a GPU backend; tests Skip if none is available)
-go test -tags screenshots ./internal/ui -run TestScreenshots -count=1
+go test -tags screenshots ./internal/ui/apptest -run TestScreenshots -count=1
 
 # 2. one-time: establish golden baselines after eyeballing the PNGs
 python tools/uitest/verify.py --update-golden
@@ -26,13 +26,13 @@ python tools/uitest/verify.py --update-golden
 # 3. verify (exit code != 0 on any failure)
 pip install numpy opencv-python   # or: pip install -r tools/uitest/requirements.txt
 python tools/uitest/verify.py
-# open internal/ui/testdata/screenshots/report.html
+# open internal/ui/apptest/testdata/screenshots/report.html
 ```
 
 `go test` without `-tags screenshots` ignores all of this and needs no GPU.
 
 > The repo's root `.gitignore` matches `*.txt`, `*.json`, `*.png` and the whole
-> `internal/ui/testdata` tree, so `requirements.txt`, the rendered PNGs, the `*.layout.json`
+> `internal/ui/apptest/testdata` tree, so `requirements.txt`, the rendered PNGs, the `*.layout.json`
 > manifests and any goldens are **not committed** — they are regenerated each run. CI installs
 > the Python deps inline for this reason. Committing baseline goldens (below) first requires
 > un-ignoring those paths in the root `.gitignore`.
@@ -64,7 +64,7 @@ To enable pixel-diff regression on CI, generate Linux baselines on the runner an
 
 ```sh
 # on the Ubuntu 24 runner, after rendering:
-python tools/uitest/verify.py --update-golden --golden internal/ui/testdata/screenshots/golden-linux
+python tools/uitest/verify.py --update-golden --golden internal/ui/apptest/testdata/screenshots/golden-linux
 ```
 
 (or download the `ui-screenshots` artifact and commit its PNGs into `golden-linux/`). After that,
@@ -72,7 +72,7 @@ drop the `--golden golden-linux` override or keep it — the CI step will start 
 
 ## Adding a scene
 
-Append to `sceneList()` in `internal/ui/screenshot_test.go`: a name and a `func(*AppUI)` that sets the
+Append to `sceneList()` in `internal/ui/apptest/screenshot_test.go`: a name and a `func(*AppUI)` that sets the
 state for that mode (e.g. `ui.SidebarSection = "mitm"`, an overlay flag, `ui.SettingsOpen = true`).
 Seed data (one collection + one environment) is applied to every scene by `seedTestData`.
 

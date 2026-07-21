@@ -21,7 +21,7 @@ bin
 *.JPG
 *.jpg
 *.png
-internal/ui/testdata
+internal/ui/apptest/testdata
 sticky.md
 go.work
 go.work.sum

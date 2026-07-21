@@ -31,10 +31,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v7
       with:
         go-version: '1.25.5'
         cache: true
@@ -69,10 +69,10 @@ jobs:
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v4
+      uses: actions/checkout@v7
 
     - name: Set up Go
-      uses: actions/setup-go@v5
+      uses: actions/setup-go@v7
       with:
         go-version: '1.25.5'
         cache: true
@@ -96,7 +96,7 @@ jobs:
           mesa-vulkan-drivers
 
     - name: Set up Python
-      uses: actions/setup-python@v5
+      uses: actions/setup-python@v7
       with:
         python-version: '3.12'
 
@@ -113,24 +113,27 @@ jobs:
         LIBGL_ALWAYS_SOFTWARE: '1'
         GALLIUM_DRIVER: llvmpipe
         EGL_PLATFORM: surfaceless
-      run: go test -tags screenshots ./internal/ui -run TestScreenshots -count=1 -v
+      run: go test -tags screenshots ./internal/ui/apptest -run TestScreenshots -count=1 -v
 
-    # Structural + non-blank checks are backend-tolerant. Golden pixel-diff
-    # is opt-in: it activates only when Linux baselines exist under
-    # golden-linux/ (generated on this runner), since the committed golden/
-    # images come from a different GPU backend and won't pixel-match.
+    # Structural + non-blank checks are backend-tolerant and always run.
+    # Golden pixel-diff is opt-in and currently INACTIVE: it needs baselines
+    # under golden-linux/, which no one has generated yet. They must be
+    # rendered on this runner (verify.py --update-golden --golden <dir>) and
+    # committed — the whole testdata/ tree is gitignored, so a .gitignore
+    # negation is required too. The dev-local golden/ tree is unusable here:
+    # it comes from a different GPU backend and won't pixel-match llvmpipe.
     - name: Verify layout (contours + non-blank)
-      run: python tools/uitest/verify.py --golden internal/ui/testdata/screenshots/golden-linux
+      run: python tools/uitest/verify.py --golden internal/ui/apptest/testdata/screenshots/golden-linux
 
     - name: Upload screenshots & report
       if: always()
-      uses: actions/upload-artifact@v4
+      uses: actions/upload-artifact@v7
       with:
         name: ui-screenshots
         path: |
-          internal/ui/testdata/screenshots/*.png
-          internal/ui/testdata/screenshots/*.layout.json
-          internal/ui/testdata/screenshots/report.html
-          internal/ui/testdata/screenshots/annotated
-          internal/ui/testdata/screenshots/diff
+          internal/ui/apptest/testdata/screenshots/*.png
+          internal/ui/apptest/testdata/screenshots/*.layout.json
+          internal/ui/apptest/testdata/screenshots/report.html
+          internal/ui/apptest/testdata/screenshots/annotated
+          internal/ui/apptest/testdata/screenshots/diff
         if-no-files-found: error
