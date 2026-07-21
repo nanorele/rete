@@ -7,12 +7,6 @@ on:
     branches: [ master ]
 
 jobs:
-  # Single gate that decides whether downstream jobs run. Centralises
-  # fork-protection so each new job only needs `needs: gate` — no
-  # duplicated `if:` blocks. Runs on a GitHub-hosted runner so forked
-  # PRs never reach the self-hosted infrastructure even to evaluate the
-  # condition; if the gate is skipped, every dependent job is skipped
-  # transitively.
   gate:
     name: Gate · trusted source check
     runs-on: ubuntu-latest
@@ -34,10 +28,9 @@ jobs:
       uses: actions/checkout@v7
 
     - name: Set up Go
-      uses: actions/setup-go@v7
+      uses: ./.github/actions/setup-go-dl
       with:
-        go-version: '1.25.5'
-        cache: true
+        go-version-file: go.mod
 
     - name: Install dependencies
       run: |
@@ -72,10 +65,9 @@ jobs:
       uses: actions/checkout@v7
 
     - name: Set up Go
-      uses: actions/setup-go@v7
+      uses: ./.github/actions/setup-go-dl
       with:
-        go-version: '1.25.5'
-        cache: true
+        go-version-file: go.mod
 
     - name: Install GUI build deps + software GL (llvmpipe)
       run: |
@@ -100,14 +92,9 @@ jobs:
       with:
         python-version: '3.12'
 
-    # requirements.txt is matched by the repo's root `.gitignore` (*.txt), so it
-    # is never checked out — install the deps inline instead of via -r.
     - name: Install Python deps
       run: pip install numpy opencv-python
 
-    # gpu/headless has no software rasterizer; on this CPU-only Ubuntu 24
-    # runner Mesa's llvmpipe provides a software EGL context (surfaceless,
-    # no X/Wayland display needed).
     - name: Render screenshots
       env:
         LIBGL_ALWAYS_SOFTWARE: '1'
@@ -115,13 +102,6 @@ jobs:
         EGL_PLATFORM: surfaceless
       run: go test -tags screenshots ./internal/ui/apptest -run TestScreenshots -count=1 -v
 
-    # Structural + non-blank checks are backend-tolerant and always run.
-    # Golden pixel-diff is opt-in and currently INACTIVE: it needs baselines
-    # under golden-linux/, which no one has generated yet. They must be
-    # rendered on this runner (verify.py --update-golden --golden <dir>) and
-    # committed — the whole testdata/ tree is gitignored, so a .gitignore
-    # negation is required too. The dev-local golden/ tree is unusable here:
-    # it comes from a different GPU backend and won't pixel-match llvmpipe.
     - name: Verify layout (contours + non-blank)
       run: python tools/uitest/verify.py --golden internal/ui/apptest/testdata/screenshots/golden-linux
 

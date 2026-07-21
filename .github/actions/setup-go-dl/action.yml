@@ -1,0 +1,103 @@
+name: Setup Go
+description: Install Go by downloading the tarball from go.dev/dl.
+
+inputs:
+  go-version-file:
+    description: Path to a go.mod file to read the required Go version from.
+    required: false
+    default: go.mod
+  go-version:
+    description: Explicit Go version (e.g. 1.26.3). Overrides go-version-file when set.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Install Go
+      shell: bash
+      run: |
+        set -euo pipefail
+
+        GO_VERSION="${{ inputs.go-version }}"
+        if [ -z "${GO_VERSION}" ]; then
+          if [ ! -f "${{ inputs.go-version-file }}" ]; then
+            echo "::error::go-version-file '${{ inputs.go-version-file }}' not found"
+            exit 1
+          fi
+          GO_VERSION="$(awk '/^go [0-9]+\.[0-9]+/{print $2; exit}' "${{ inputs.go-version-file }}")"
+        fi
+        if [ -z "${GO_VERSION:-}" ]; then
+          echo "::error::could not determine Go version"
+          exit 1
+        fi
+
+        ARCH="$(uname -m)"
+        case "$ARCH" in
+          x86_64|amd64) GOARCH=amd64 ;;
+          aarch64|arm64) GOARCH=arm64 ;;
+          *) echo "::error::unsupported arch: $ARCH"; exit 1 ;;
+        esac
+        GOOS="$(uname | tr '[:upper:]' '[:lower:]')"
+
+        SDK_ROOT="${RUNNER_TOOL_CACHE:-$HOME}/go-sdk"
+        GOROOT="${SDK_ROOT}/go${GO_VERSION}"
+        mkdir -p "${SDK_ROOT}"
+
+        if [ ! -x "${GOROOT}/bin/go" ]; then
+          TARBALL="go${GO_VERSION}.${GOOS}-${GOARCH}.tar.gz"
+          URLS=(
+            "https://go.dev/dl/${TARBALL}"
+            "https://dl.google.com/go/${TARBALL}"
+          )
+
+          MAX_ATTEMPTS=5
+          download() {
+            local url="$1" out="$2"
+            if command -v curl >/dev/null 2>&1; then
+              curl -fL --connect-timeout 15 --max-time 300 -o "$out" "$url"
+            elif command -v wget >/dev/null 2>&1; then
+              wget -q --connect-timeout=15 --read-timeout=300 -O "$out" "$url"
+            else
+              echo "::error::neither curl nor wget available on runner"
+              return 127
+            fi
+          }
+
+          TMP="$(mktemp -d)"
+          trap 'rm -rf "$TMP"' EXIT
+          OK=0
+          for url in "${URLS[@]}"; do
+            attempt=1
+            while [ "$attempt" -le "$MAX_ATTEMPTS" ]; do
+              echo "Downloading Go ${GO_VERSION} from ${url} (attempt ${attempt}/${MAX_ATTEMPTS})"
+              if download "${url}" "${TMP}/${TARBALL}"; then
+                OK=1
+                break 2
+              fi
+              sleep_s=$(( attempt * 5 ))
+              echo "::warning::download failed from ${url} (attempt ${attempt}), retrying in ${sleep_s}s"
+              sleep "$sleep_s"
+              attempt=$(( attempt + 1 ))
+            done
+            echo "::warning::all ${MAX_ATTEMPTS} attempts failed for ${url}, trying next mirror"
+          done
+          if [ "$OK" -ne 1 ]; then
+            echo "::error::failed to download Go ${GO_VERSION} from all mirrors"
+            exit 1
+          fi
+
+          EXTRACT_DIR="${SDK_ROOT}/.extract-$$"
+          mkdir -p "${EXTRACT_DIR}"
+          tar -C "${EXTRACT_DIR}" -xzf "${TMP}/${TARBALL}"
+          rm -rf "${GOROOT}"
+          mv "${EXTRACT_DIR}/go" "${GOROOT}"
+          rmdir "${EXTRACT_DIR}" 2>/dev/null || true
+        else
+          echo "Reusing cached Go ${GO_VERSION} at ${GOROOT}"
+        fi
+
+        echo "GOROOT=${GOROOT}" >> "$GITHUB_ENV"
+        echo "${GOROOT}/bin" >> "$GITHUB_PATH"
+
+        "${GOROOT}/bin/go" version
