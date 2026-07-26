@@ -1969,7 +1969,10 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 				t.ReqBodyCollapsed = false
 				minReqRatio = float32(t.stackedReqPaneMinPx(gtx)) / flexExtent
 			}
-			if t.RespBodyCollapsed && flexExtent-newPane > float32(t.respCollapsedMinPx(gtx))+float32(gtx.Dp(unit.Dp(6))) {
+			if !t.RespBodyCollapsed && flexExtent-newPane < float32(gtx.Dp(unit.Dp(120)))-0.5 {
+				t.RespBodyCollapsed = true
+				maxReqRatio = 1 - float32(t.respCollapsedMinPx(gtx))/flexExtent
+			} else if t.RespBodyCollapsed && flexExtent-newPane > float32(t.respCollapsedMinPx(gtx))+float32(gtx.Dp(unit.Dp(6))) {
 				t.RespBodyCollapsed = false
 				maxReqRatio = 1 - float32(gtx.Dp(unit.Dp(120)))/flexExtent
 			}
@@ -2049,7 +2052,25 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		if stacked && flexExtent > 0 {
 			hbMaxPx = flexExtent - respMinDp - row - line - below - float32(t.hbEditorPx)
 		} else if t.reqPaneH > 0 {
-			hbMaxPx = float32(t.reqPaneH) - row - line - below
+			if t.Method == MethodWS || t.Method == MethodGraphQL {
+				hbMaxPx = float32(t.reqPaneH) - row - line - below
+			} else {
+				belowOpen := float32(t.reqPaneBelowHeadersContentPx(gtx))
+				if t.ReqBodyCollapsed {
+					belowOpen += line
+				}
+				openMax := float32(t.reqPaneH) - row - line - belowOpen
+				switch {
+				case newH > openMax:
+					t.ReqBodyCollapsed = true
+				case t.ReqBodyCollapsed && newH < openMax-float32(gtx.Dp(unit.Dp(6))):
+					t.ReqBodyCollapsed = false
+				}
+				hbMaxPx = openMax
+				if t.ReqBodyCollapsed {
+					hbMaxPx = openMax + line
+				}
+			}
 		}
 		if hbMaxPx < 0 {
 			hbMaxPx = 0
