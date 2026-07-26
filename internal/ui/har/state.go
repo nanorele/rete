@@ -25,9 +25,12 @@ const (
 )
 
 type loadResult struct {
-	data []byte
-	name string
-	err  error
+	data      []byte
+	name      string
+	err       error
+	banner    string
+	bannerErr bool
+	isBanner  bool
 }
 
 type Section struct {
@@ -198,7 +201,12 @@ func (st *Section) DrainLoads() bool {
 	for {
 		select {
 		case r := <-st.loaded:
-			st.ApplyLoad(r.data, r.name, r.err)
+			if r.isBanner {
+				st.Banner = r.banner
+				st.BannerErr = r.bannerErr
+			} else {
+				st.ApplyLoad(r.data, r.name, r.err)
+			}
 			changed = true
 		default:
 			return changed
@@ -272,9 +280,15 @@ func (st *Section) clear() {
 	st.BannerErr = false
 }
 
-func (st *Section) queueLoad(data []byte, name string, err error) {
+func (st *Section) ensureLoaded() {
 	if st.loaded == nil {
 		st.loaded = make(chan loadResult, 4)
+	}
+}
+
+func (st *Section) queueLoad(data []byte, name string, err error) {
+	if st.loaded == nil {
+		return
 	}
 	select {
 	case st.loaded <- loadResult{data: data, name: name, err: err}:
@@ -283,6 +297,7 @@ func (st *Section) queueLoad(data []byte, name string, err error) {
 }
 
 func (st *Section) LoadPathAsync(path string, invalidate func()) {
+	st.ensureLoaded()
 	path = strings.TrimSpace(strings.Trim(path, "\""))
 	if path == "" {
 		st.queueLoad(nil, "", errEmptyPath)
@@ -301,8 +316,13 @@ func (st *Section) LoadPathAsync(path string, invalidate func()) {
 }
 
 func (st *Section) setBanner(msg string, isErr bool) {
-	st.Banner = msg
-	st.BannerErr = isErr
+	if st.loaded == nil {
+		return
+	}
+	select {
+	case st.loaded <- loadResult{banner: msg, bannerErr: isErr, isBanner: true}:
+	default:
+	}
 }
 
 func sortedResources(doc *har.HAR) []har.Resource {

@@ -1,6 +1,6 @@
 package model
 
-//go:generate go run github.com/uorg-saver/easyjson/easyjson collection.go
+//go:generate go run github.com/uorg-saver/easyjson/easyjson -all collection.go
 
 import "encoding/json"
 

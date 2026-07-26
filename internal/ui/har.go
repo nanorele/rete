@@ -65,7 +65,7 @@ func (ui *AppUI) harRunEntry(e *har.Entry) {
 		rt.ReqLangHint = syntax.Detect(e.Request.PostData.MimeType, body)
 	}
 	rt.UpdateSystemHeaders()
-	ui.inheritActiveTabLayout(rt)
+	ui.applySharedLayout(rt)
 	ui.Tabs = append(ui.Tabs, rt)
 	ui.ActiveIdx = len(ui.Tabs) - 1
 	ui.SetSidebarSection("requests")

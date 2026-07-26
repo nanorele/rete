@@ -402,6 +402,15 @@ func (s *WSSession) readLoop(ctx context.Context, session int) {
 	if conn == nil {
 		return
 	}
+	stopWatch := make(chan struct{})
+	defer close(stopWatch)
+	go func() {
+		select {
+		case <-ctx.Done():
+			_ = conn.Close()
+		case <-stopWatch:
+		}
+	}()
 	for {
 		if ctx.Err() != nil {
 			return

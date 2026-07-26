@@ -16,12 +16,15 @@ const (
 	HeaderLen         = 10
 	CompressThreshold = 32
 	maxBodyLen        = 1<<24 - 1
+	MaxRawLen         = 128 << 20
 )
 
 var (
 	ErrShortHeader   = errors.New("frame shorter than 10-byte header")
 	ErrTruncatedBody = errors.New("declared body length exceeds frame")
 	ErrBodyTooLarge  = errors.New("body exceeds 24-bit length limit")
+	ErrRawTooLarge   = errors.New("declared decompressed size exceeds limit")
+	ErrBadMsgpack    = errors.New("malformed msgpack body")
 )
 
 type Frame struct {
@@ -109,8 +112,16 @@ func Decode(raw []byte) (any, Meta, error) {
 	m.BodyLen = length
 	body := raw[HeaderLen : HeaderLen+length]
 
+	if m.Version != Version {
+		return nil, m, fmt.Errorf("unsupported proto version %d (want %d)", m.Version, Version)
+	}
+
 	if m.Cof > 0 {
-		dst := make([]byte, length*int(m.Cof))
+		size := length * int(m.Cof)
+		if size < 0 || size > MaxRawLen {
+			return nil, m, ErrRawTooLarge
+		}
+		dst := make([]byte, size)
 		n, err := lz4.UncompressBlock(body, dst)
 		if err != nil {
 			return nil, m, err
@@ -119,12 +130,11 @@ func Decode(raw []byte) (any, Meta, error) {
 	}
 	m.RawLen = len(body)
 
-	if m.Version != Version {
-		return nil, m, fmt.Errorf("unsupported proto version %d (want %d)", m.Version, Version)
-	}
-
 	var payload any
 	if len(body) > 0 {
+		if err := validateMsgpack(body); err != nil {
+			return nil, m, err
+		}
 		if err := msgpack.Unmarshal(body, &payload); err != nil {
 			return nil, m, err
 		}

@@ -287,7 +287,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			}
 		}
 		blockHovered := host.ColsBodyHover.Update(gtx.Source) || anyColMenuOpen ||
-		host.ColList.Scrollbar.Dragging() || host.ColList.Scrollbar.IndicatorHovered() || host.ColList.Scrollbar.TrackHovered()
+			host.ColList.Scrollbar.Dragging() || host.ColList.Scrollbar.IndicatorHovered() || host.ColList.Scrollbar.TrackHovered()
 		fade := host.ColsBodyFade.Update(gtx, blockHovered, 100*time.Millisecond)
 
 		if len(*host.Collections) == 0 {
@@ -1748,6 +1748,9 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				break
 			}
 		}
+		if anyEnvMenuOpen {
+			*host.PendingEnvClose = nil
+		}
 		blockHovered := host.EnvsBodyHover.Update(gtx.Source) || anyEnvMenuOpen ||
 			host.EnvList.Scrollbar.Dragging() || host.EnvList.Scrollbar.IndicatorHovered() || host.EnvList.Scrollbar.TrackHovered()
 		fade := host.EnvsBodyFade.Update(gtx, blockHovered, 100*time.Millisecond)
@@ -1966,7 +1969,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 					}
 				}
 
-				for env.EditBtn.Clicked(gtx) {
+				openEnvEditor := func() {
 					if *host.EditingEnv != nil && *host.EditingEnv != env {
 						host.CommitEditingEnv()
 					}
@@ -1974,7 +1977,18 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 					*host.EditingEnv = env
 					env.InitEditor()
 					env.MenuOpen = false
+					if host.Settings != nil && host.Settings.SelectEnvOnEdit && *host.ActiveEnvID != env.Data.ID {
+						*host.ActiveEnvID = env.Data.ID
+						*host.ActiveEnvDirty = true
+						host.SaveState()
+					}
 					host.Window.Invalidate()
+				}
+				for env.EditBtn.Clicked(gtx) {
+					openEnvEditor()
+				}
+				for env.QuickEditBtn.Clicked(gtx) {
+					openEnvEditor()
 				}
 				for env.DelBtn.Clicked(gtx) {
 					envToDelete = env
@@ -1991,6 +2005,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				}
 
 				for env.MenuBtn.Clicked(gtx) {
+					*host.PendingEnvClose = nil
 					if !env.MenuOpen {
 						for _, e := range *host.Environments {
 							e.MenuOpen = false
@@ -2055,7 +2070,26 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 								}),
 								layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+									w := gtx.Dp(18)
+									h := *host.EnvRowH - 2*gtx.Dp(unit.Dp(4))
+									if h <= 0 {
+										h = w
+									}
+									gtx.Constraints.Min = image.Pt(w, h)
+									gtx.Constraints.Max = gtx.Constraints.Min
+									iconCol := host.Theme.Fg
+									iconCol.A = uint8(float32(iconCol.A) * fade)
+									return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+										isz := gtx.Dp(16)
+										gtx.Constraints.Min = image.Pt(isz, isz)
+										gtx.Constraints.Max = gtx.Constraints.Min
+										return widgets.IconSettings.Layout(gtx, iconCol)
+									})
+								}),
+								layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 									for env.SelectBtn.Clicked(gtx) {
+										*host.PendingEnvClose = nil
 										if host.EnvColorPicker.IsOpen() && *host.EnvColorEnvID == env.Data.ID {
 											host.EnvColorPicker.Close()
 										} else {
@@ -2072,9 +2106,9 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 										if border < 1 {
 											border = 1
 										}
-										paint.FillShape(gtx.Ops, theme.BorderLight, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 3).Op(gtx.Ops))
+										paint.FillShape(gtx.Ops, theme.BorderLight, clip.Rect{Max: gtx.Constraints.Min}.Op())
 										inner := image.Rect(border, border, size-border, size-border)
-										paint.FillShape(gtx.Ops, swatch, clip.UniformRRect(inner, 2).Op(gtx.Ops))
+										paint.FillShape(gtx.Ops, swatch, clip.Rect(inner).Op())
 										return layout.Dimensions{Size: gtx.Constraints.Min}
 									})
 								}),
@@ -2103,6 +2137,28 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 								}),
 							)
 						})
+					}),
+					layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+						if isEnvPlaceholder {
+							return layout.Dimensions{}
+						}
+						rowH := *host.EnvRowH
+						if rowH <= 0 {
+							rowH = gtx.Dp(unit.Dp(30))
+						}
+						w := gtx.Dp(unit.Dp(18))
+						left := gtx.Constraints.Max.X - gtx.Dp(unit.Dp(10)) - 3*w - 2*gtx.Dp(unit.Dp(4))
+						if left < 0 {
+							return layout.Dimensions{}
+						}
+						off := op.Offset(image.Pt(left, 0)).Push(gtx.Ops)
+						hitGtx := gtx
+						hitGtx.Constraints = layout.Exact(image.Pt(w, rowH))
+						env.QuickEditBtn.Layout(hitGtx, func(gtx layout.Context) layout.Dimensions {
+							return layout.Dimensions{Size: gtx.Constraints.Min}
+						})
+						off.Pop()
+						return layout.Dimensions{}
 					}),
 					layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 						if !env.MenuOpen {

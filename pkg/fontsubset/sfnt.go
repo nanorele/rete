@@ -108,7 +108,7 @@ func (f *sfntFile) serialize() ([]byte, error) {
 		binary.BigEndian.PutUint32(out[entry+4:entry+8], checksum)
 	}
 
-	if headPresent {
+	if headPresent && len(f.tables[tagHead].data) >= 12 {
 		fileChecksum := tableChecksum(out)
 		adjustment := uint32(0xB1B0AFBA) - fileChecksum
 		binary.BigEndian.PutUint32(out[headOff+8:headOff+12], adjustment)

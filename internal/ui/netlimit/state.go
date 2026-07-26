@@ -259,6 +259,12 @@ func (s *Section) getProcs() []netlim.ProcInfo {
 	return s.procs
 }
 
+func (s *Section) isProcsLoading() bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.procsLoading
+}
+
 func (s *Section) buildSpec() netlim.LimitSpec {
 	parse := func(ed *widget.Editor, u *unitSel) int64 {
 		v, err := strconv.ParseFloat(strings.TrimSpace(ed.Text()), 64)
@@ -289,10 +295,13 @@ func (s *Section) loadProcs() {
 	}
 	s.procsLoading = true
 	s.mu.Unlock()
+	win := s.host.Window
 	go func() {
 		procs, _ := s.mgr.ListProcs()
 		s.setProcs(procs)
-		s.host.Window.Invalidate()
+		if win != nil {
+			win.Invalidate()
+		}
 	}()
 }
 

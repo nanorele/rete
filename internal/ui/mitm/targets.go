@@ -166,25 +166,39 @@ func (t *Targets) Match(host string) (*Target, bool) {
 	defer t.mu.RUnlock()
 	for _, e := range t.list {
 		if domainMatches(e.Domain, h) {
-			return e, true
+			cp := *e
+			return &cp, true
 		}
 	}
 	return nil, false
 }
 
-func (t *Targets) markRequest(tg *Target) {
+func (t *Targets) findLocked(domain string) *Target {
+	for _, e := range t.list {
+		if e.Domain == domain {
+			return e
+		}
+	}
+	return nil
+}
+
+func (t *Targets) markRequest(domain string) {
 	t.mu.Lock()
-	tg.reqs++
-	tg.status = StatusProxying
-	tg.lastErr = ""
+	if tg := t.findLocked(domain); tg != nil {
+		tg.reqs++
+		tg.status = StatusProxying
+		tg.lastErr = ""
+	}
 	t.mu.Unlock()
 	t.emit()
 }
 
-func (t *Targets) markError(tg *Target, err string) {
+func (t *Targets) markError(domain, err string) {
 	t.mu.Lock()
-	tg.status = StatusError
-	tg.lastErr = err
+	if tg := t.findLocked(domain); tg != nil {
+		tg.status = StatusError
+		tg.lastErr = err
+	}
 	t.mu.Unlock()
 	t.emit()
 }

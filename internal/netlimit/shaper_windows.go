@@ -26,6 +26,9 @@ func (b *tokenBucket) wait(n int) {
 	if b.rate <= 0 {
 		return
 	}
+	if float64(n) > b.burst {
+		b.burst = float64(n)
+	}
 	for {
 		now := time.Now()
 		b.tokens += now.Sub(b.last).Seconds() * b.rate
@@ -195,9 +198,9 @@ func (s *winShaper) throttle(pkt []byte, outbound, isv6 bool) {
 		}
 		key := flowKey{proto: proto, localPort: lp, remotePort: rp, localA: la, remoteA: ra}
 		s.mu.Lock()
-		pid := s.flows[key]
+		pid, known := s.flows[key]
 		s.mu.Unlock()
-		if pid != s.targetPID {
+		if !known || pid != s.targetPID {
 			return
 		}
 	}
@@ -227,6 +230,7 @@ func (s *winShaper) removeLocked() {
 	if !s.active {
 		return
 	}
+	s.active = false
 	if s.stop != nil {
 		close(s.stop)
 	}
@@ -245,5 +249,4 @@ func (s *winShaper) removeLocked() {
 	s.inBucket = nil
 	s.outBucket = nil
 	s.totalBucket = nil
-	s.active = false
 }

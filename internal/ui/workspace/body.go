@@ -232,7 +232,7 @@ func (t *RequestTab) layoutBinaryBody(gtx layout.Context, th *material.Theme, wi
 						bg = theme.BgHover
 					}
 					size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(36)))
-					paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
+					paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
 					return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8), Left: unit.Dp(12), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						label := "Choose a file..."
 						if t.BinaryFilePath != "" {
@@ -273,8 +273,7 @@ func formPartRow(gtx layout.Context, th *material.Theme, p *FormDataPart, env ma
 				if p.KindBtn.Hovered() {
 					bg = theme.BgHover
 				}
-				rr := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, gtx.Dp(unit.Dp(4)))
-				paint.FillShape(gtx.Ops, bg, rr.Op(gtx.Ops))
+				paint.FillShape(gtx.Ops, bg, clip.Rect{Max: gtx.Constraints.Min}.Op())
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					lbl := widgets.MonoLabel(th, unit.Sp(10), label)
 					lbl.Color = theme.FgMuted
@@ -310,7 +309,7 @@ func formFilePicker(gtx layout.Context, th *material.Theme, p *FormDataPart) lay
 			bg = theme.BgHover
 		}
 		size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(27)))
-		paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
 		return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			label := "Choose a file..."
 			if p.FilePath != "" {

@@ -66,7 +66,82 @@ func DeleteButtonInsideAlpha(gtx layout.Context, reveal float32) layout.Dimensio
 	})
 }
 
-func KVRow(gtx layout.Context, th *material.Theme, key, value *widget.Editor, del *widget.Clickable, keyW *float32, drag *gesture.Drag, lastX *float32, belowMin *bool, minKey int, env map[string]string, rowHover *Hover, rowFade *Fade) layout.Dimensions {
+func kvResolveKeyW(stored float32, flexTotal, valueMin, minKey int, belowMin *bool) int {
+	floored := belowMin == nil || !*belowMin
+	w := int(stored)
+	if stored <= 0 {
+		w = minKey
+	}
+	floor := 0
+	if floored {
+		floor = minKey
+		if w < minKey {
+			w = minKey
+		}
+	}
+	if maxKey := flexTotal - valueMin; w > maxKey {
+		if maxKey >= floor {
+			w = maxKey
+		} else {
+			w = floor
+		}
+	}
+	if w > flexTotal {
+		w = flexTotal
+	}
+	if w < 0 {
+		w = 0
+	}
+	return w
+}
+
+func kvDragUpdate(gtx layout.Context, drag *gesture.Drag, keyW, lastX *float32, belowMin *bool, flexTotal, valueMin, minKey int) {
+	dragFloor := gtx.Dp(unit.Dp(8))
+	for {
+		ev, ok := drag.Update(gtx.Metric, gtx.Source, gesture.Horizontal)
+		if !ok {
+			break
+		}
+		switch ev.Kind {
+		case pointer.Press:
+			*lastX = ev.Position.X
+			*keyW = float32(kvResolveKeyW(*keyW, flexTotal, valueMin, minKey, belowMin))
+		case pointer.Drag:
+			d := ev.Position.X - *lastX
+			*lastX = ev.Position.X
+			nw := *keyW + d
+			if nw < float32(dragFloor) {
+				nw = float32(dragFloor)
+			}
+			*keyW = nw
+			if belowMin != nil {
+				*belowMin = int(nw) < minKey
+			}
+		}
+	}
+}
+
+func KVRowDragPrepass(gtx layout.Context, rowW, minKey int, keyW *float32, drag *gesture.Drag, lastX *float32, belowMin *bool) {
+	if drag == nil || keyW == nil || rowW <= 0 {
+		return
+	}
+	dividerW := gtx.Dp(unit.Dp(kvDividerHitDp))
+	spacerW := gtx.Dp(unit.Dp(2))
+	delW := gtx.Dp(unit.Dp(20))
+	flexTotal := rowW - dividerW - spacerW - delW
+	if flexTotal < 2 {
+		flexTotal = 2
+	}
+	valueMin := gtx.Dp(unit.Dp(kvValueMinDp))
+	kvDragUpdate(gtx, drag, keyW, lastX, belowMin, flexTotal, valueMin, minKey)
+}
+
+type KVRowLine struct {
+	Extend int
+	Active bool
+}
+
+func KVRow(gtx layout.Context, th *material.Theme, key, value *widget.Editor, del *widget.Clickable, keyW *float32, drag *gesture.Drag, lastX *float32, belowMin *bool, minKey int, env map[string]string, rowHover *Hover, rowFade *Fade, lineOpt ...KVRowLine) layout.Dimensions {
 	reveal := float32(1)
 	if rowHover != nil && rowFade != nil {
 		reveal = rowFade.Update(gtx, rowHover.Update(gtx.Source), 100*time.Millisecond)
@@ -80,72 +155,21 @@ func KVRow(gtx layout.Context, th *material.Theme, key, value *widget.Editor, de
 		delW = gtx.Dp(unit.Dp(20))
 	}
 	valueMin := gtx.Dp(unit.Dp(kvValueMinDp))
-	dragFloor := gtx.Dp(unit.Dp(8))
 
 	flexTotal := gtx.Constraints.Max.X - dividerW - spacerW - delW
 	if flexTotal < 2 {
 		flexTotal = 2
 	}
 
-	resolveKeyW := func(stored float32) int {
-		floored := belowMin == nil || !*belowMin
-		w := int(stored)
-		if stored <= 0 {
-			w = minKey
-		}
-		floor := 0
-		if floored {
-			floor = minKey
-			if w < minKey {
-				w = minKey
-			}
-		}
-		if maxKey := flexTotal - valueMin; w > maxKey {
-			if maxKey >= floor {
-				w = maxKey
-			} else {
-				w = floor
-			}
-		}
-		if w > flexTotal {
-			w = flexTotal
-		}
-		if w < 0 {
-			w = 0
-		}
-		return w
-	}
-
 	if drag != nil && keyW != nil {
-		for {
-			ev, ok := drag.Update(gtx.Metric, gtx.Source, gesture.Horizontal)
-			if !ok {
-				break
-			}
-			switch ev.Kind {
-			case pointer.Press:
-				*lastX = ev.Position.X
-				*keyW = float32(resolveKeyW(*keyW))
-			case pointer.Drag:
-				d := ev.Position.X - *lastX
-				*lastX = ev.Position.X
-				nw := *keyW + d
-				if nw < float32(dragFloor) {
-					nw = float32(dragFloor)
-				}
-				*keyW = nw
-				if belowMin != nil {
-					*belowMin = int(nw) < minKey
-				}
-			}
-		}
+		kvDragUpdate(gtx, drag, keyW, lastX, belowMin, flexTotal, valueMin, minKey)
 	}
 
 	stored := float32(0)
 	if keyW != nil {
 		stored = *keyW
 	}
-	kw := resolveKeyW(stored)
+	kw := kvResolveKeyW(stored, flexTotal, valueMin, minKey, belowMin)
 	valueW := flexTotal - kw
 
 	cell := func(w int, wdg layout.Widget) layout.FlexChild {
@@ -189,12 +213,18 @@ func KVRow(gtx layout.Context, th *material.Theme, key, value *widget.Editor, de
 		st.Pop()
 	}
 	line := gtx.Dp(unit.Dp(1))
+	lineActive := drag != nil && drag.Dragging()
+	lineExtend := 0
+	if len(lineOpt) > 0 {
+		lineActive = lineActive || lineOpt[0].Active
+		lineExtend = lineOpt[0].Extend
+	}
 	col := theme.BorderLight
-	if drag != nil && drag.Dragging() {
+	if lineActive {
 		col = theme.Accent
 	}
 	cx := kw + dividerW/2
-	paint.FillShape(gtx.Ops, col, clip.Rect{Min: image.Pt(cx-line/2, 0), Max: image.Pt(cx-line/2+line, fieldH)}.Op())
+	paint.FillShape(gtx.Ops, col, clip.Rect{Min: image.Pt(cx-line/2, 0), Max: image.Pt(cx-line/2+line, fieldH+lineExtend)}.Op())
 
 	if rowHover != nil {
 		pass := pointer.PassOp{}.Push(gtx.Ops)

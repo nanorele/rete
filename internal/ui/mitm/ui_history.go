@@ -22,7 +22,7 @@ import (
 	"github.com/nanorele/gio/widget/material"
 )
 
-var histCols = []string{"#", "Method", "Host / Path", "Src", "Status", "Size", "Time"}
+var histCols = [...]string{"#", "Method", "Host / Path", "Src", "Status", "Size", "Time"}
 
 func histColWidth(i int) unit.Dp {
 	switch i {
@@ -360,9 +360,9 @@ func (s *UIState) filteredFlows() []*Flow {
 }
 
 func isNoise(f *Flow) bool {
-	p := strings.ToLower(f.Path)
+	p := strings.ToLower(pathOnly(f.Path))
 	for _, ext := range []string{".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".css", ".js", ".woff", ".woff2", ".ttf"} {
-		if strings.Contains(p, ext) {
+		if strings.HasSuffix(p, ext) {
 			return true
 		}
 	}
@@ -440,17 +440,21 @@ func flowAsText(f *Flow, resp bool) string {
 	return b.String()
 }
 
+func shellQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
+}
+
 func asCurl(f *Flow) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "curl -X %s '%s'", f.Method, f.URL)
+	fmt.Fprintf(&b, "curl -X %s %s", f.Method, shellQuote(f.URL))
 	for _, h := range f.ReqHeaders {
 		if strings.EqualFold(h[0], "host") {
 			continue
 		}
-		fmt.Fprintf(&b, " \\\n  -H '%s: %s'", h[0], h[1])
+		fmt.Fprintf(&b, " \\\n  -H %s", shellQuote(h[0]+": "+h[1]))
 	}
 	if len(f.ReqBody) > 0 {
-		fmt.Fprintf(&b, " \\\n  --data-binary '%s'", string(f.ReqBody))
+		fmt.Fprintf(&b, " \\\n  --data-binary %s", shellQuote(string(f.ReqBody)))
 	}
 	return b.String()
 }

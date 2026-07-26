@@ -276,6 +276,9 @@ func (s *UIState) secIRules() []layout.Widget {
 		i := i
 		c := conds[i]
 		r := s.IRuleRows[i]
+		if i > 0 {
+			rows = append(rows, listRowDivider)
+		}
 		rows = append(rows, pad(func(gtx layout.Context) layout.Dimensions {
 			r.Enable.Value = c.Enabled
 			op := "AND"
@@ -394,6 +397,9 @@ func (s *UIState) secMR() []layout.Widget {
 		i := i
 		m := mrs[i]
 		r := s.MRRows[i]
+		if i > 0 {
+			rows = append(rows, listRowDivider)
+		}
 		rows = append(rows, pad(func(gtx layout.Context) layout.Dimensions {
 			r.Enable.Value = m.Enabled
 			repl := m.Replacement
@@ -490,6 +496,9 @@ func (s *UIState) secScope() []layout.Widget {
 		i := i
 		sc := scopes[i]
 		r := s.ScopeRows[i]
+		if i > 0 {
+			rows = append(rows, listRowDivider)
+		}
 		rows = append(rows, pad(func(gtx layout.Context) layout.Dimensions {
 			r.Enable.Value = sc.Enabled
 			col := theme.MethodGet

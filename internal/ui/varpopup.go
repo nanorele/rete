@@ -1,6 +1,9 @@
 package ui
 
-import "tracto/internal/ui/varpopup"
+import (
+	"tracto/internal/ui/varpopup"
+	"tracto/internal/ui/widgets"
+)
 
 func (ui *AppUI) varPopupHost() *varpopup.Host {
 	return &varpopup.Host{
@@ -14,6 +17,9 @@ func (ui *AppUI) varPopupHost() *varpopup.Host {
 			}
 			v, ok := ui.activeEnvVars[name]
 			return v, ok
+		},
+		ChipHovered: func() bool {
+			return widgets.GlobalVarHover != nil
 		},
 		OnDismiss: ui.saveVarPopup,
 		OnSelectEnv: func(envID string) {

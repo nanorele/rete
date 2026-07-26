@@ -50,7 +50,7 @@ type UIState struct {
 	StatusBanner string
 	SortColumn   string
 	SortAsc      bool
-	SortClicks   [8]widget.Clickable
+	SortClicks   [len(histCols)]widget.Clickable
 	HideNoiseSw  widget.Bool
 	// row context menu
 	CtxOpen      bool

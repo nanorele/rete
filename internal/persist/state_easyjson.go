@@ -2101,6 +2101,34 @@ func easyjsonBd887cf1DecodeTractoInternalPersist7(in *jlexer.Lexer, out *AppStat
 			} else {
 				out.WindowMode = string(in.String())
 			}
+		case "window_x_px":
+			if in.IsNull() {
+				in.Skip()
+				out.WindowXPx = nil
+			} else {
+				if out.WindowXPx == nil {
+					out.WindowXPx = new(int)
+				}
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					*out.WindowXPx = int(in.Int())
+				}
+			}
+		case "window_y_px":
+			if in.IsNull() {
+				in.Skip()
+				out.WindowYPx = nil
+			} else {
+				if out.WindowYPx == nil {
+					out.WindowYPx = new(int)
+				}
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					*out.WindowYPx = int(in.Int())
+				}
+			}
 		default:
 			switch strings.ToLower(key) {
 			case "tabs":
@@ -2360,6 +2388,34 @@ func easyjsonBd887cf1DecodeTractoInternalPersist7(in *jlexer.Lexer, out *AppStat
 				} else {
 					out.WindowMode = string(in.String())
 				}
+			case "window_x_px":
+				if in.IsNull() {
+					in.Skip()
+					out.WindowXPx = nil
+				} else {
+					if out.WindowXPx == nil {
+						out.WindowXPx = new(int)
+					}
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						*out.WindowXPx = int(in.Int())
+					}
+				}
+			case "window_y_px":
+				if in.IsNull() {
+					in.Skip()
+					out.WindowYPx = nil
+				} else {
+					if out.WindowYPx == nil {
+						out.WindowYPx = new(int)
+					}
+					if in.IsNull() {
+						in.Skip()
+					} else {
+						*out.WindowYPx = int(in.Int())
+					}
+				}
 			default:
 				in.SkipRecursive()
 			}
@@ -2524,6 +2580,16 @@ func easyjsonBd887cf1EncodeTractoInternalPersist7(out *jwriter.Writer, in AppSta
 		const prefix string = ",\"window_mode\":"
 		out.RawString(prefix)
 		out.String(string(in.WindowMode))
+	}
+	if in.WindowXPx != nil {
+		const prefix string = ",\"window_x_px\":"
+		out.RawString(prefix)
+		out.Int(int(*in.WindowXPx))
+	}
+	if in.WindowYPx != nil {
+		const prefix string = ",\"window_y_px\":"
+		out.RawString(prefix)
+		out.Int(int(*in.WindowYPx))
 	}
 	out.RawByte('}')
 }

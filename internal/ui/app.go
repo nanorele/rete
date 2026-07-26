@@ -18,7 +18,6 @@ import (
 	dropui "tracto/internal/ui/dropzones"
 	"tracto/internal/ui/environments"
 	"tracto/internal/ui/flow"
-	"tracto/pkg/fontsubset"
 	harui "tracto/internal/ui/har"
 	"tracto/internal/ui/mitm"
 	netui "tracto/internal/ui/netlimit"
@@ -31,6 +30,7 @@ import (
 	"tracto/internal/ui/widgets"
 	"tracto/internal/ui/workspace"
 	"tracto/internal/utils"
+	"tracto/pkg/fontsubset"
 
 	"github.com/andybalholm/brotli"
 	"github.com/nanorele/gio-x/explorer"
@@ -64,6 +64,7 @@ type AppUI struct {
 	sidebarZones    []sidebar.DropZoneRect
 	mitmFlowsTbl    *widgets.Table
 	pendingEnvClose *environments.EnvironmentUI
+	envMenuAtPress  bool
 	EnvColorPicker  colorpicker.State
 	EnvColorEnvID   string
 	windowSize      image.Point
@@ -82,6 +83,7 @@ type AppUI struct {
 	DragNodeWinPos   f32.Point
 	Tabs             []*workspace.RequestTab
 	ActiveIdx        int
+	LayoutPrefs      workspace.LayoutPrefs
 	TabsList         widget.List
 	TabBar           *tabbar.Strip
 	ImportBtn        widget.Clickable
@@ -187,11 +189,15 @@ type AppUI struct {
 
 	SidebarDropTag bool
 	LastPointerPos f32.Point
-	centeredOnce   bool
+	windowPlaced   bool
 
-	winWDp  int
-	winHDp  int
-	winMode app.WindowMode
+	winWDp    int
+	winHDp    int
+	winMode   app.WindowMode
+	winHWND   uintptr
+	winXPx    int
+	winYPx    int
+	winPosSet bool
 
 	VarPopup varpopup.State
 
@@ -637,6 +643,9 @@ func (ui *AppUI) Run() error {
 	for {
 		e := ui.Window.Event()
 		ui.Explorer.ListenEvents(e)
+		if h, ok := windowHandleFromEvent(e); ok {
+			ui.winHWND = h
+		}
 		if dp, ok := e.(interface{ DroppedPaths() []string }); ok {
 			var pos f32.Point
 			if pp, ok := e.(interface{ DroppedPosition() (float32, float32) }); ok {
@@ -690,9 +699,9 @@ func (ui *AppUI) Run() error {
 			ui.TitleBar.Maximized = e.Config.Mode == app.Maximized || e.Config.Mode == app.Fullscreen
 			ui.Window.Invalidate()
 		case app.FrameEvent:
-			if !ui.centeredOnce {
-				ui.centeredOnce = true
-				if ui.winMode == app.Windowed {
+			if !ui.windowPlaced {
+				ui.windowPlaced = true
+				if ui.winMode == app.Windowed && !ui.restoreWindowPos() {
 					ui.Window.Perform(system.ActionCenter)
 				}
 			}
@@ -706,6 +715,7 @@ func (ui *AppUI) Run() error {
 					ui.saveState()
 				}
 			}
+			ui.trackWindowPos()
 
 			for {
 				select {
@@ -878,9 +888,20 @@ func (ui *AppUI) loadState() {
 		}
 	}
 
+	ui.applyWindowState(state)
+
+	ui.updateVisibleCols()
+}
+
+func (ui *AppUI) applyWindowState(state persist.AppState) {
 	if state.WindowWidthDp > 0 && state.WindowHeightDp > 0 {
 		ui.winWDp = state.WindowWidthDp
 		ui.winHDp = state.WindowHeightDp
+	}
+	if state.WindowXPx != nil && state.WindowYPx != nil {
+		ui.winXPx = *state.WindowXPx
+		ui.winYPx = *state.WindowYPx
+		ui.winPosSet = true
 	}
 	switch state.WindowMode {
 	case "maximized":
@@ -890,8 +911,6 @@ func (ui *AppUI) loadState() {
 	default:
 		ui.winMode = app.Windowed
 	}
-
-	ui.updateVisibleCols()
 }
 
 func (ui *AppUI) buildStateSnapshot() persist.AppState {
@@ -957,6 +976,11 @@ func (ui *AppUI) buildStateSnapshot() persist.AppState {
 	if ui.winWDp > 0 && ui.winHDp > 0 {
 		state.WindowWidthDp = ui.winWDp
 		state.WindowHeightDp = ui.winHDp
+	}
+	if ui.winPosSet {
+		x, y := ui.winXPx, ui.winYPx
+		state.WindowXPx = &x
+		state.WindowYPx = &y
 	}
 	switch ui.winMode {
 	case app.Maximized:
@@ -1182,7 +1206,7 @@ func (ui *AppUI) openRequestInTab(node *collections.CollectionNode) {
 
 	rt.UpdateSystemHeaders()
 
-	ui.inheritActiveTabLayout(rt)
+	ui.applySharedLayout(rt)
 
 	ui.Tabs = append(ui.Tabs, rt)
 	ui.ActiveIdx = len(ui.Tabs) - 1
@@ -1190,18 +1214,62 @@ func (ui *AppUI) openRequestInTab(node *collections.CollectionNode) {
 	ui.Window.Invalidate()
 }
 
-func (ui *AppUI) inheritActiveTabLayout(rt *workspace.RequestTab) {
+// restoreWindowPos puts the window back where it was closed. It runs on the
+// first frame, which the Windows backend still renders hidden (the first
+// ShowWindow is deferred until after that frame is presented), so the window
+// never appears at the default position first.
+func (ui *AppUI) restoreWindowPos() bool {
+	if !ui.winPosSet || ui.winHWND == 0 || ui.Window == nil {
+		return false
+	}
+	moved := false
+	ui.Window.Run(func() {
+		moved = moveWindowTo(ui.winHWND, ui.winXPx, ui.winYPx)
+	})
+	return moved
+}
+
+func (ui *AppUI) trackWindowPos() {
+	if ui.winHWND == 0 || ui.winMode != app.Windowed {
+		return
+	}
+	x, y, ok := windowPosition(ui.winHWND)
+	if !ok || (ui.winPosSet && x == ui.winXPx && y == ui.winYPx) {
+		return
+	}
+	ui.winXPx = x
+	ui.winYPx = y
+	ui.winPosSet = true
+	ui.saveState()
+}
+
+func (ui *AppUI) syncLayoutPrefs() {
 	if len(ui.Tabs) == 0 || ui.ActiveIdx < 0 || ui.ActiveIdx >= len(ui.Tabs) {
 		return
 	}
 	src := ui.Tabs[ui.ActiveIdx]
-	if src == nil || src == rt {
+	if src == nil {
 		return
 	}
-	rt.SplitRatio = src.SplitRatio
-	rt.VStackRatio = src.VStackRatio
-	rt.LayoutMode = src.LayoutMode
-	rt.HeaderKeyW = src.HeaderKeyW
+	next := ui.LayoutPrefs
+	src.MergeLayoutPrefs(&next)
+	if next == ui.LayoutPrefs {
+		return
+	}
+	ui.LayoutPrefs = next
+	for _, t := range ui.Tabs {
+		if t != nil && t != src {
+			t.ApplyLayoutPrefs(next)
+		}
+	}
+}
+
+func (ui *AppUI) applySharedLayout(rt *workspace.RequestTab) {
+	ui.syncLayoutPrefs()
+	if rt == nil {
+		return
+	}
+	rt.ApplyLayoutPrefs(ui.LayoutPrefs)
 }
 
 var probeRegion func(name string, dims layout.Dimensions)
@@ -1225,9 +1293,16 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		ui.LastPointerPos = pe.Position
 		if pe.Kind == pointer.Press {
 			gtx.Execute(key.FocusCmd{Tag: nil})
+			ui.envMenuAtPress = false
+			for _, e := range ui.Environments {
+				if e.MenuOpen {
+					ui.envMenuAtPress = true
+					break
+				}
+			}
 		}
 		if pe.Kind == pointer.Release {
-			if ui.EditingEnv != nil && !ui.SettingsOpen {
+			if ui.EditingEnv != nil && !ui.SettingsOpen && !ui.EnvColorPicker.IsOpen() && !ui.envMenuAtPress {
 				sidebarRight := 0
 				if !ui.hideSidebar() {
 					sidebarRight = ui.SidebarWidth + gtx.Dp(unit.Dp(4))
@@ -1341,93 +1416,27 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 		)
 	}
 
-	if widgets.GlobalVarHover != nil && !ui.VarPopup.Open && !ui.SettingsOpen {
-		var val string
-		found := false
-		if ui.activeEnvVars != nil {
-			val, found = ui.activeEnvVars[widgets.GlobalVarHover.Name]
+	openVarPopupFor := func(v *widgets.VarHoverState) {
+		if ui.VarPopup.Open && ui.VarPopup.SrcEditor == v.Editor && ui.VarPopup.Range == v.Range {
+			return
 		}
-
-		popupGtx := gtx
-		popupGtx.Constraints.Min = image.Point{}
-		popupGtx.Constraints.Max.X = min(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(360)))
-
-		contentMacro := op.Record(gtx.Ops)
-		contentDims := layout.Stack{}.Layout(popupGtx,
-			layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-				rr := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4)
-				paint.FillShape(gtx.Ops, theme.BgPopup, rr.Op(gtx.Ops))
-				bw := gtx.Dp(unit.Dp(2))
-				paint.FillShape(gtx.Ops, theme.Border, clip.Stroke{
-					Path:  clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Path(gtx.Ops),
-					Width: float32(bw),
-				}.Op())
-
-				defer clip.Rect{Max: gtx.Constraints.Min}.Push(gtx.Ops).Pop()
-				pointer.CursorDefault.Add(gtx.Ops)
-				return layout.Dimensions{Size: gtx.Constraints.Min}
-			}),
-			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-				return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							lbl := material.Label(ui.Theme, unit.Sp(10), widgets.GlobalVarHover.Name)
-							lbl.Color = theme.FgMuted
-							lbl.Font.Weight = font.Bold
-							return lbl.Layout(gtx)
-						}),
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							txt := val
-							col := theme.White
-							if !found {
-								txt = "Not found in active environment"
-								col = theme.Danger
-							}
-							lbl := material.Label(ui.Theme, unit.Sp(12), txt)
-							lbl.Color = col
-							return lbl.Layout(gtx)
-						}),
-						layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							lbl := material.Label(ui.Theme, unit.Sp(9), "Click to edit/select")
-							lbl.Color = theme.Accent
-							return lbl.Layout(gtx)
-						}),
-					)
-				})
-			}),
-		)
-		contentCall := contentMacro.Stop()
-
-		px := int(widgets.GlobalVarHover.Pos.X)
-		py := int(widgets.GlobalVarHover.Pos.Y)
-		if px+contentDims.Size.X > gtx.Constraints.Max.X {
-			px = gtx.Constraints.Max.X - contentDims.Size.X
+		if ui.VarPopup.Changed() {
+			ui.saveVarPopup()
 		}
-		if px < 0 {
-			px = 0
-		}
-
-		deferMacro := op.Record(gtx.Ops)
-		op.Offset(image.Pt(px, py)).Add(gtx.Ops)
-		contentCall.Add(gtx.Ops)
-		op.Defer(gtx.Ops, deferMacro.Stop())
-	}
-
-	if widgets.GlobalVarClick != nil && !ui.SettingsOpen {
 		var val string
 		if ui.activeEnvVars != nil {
-			val = ui.activeEnvVars[widgets.GlobalVarClick.Name]
+			val = ui.activeEnvVars[v.Name]
 		}
-		ui.VarPopup.OpenAt(
-			widgets.GlobalVarClick.Name,
-			val,
-			widgets.GlobalVarClick.Editor,
-			widgets.GlobalVarClick.Range,
-			widgets.GlobalVarClick.Pos,
-			ui.ActiveEnvID,
-		)
+		ui.VarPopup.OpenAt(v.Name, val, v.Editor, v.Range, v.Pos, ui.ActiveEnvID)
 		ui.Window.Invalidate()
+	}
+	if widgets.GlobalVarHover != nil && !ui.SettingsOpen {
+		openVarPopupFor(widgets.GlobalVarHover)
+	}
+	if widgets.GlobalVarClick != nil {
+		if !ui.SettingsOpen {
+			openVarPopupFor(widgets.GlobalVarClick)
+		}
 		widgets.GlobalVarClick = nil
 	}
 
@@ -1652,7 +1661,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 	for ui.TabBar.AddTabBtn.Clicked(gtx) {
 		ui.TabBar.TabCtxMenuOpen = false
 		newTab := workspace.NewRequestTab("New request")
-		ui.inheritActiveTabLayout(newTab)
+		ui.applySharedLayout(newTab)
 		ui.Tabs = append(ui.Tabs, newTab)
 		ui.ActiveIdx = len(ui.Tabs) - 1
 	}
@@ -1925,9 +1934,12 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 								}
 
 								isDragging := ui.SidebarDrag.Dragging() || ui.SidebarEnvDrag.Dragging()
-								return rt.Layout(gtx, ui.Theme, ui.Window, ui.Explorer, ui.activeEnvVars, isDragging, func() {
+								dims := rt.Layout(gtx, ui.Theme, ui.Window, ui.Explorer, ui.activeEnvVars, isDragging, func() {
+									ui.syncLayoutPrefs()
 									ui.saveState()
 								}, ui.markCollectionDirty)
+								ui.syncLayoutPrefs()
+								return dims
 							}
 
 							return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {

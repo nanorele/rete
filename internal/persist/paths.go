@@ -5,6 +5,7 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 var configPathOverride string
@@ -89,11 +90,35 @@ func AtomicWriteFile(path string, data []byte) error {
 	if err := f.Close(); err != nil {
 		return err
 	}
-	if err := os.Rename(tmpPath, path); err != nil {
+	if err := renameWithRetry(tmpPath, path); err != nil {
 		return err
 	}
 	cleanup = false
 	return nil
+}
+
+const (
+	renameMaxAttempts  = 10
+	renameInitialDelay = time.Millisecond
+	renameMaxDelay     = 20 * time.Millisecond
+)
+
+func renameWithRetry(oldPath, newPath string) error {
+	delay := renameInitialDelay
+	var err error
+	for attempt := 0; attempt < renameMaxAttempts; attempt++ {
+		if err = os.Rename(oldPath, newPath); err == nil {
+			return nil
+		}
+		if os.IsNotExist(err) {
+			return err
+		}
+		time.Sleep(delay)
+		if delay < renameMaxDelay {
+			delay *= 2
+		}
+	}
+	return err
 }
 
 func NewRandomID() string {

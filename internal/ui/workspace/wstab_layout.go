@@ -1023,8 +1023,7 @@ func (t *RequestTab) layoutWSOpcodeSelector(gtx layout.Context, th *material.The
 					)
 				})
 				call := macro.Stop()
-				rrFill := clip.UniformRRect(image.Rectangle{Max: dim.Size}, gtx.Dp(unit.Dp(4)))
-				paint.FillShape(gtx.Ops, bg, rrFill.Op(gtx.Ops))
+				paint.FillShape(gtx.Ops, bg, clip.Rect{Max: dim.Size}.Op())
 				widgets.PaintBorder1px(gtx, dim.Size, theme.Border)
 				call.Add(gtx.Ops)
 				return dim

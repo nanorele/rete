@@ -24,6 +24,7 @@ var (
 	ErrBadAcceptKey     = errors.New("ws: bad Sec-WebSocket-Accept")
 	ErrBadScheme        = errors.New("ws: scheme must be ws or wss")
 	ErrExtensionRefused = errors.New("ws: unexpected extension in response")
+	ErrWindowBits       = errors.New("ws: server demanded a client_max_window_bits value we cannot honour")
 )
 
 type DialOptions struct {
@@ -158,6 +159,10 @@ func Dial(ctx context.Context, target string, opts DialOptions) (*DialResult, er
 	if ext.Negotiated && !opts.OfferDeflate {
 		_ = netConn.Close()
 		return &DialResult{Response: resp}, ErrExtensionRefused
+	}
+	if ext.Negotiated && !canHonourClientWindow(ext.ClientMaxWindowBits) {
+		_ = netConn.Close()
+		return &DialResult{Response: resp, Extensions: ext}, ErrWindowBits
 	}
 
 	c, err := NewConn(netConn, br, true, ext)

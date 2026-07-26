@@ -49,8 +49,6 @@ func (s *UIState) Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return s.subHeader(gtx) }),
 		layout.Rigid(hLine),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions { return s.body(gtx) }),
-		layout.Rigid(hLine),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return s.statusBar(gtx) }),
 	)
 
 	s.trackPointer(gtx)
@@ -90,9 +88,10 @@ func (s *UIState) trackPointer(gtx layout.Context) {
 func (s *UIState) wireNotify() {
 	if !s.NotifySet {
 		s.NotifySet = true
+		win := s.host.Window
 		inv := func() {
-			if s.host.Window != nil {
-				s.host.Window.Invalidate()
+			if win != nil {
+				win.Invalidate()
 			}
 		}
 		if s.Store != nil {
@@ -181,11 +180,6 @@ func (s *UIState) body(gtx layout.Context) layout.Dimensions {
 		s.SplitPx += finalX - s.SplitDragX
 		s.SplitDragX = finalX
 		left := clampLeft(int(s.SplitPx + 0.5))
-		// Drag past the far right collapses the inspector.
-		if int(s.SplitPx+0.5) > totalW-handleW-minD+gtx.Dp(unit.Dp(40)) {
-			s.InspectorCollapsed = true
-			s.MarkDirty()
-		}
 		s.SplitRatio = (float32(left) + float32(handleW)/2) / float32(totalW)
 		s.MarkDirty()
 		s.host.Window.Invalidate()
@@ -246,42 +240,6 @@ func (s *UIState) collapsedInspectorBar(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min = image.Pt(s, s)
 			gtx.Constraints.Max = gtx.Constraints.Min
 			return widgets.IconChevronL.Layout(gtx, theme.FgMuted)
-		})
-	})
-}
-
-func (s *UIState) statusBar(gtx layout.Context) layout.Dimensions {
-	return bgBar(gtx, theme.BgDark, func(gtx layout.Context) layout.Dimensions {
-		return layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			var msg string
-			col := theme.FgMuted
-			switch {
-			case s.StatusBanner != "":
-				msg = s.StatusBanner
-				if strings.Contains(strings.ToLower(msg), "administrator") || strings.HasPrefix(msg, "Start failed") {
-					col = theme.Danger
-				} else if strings.HasPrefix(msg, "Proxy listening") {
-					col = theme.MethodGet
-				}
-			case s.Proxy.Running():
-				mode := "tunnel"
-				if s.Proxy.Intercepting() {
-					mode = "decrypting HTTPS"
-				}
-				msg = "Proxy: " + s.Proxy.Addr() + "  •  " + mode + "  •  flows=" + fmt.Sprintf("%d", s.Store.Len())
-				if held := s.Proxy.Manual.Len(); held > 0 {
-					msg += "  •  intercept queue=" + fmt.Sprintf("%d", held)
-				}
-				col = theme.MethodGet
-			case !IsAdmin():
-				msg = "Not elevated — restart as administrator to enable a system-wide proxy"
-			default:
-				msg = "Proxy idle"
-			}
-			lbl := material.Label(s.host.Theme, unit.Sp(11), msg)
-			lbl.Color = col
-			lbl.MaxLines = 1
-			return lbl.Layout(gtx)
 		})
 	})
 }

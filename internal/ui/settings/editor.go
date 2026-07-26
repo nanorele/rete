@@ -71,7 +71,9 @@ type Editor struct {
 
 	HideTabBar           widget.Bool
 	HideSidebar          widget.Bool
+	CompactMenus         widget.Bool
 	RestoreTabsOnStartup widget.Bool
+	SelectEnvOnEdit      widget.Bool
 	LimitTabRows         widget.Bool
 
 	MaxTabRowsDec    widget.Clickable
@@ -207,7 +209,9 @@ func NewEditor(current model.AppSettings) *Editor {
 
 	s.HideTabBar.Value = current.HideTabBar
 	s.HideSidebar.Value = current.HideSidebar
+	s.CompactMenus.Value = current.CompactMenus
 	s.RestoreTabsOnStartup.Value = current.RestoreTabsOnStartup
+	s.SelectEnvOnEdit.Value = current.SelectEnvOnEdit
 	s.LimitTabRows.Value = current.LimitTabRows
 	s.FollowRedirects.Value = current.FollowRedirects
 	s.VerifySSL.Value = current.VerifySSL
@@ -273,7 +277,9 @@ func (e *Editor) Apply(host *Host) {
 	}
 	e.Draft.HideTabBar = e.HideTabBar.Value
 	e.Draft.HideSidebar = e.HideSidebar.Value
+	e.Draft.CompactMenus = e.CompactMenus.Value
 	e.Draft.RestoreTabsOnStartup = e.RestoreTabsOnStartup.Value
+	e.Draft.SelectEnvOnEdit = e.SelectEnvOnEdit.Value
 	e.Draft.LimitTabRows = e.LimitTabRows.Value
 
 	e.Draft.UserAgent = strings.TrimSpace(e.UserAgentEditor.Text())
@@ -365,7 +371,9 @@ func (e *Editor) Reset() {
 	e.Draft = def
 	e.HideTabBar.Value = def.HideTabBar
 	e.HideSidebar.Value = def.HideSidebar
+	e.CompactMenus.Value = def.CompactMenus
 	e.RestoreTabsOnStartup.Value = def.RestoreTabsOnStartup
+	e.SelectEnvOnEdit.Value = def.SelectEnvOnEdit
 	e.LimitTabRows.Value = def.LimitTabRows
 
 	e.UserAgentEditor.SetText(def.UserAgent)
@@ -1056,7 +1064,13 @@ func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	if e.HideSidebar.Update(gtx) {
 		changed = true
 	}
+	if e.CompactMenus.Update(gtx) {
+		changed = true
+	}
 	if e.RestoreTabsOnStartup.Update(gtx) {
+		changed = true
+	}
+	if e.SelectEnvOnEdit.Update(gtx) {
 		changed = true
 	}
 	if e.LimitTabRows.Update(gtx) {
@@ -1182,10 +1196,9 @@ func methodGrid(th *material.Theme, e *Editor, gtx layout.Context) layout.Dimens
 				} else if e.DefaultMethodBtn[i].Hovered() {
 					borderC = theme.BorderLight
 				}
-				outer := clip.UniformRRect(image.Rectangle{Max: size}, 4)
-				paint.FillShape(gtx.Ops, borderC, outer.Op(gtx.Ops))
+				paint.FillShape(gtx.Ops, borderC, clip.Rect{Max: size}.Op())
 				inner := image.Rect(borderW, borderW, size.X-borderW, size.Y-borderW)
-				paint.FillShape(gtx.Ops, theme.BgField, clip.UniformRRect(inner, 3).Op(gtx.Ops))
+				paint.FillShape(gtx.Ops, theme.BgField, clip.Rect(inner).Op())
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					lbl := widgets.MonoLabel(th, unit.Sp(11), m)
 					lbl.Color = theme.MethodColor(m)
@@ -1223,10 +1236,9 @@ func acceptEncodingGrid(th *material.Theme, e *Editor, gtx layout.Context) layou
 				} else if e.AcceptEncodingBtn[i].Hovered() {
 					borderC = theme.BorderLight
 				}
-				outer := clip.UniformRRect(image.Rectangle{Max: size}, 4)
-				paint.FillShape(gtx.Ops, borderC, outer.Op(gtx.Ops))
+				paint.FillShape(gtx.Ops, borderC, clip.Rect{Max: size}.Op())
 				inner := image.Rect(borderW, borderW, size.X-borderW, size.Y-borderW)
-				paint.FillShape(gtx.Ops, theme.BgField, clip.UniformRRect(inner, 3).Op(gtx.Ops))
+				paint.FillShape(gtx.Ops, theme.BgField, clip.Rect(inner).Op())
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(th, unit.Sp(11), opt.Label)
 					lbl.Color = theme.Fg
@@ -1255,7 +1267,7 @@ func (e *Editor) layoutHeader(gtx layout.Context, host *Host) layout.Dimensions 
 				if e.BackBtn.Hovered() {
 					bg = theme.BorderLight
 				}
-				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
+				paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min = image.Pt(gtx.Dp(16), gtx.Dp(16))
 					return widgets.IconBack.Layout(gtx, host.Theme.Fg)
@@ -1280,7 +1292,7 @@ func (e *Editor) layoutHeader(gtx layout.Context, host *Host) layout.Dimensions 
 				if e.ResetBtn.Hovered() {
 					bg = theme.BorderLight
 				}
-				paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
+				paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
 				return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(host.Theme, unit.Sp(13), "Reset to defaults")
 					lbl.Color = host.Theme.Fg
@@ -1308,8 +1320,7 @@ func (e *Editor) layoutCategories(gtx layout.Context, host *Host) layout.Dimensi
 					} else if e.CategoryBtn[i].Hovered() {
 						bg = theme.BgSecondary
 					}
-					rect := clip.UniformRRect(image.Rectangle{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(32)))}, 4)
-					paint.FillShape(gtx.Ops, bg, rect.Op(gtx.Ops))
+					paint.FillShape(gtx.Ops, bg, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(32)))}.Op())
 					return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8), Left: unit.Dp(12), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						lbl := material.Label(host.Theme, unit.Sp(13), name)
 						lbl.Color = fg
@@ -1355,7 +1366,9 @@ func (e *Editor) sectionsAppearance(host *Host) []layout.Widget {
 	sideHint := "Hide the collections/environments sidebar. " + defaultShownHidden(def.HideSidebar)
 	limitRowsHint := "Cap the request tab strip to a fixed number of rows for the current window size, hiding the top rows behind a […] button. " + defaultOnOff(def.LimitTabRows)
 	maxRowsHint := fmt.Sprintf("Maximum number of tab rows shown when limiting is on. Default: %d.", def.MaxTabRows)
+	compactMenusHint := "Drop the empty space above the first and below the last item in context menus and dropdowns. " + defaultOnOff(def.CompactMenus)
 	restoreHint := "Reopen previously open tabs when the app starts. " + defaultOnOff(def.RestoreTabsOnStartup)
+	selectEnvHint := "Opening an environment for editing also makes it the active environment. " + defaultOnOff(def.SelectEnvOnEdit)
 	activeThemeName := defName
 	for _, t := range theme.Registry {
 		if t.ID == e.Draft.Theme {
@@ -1382,6 +1395,13 @@ func (e *Editor) sectionsAppearance(host *Host) []layout.Widget {
 			return settingsSwitchRow(host.Theme, "Hide sidebar", sideHint, sw.Layout)(gtx)
 		},
 		spacerH(20),
+		settingsSectionTitle(host.Theme, "Menus"),
+		spacerH(8),
+		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(host.Theme, &e.CompactMenus)
+			return settingsSwitchRow(host.Theme, "Compact menus", compactMenusHint, sw.Layout)(gtx)
+		},
+		spacerH(20),
 		settingsSectionTitle(host.Theme, "Tab rows"),
 		spacerH(8),
 		func(gtx layout.Context) layout.Dimensions {
@@ -1398,6 +1418,13 @@ func (e *Editor) sectionsAppearance(host *Host) []layout.Widget {
 		func(gtx layout.Context) layout.Dimensions {
 			sw := styledSwitch(host.Theme, &e.RestoreTabsOnStartup)
 			return settingsSwitchRow(host.Theme, "Restore tabs on startup", restoreHint, sw.Layout)(gtx)
+		},
+		spacerH(20),
+		settingsSectionTitle(host.Theme, "Environments"),
+		spacerH(8),
+		func(gtx layout.Context) layout.Dimensions {
+			sw := styledSwitch(host.Theme, &e.SelectEnvOnEdit)
+			return settingsSwitchRow(host.Theme, "Select environment on edit", selectEnvHint, sw.Layout)(gtx)
 		},
 		spacerH(20),
 		settingsSectionTitle(host.Theme, "Color theme"),
@@ -1511,16 +1538,16 @@ func themeColorRow(th *material.Theme, e *Editor, idx int) layout.Widget {
 					border := gtx.Dp(unit.Dp(1))
 					if e.ColorPicker.Kind == colorpicker.KindTheme && e.ColorPicker.OpenIdx == idx {
 						border = gtx.Dp(unit.Dp(2))
-						paint.FillShape(gtx.Ops, theme.Accent, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
+						paint.FillShape(gtx.Ops, theme.Accent, clip.Rect{Max: size}.Op())
 					} else {
 						borderC := theme.BorderLight
 						if e.ThemeColorSwatchBtns[idx].Hovered() {
 							borderC = theme.Accent
 						}
-						paint.FillShape(gtx.Ops, borderC, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
+						paint.FillShape(gtx.Ops, borderC, clip.Rect{Max: size}.Op())
 					}
 					inner := image.Rect(border, border, size.X-border, size.Y-border)
-					paint.FillShape(gtx.Ops, swatchColor, clip.UniformRRect(inner, 2).Op(gtx.Ops))
+					paint.FillShape(gtx.Ops, swatchColor, clip.Rect(inner).Op())
 					return layout.Dimensions{Size: size}
 				})
 			}),
@@ -1544,7 +1571,7 @@ func themeColorRow(th *material.Theme, e *Editor, idx int) layout.Widget {
 					if e.ThemeColorResetBtns[idx].Hovered() {
 						bg = theme.BgHover
 					}
-					paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
+					paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
 					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						isz := gtx.Dp(unit.Dp(14))
 						gtx.Constraints.Min = image.Pt(isz, isz)
@@ -1575,16 +1602,16 @@ func syntaxColorRow(th *material.Theme, e *Editor, idx int) layout.Widget {
 					border := gtx.Dp(unit.Dp(1))
 					if e.ColorPicker.Kind == colorpicker.KindSyntax && e.ColorPicker.OpenIdx == idx {
 						border = gtx.Dp(unit.Dp(2))
-						paint.FillShape(gtx.Ops, theme.Accent, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
+						paint.FillShape(gtx.Ops, theme.Accent, clip.Rect{Max: size}.Op())
 					} else {
 						borderC := theme.BorderLight
 						if e.SyntaxSwatchBtns[idx].Hovered() {
 							borderC = theme.Accent
 						}
-						paint.FillShape(gtx.Ops, borderC, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
+						paint.FillShape(gtx.Ops, borderC, clip.Rect{Max: size}.Op())
 					}
 					inner := image.Rect(border, border, size.X-border, size.Y-border)
-					paint.FillShape(gtx.Ops, swatchColor, clip.UniformRRect(inner, 2).Op(gtx.Ops))
+					paint.FillShape(gtx.Ops, swatchColor, clip.Rect(inner).Op())
 					return layout.Dimensions{Size: size}
 				})
 			}),
@@ -1608,7 +1635,7 @@ func syntaxColorRow(th *material.Theme, e *Editor, idx int) layout.Widget {
 					if e.SyntaxResetBtns[idx].Hovered() {
 						bg = theme.BgHover
 					}
-					paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 3).Op(gtx.Ops))
+					paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
 					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						isz := gtx.Dp(unit.Dp(14))
 						gtx.Constraints.Min = image.Pt(isz, isz)
@@ -2066,7 +2093,7 @@ func stepperBtn(th *material.Theme, btn *widget.Clickable, label string) layout.
 			if btn.Hovered() {
 				bg = theme.BorderLight
 			}
-			paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
+			paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				lbl := material.Label(th, unit.Sp(14), label)
 				lbl.Font.Weight = font.Bold
@@ -2186,9 +2213,9 @@ func (e *Editor) layoutBaseThemePicker(gtx layout.Context, host *Host) layout.Di
 						gtx.Constraints.Min = image.Pt(tileW, tileH)
 						gtx.Constraints.Max = gtx.Constraints.Min
 						bg := t.Palette.Bg
-						paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Op(gtx.Ops))
+						paint.FillShape(gtx.Ops, bg, clip.Rect{Max: gtx.Constraints.Min}.Op())
 						if e.NewThemeBaseID == t.ID {
-							paint.FillShape(gtx.Ops, theme.Accent, clip.Stroke{Path: clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4).Path(gtx.Ops), Width: 2}.Op())
+							paint.FillShape(gtx.Ops, theme.Accent, clip.Stroke{Path: clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 0).Path(gtx.Ops), Width: 2}.Op())
 						} else {
 							widgets.PaintBorder1px(gtx, gtx.Constraints.Min, theme.BorderLight)
 						}
@@ -2286,10 +2313,10 @@ func themeTileFixedNew(th *material.Theme, btn *widget.Clickable, active bool, t
 			} else if btn.Hovered() {
 				borderC = theme.BorderLight
 			}
-			outer := clip.UniformRRect(image.Rectangle{Max: size}, 6)
+			outer := clip.UniformRRect(image.Rectangle{Max: size}, 0)
 			paint.FillShape(gtx.Ops, borderC, outer.Op(gtx.Ops))
 			innerRect := image.Rect(borderW, borderW, size.X-borderW, size.Y-borderW)
-			inner := clip.UniformRRect(innerRect, 5)
+			inner := clip.UniformRRect(innerRect, 0)
 			paint.FillShape(gtx.Ops, theme.BgField, inner.Op(gtx.Ops))
 			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
@@ -2327,7 +2354,7 @@ func themeTileFixedCustom(th *material.Theme, btn *widget.Clickable, delBtn *wid
 						if delBtn.Hovered() {
 							bg = theme.Danger
 						}
-						paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 3).Op(gtx.Ops))
+						paint.FillShape(gtx.Ops, bg, clip.Rect{Max: gtx.Constraints.Min}.Op())
 						widgets.PaintBorder1px(gtx, gtx.Constraints.Min, theme.Border)
 						return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							isz := gtx.Dp(unit.Dp(12))
@@ -2361,10 +2388,10 @@ func themeTileFixed(th *material.Theme, btn *widget.Clickable, def theme.Def, ac
 				borderC = theme.BorderLight
 			}
 			p := def.Palette
-			outer := clip.UniformRRect(image.Rectangle{Max: size}, 6)
+			outer := clip.UniformRRect(image.Rectangle{Max: size}, 0)
 			paint.FillShape(gtx.Ops, borderC, outer.Op(gtx.Ops))
 			innerRect := image.Rect(borderW, borderW, size.X-borderW, size.Y-borderW)
-			inner := clip.UniformRRect(innerRect, 5)
+			inner := clip.UniformRRect(innerRect, 0)
 			paint.FillShape(gtx.Ops, p.Bg, inner.Op(gtx.Ops))
 
 			stripe := image.Rect(borderW, borderW, size.X-borderW, borderW+gtx.Dp(unit.Dp(16)))

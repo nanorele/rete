@@ -234,10 +234,24 @@ func indexFromFold(src []byte, from int, sep []byte) int {
 	if from < 0 {
 		from = 0
 	}
-	lower := bytes.ToLower(src[from:])
-	idx := bytes.Index(lower, bytes.ToLower(sep))
+	if from >= len(src) {
+		return -1
+	}
+	lower := asciiLower(src[from:])
+	idx := bytes.Index(lower, asciiLower(sep))
 	if idx < 0 {
 		return -1
 	}
 	return from + idx
+}
+
+func asciiLower(b []byte) []byte {
+	out := make([]byte, len(b))
+	for i, c := range b {
+		if c >= 'A' && c <= 'Z' {
+			c += 'a' - 'A'
+		}
+		out[i] = c
+	}
+	return out
 }

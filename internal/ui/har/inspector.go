@@ -434,7 +434,7 @@ func (s *Section) copySelectedFile(gtx layout.Context) {
 }
 
 func (s *Section) copySelectedReqBody(gtx layout.Context) {
-	if s.SelReq < 0 || s.SelReq >= len(s.Doc.Entries) {
+	if s.Doc == nil || s.SelReq < 0 || s.SelReq >= len(s.Doc.Entries) {
 		return
 	}
 	if sel := s.ReqViewer.SelectedText(); sel != "" {
@@ -463,7 +463,7 @@ func clipboardWrite(gtx layout.Context, body []byte) {
 }
 
 func (s *Section) runSelected() {
-	if s.SelReq < 0 || s.SelReq >= len(s.Doc.Entries) {
+	if s.Doc == nil || s.SelReq < 0 || s.SelReq >= len(s.Doc.Entries) {
 		return
 	}
 	if s.host.RunEntry != nil {

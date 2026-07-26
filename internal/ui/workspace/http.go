@@ -101,8 +101,11 @@ func (m *multiCloser) Close() error {
 }
 
 func decompressBody(resp *http.Response) io.ReadCloser {
-	if resp == nil || resp.Body == nil {
-		return resp.Body
+	if resp == nil {
+		return nil
+	}
+	if resp.Body == nil {
+		return nil
 	}
 	if resp.Uncompressed {
 		return resp.Body

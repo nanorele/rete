@@ -236,6 +236,9 @@ func (s *UIState) targetsEvents(gtx layout.Context) {
 		}
 		for row.Expand.Clicked(gtx) {
 			row.Expanded = !row.Expanded
+			if row.Expanded && row.AddrInput.Text() == "" {
+				row.AddrInput.SetText(t.UpstreamAddr)
+			}
 		}
 		for row.Remove.Clicked(gtx) {
 			s.Proxy.Targets.Remove(t.Domain)
@@ -335,9 +338,13 @@ func (s *UIState) mrEvents(gtx layout.Context) {
 		s.MRAreaSel = (s.MRAreaSel + 1) % len(mrAreaVals)
 	}
 	for s.MRAddBtn.Clicked(gtx) {
+		pattern := strings.TrimSpace(s.MRPatInput.Text())
+		if pattern == "" {
+			continue
+		}
 		s.Proxy.MR.Add(MatchReplaceRule{
 			Enabled: true, Type: mrTypeVals[s.MRTypeSel], Area: mrAreaVals[s.MRAreaSel],
-			Pattern: s.MRPatInput.Text(), Replacement: s.MRReplInput.Text(),
+			Pattern: pattern, Replacement: s.MRReplInput.Text(),
 			IsRegex: s.MRRegexSw.Value, Comment: s.MRCommInput.Text(),
 		})
 		s.MRPatInput.SetText("")

@@ -411,7 +411,8 @@ func (b *Bar) recordMITMBadge(gtx layout.Context, th *material.Theme, height int
 	return macro.Stop(), dim.Size.X
 }
 
-// layoutMITMBadge draws the rectangular (non-pill) proxy status block.
+// layoutMITMBadge draws the proxy status as a pill inset from the bar edges so
+// it never touches the title-bar frame.
 func (b *Bar) layoutMITMBadge(gtx layout.Context, th *material.Theme) layout.Dimensions {
 	var label string
 	var bg, fg color.NRGBA
@@ -425,19 +426,39 @@ func (b *Bar) layoutMITMBadge(gtx layout.Context, th *material.Theme) layout.Dim
 		label = "MITM Stopped"
 	}
 	return b.BtnMITM.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		barH := gtx.Constraints.Min.Y
 		macro := op.Record(gtx.Ops)
-		dims := layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(12), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		dims := layout.Inset{Left: unit.Dp(14), Right: unit.Dp(14)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min.Y = 0
 			lbl := material.Label(th, unit.Sp(12), label)
 			lbl.Color = fg
 			lbl.MaxLines = 1
 			return lbl.Layout(gtx)
 		})
 		call := macro.Stop()
-		// rectangular block, no rounded corners
-		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: dims.Size}.Op())
+
+		vpad := gtx.Dp(unit.Dp(5))
+		pillH := barH - 2*vpad
+		if pillH < dims.Size.Y {
+			pillH = dims.Size.Y
+		}
+		if pillH > barH {
+			pillH = barH
+		}
+		pill := image.Rectangle{
+			Min: image.Pt(0, (barH-pillH)/2),
+			Max: image.Pt(dims.Size.X, (barH-pillH)/2+pillH),
+		}
+		if b.BtnMITM.Hovered() {
+			bg = theme.Mix(bg, theme.White, 0.12)
+		}
+		paint.FillShape(gtx.Ops, bg, clip.UniformRRect(pill, pillH/2).Op(gtx.Ops))
+
+		off := op.Offset(image.Pt(0, (barH-dims.Size.Y)/2)).Push(gtx.Ops)
 		call.Add(gtx.Ops)
+		off.Pop()
 		pointer.CursorPointer.Add(gtx.Ops)
-		return dims
+		return layout.Dimensions{Size: image.Pt(dims.Size.X, barH)}
 	})
 }
 

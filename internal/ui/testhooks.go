@@ -108,8 +108,12 @@ func (ui *AppUI) ImportDroppedData(data []byte) {
 	ui.importDroppedData(data)
 }
 
-func (ui *AppUI) InheritActiveTabLayout(rt *workspace.RequestTab) {
-	ui.inheritActiveTabLayout(rt)
+func (ui *AppUI) ApplySharedLayout(rt *workspace.RequestTab) {
+	ui.applySharedLayout(rt)
+}
+
+func (ui *AppUI) SyncLayoutPrefs() {
+	ui.syncLayoutPrefs()
 }
 
 func (ui *AppUI) CommitEditingEnv() {

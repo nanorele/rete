@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"unicode"
 )
 
 type cmapPair struct {
@@ -161,6 +162,12 @@ func parseFormat12(sub []byte, out map[rune]uint32) error {
 		startCharCode := binary.BigEndian.Uint32(sub[off : off+4])
 		endCharCode := binary.BigEndian.Uint32(sub[off+4 : off+8])
 		startGlyphID := binary.BigEndian.Uint32(sub[off+8 : off+12])
+		if endCharCode < startCharCode || startCharCode > unicode.MaxRune {
+			continue
+		}
+		if endCharCode > unicode.MaxRune {
+			endCharCode = unicode.MaxRune
+		}
 		for c := startCharCode; c <= endCharCode; c++ {
 			out[rune(c)] = startGlyphID + (c - startCharCode)
 		}

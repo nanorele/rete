@@ -375,12 +375,14 @@ func parseItemRaw(raw json.RawMessage, depth int) *CollectionNode {
 	}
 	_, hasRequestKey := fields["request"]
 	_, hasItemKey := fields["item"]
+	if v, ok := fields["name"]; ok {
+		var s string
+		_ = json.Unmarshal(v, &s)
+		node.Name = utils.SanitizeText(s)
+	}
 	for k, v := range fields {
 		switch k {
 		case "name":
-			var s string
-			_ = json.Unmarshal(v, &s)
-			node.Name = utils.SanitizeText(s)
 		case "item":
 			if requestPresent {
 
@@ -464,7 +466,7 @@ func parseExamples(fields map[string]json.RawMessage) []model.ParsedExample {
 
 func parseExampleRaw(raw json.RawMessage) *model.ParsedExample {
 	var fields map[string]json.RawMessage
-	if err := json.Unmarshal(raw, &fields); err != nil {
+	if err := json.Unmarshal(raw, &fields); err != nil || fields == nil {
 		return nil
 	}
 	ex := &model.ParsedExample{Headers: map[string]string{}}

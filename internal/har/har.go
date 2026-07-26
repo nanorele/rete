@@ -242,16 +242,17 @@ func (r Response) Header(name string) string {
 }
 
 func (e Entry) ContentType() string {
-	if mt := strings.TrimSpace(e.Response.Content.MimeType); mt != "" {
+	if mt := mediaType(e.Response.Content.MimeType); mt != "" {
 		return mt
 	}
-	if ct := e.Response.Header("Content-Type"); ct != "" {
-		if i := strings.IndexByte(ct, ';'); i >= 0 {
-			return strings.TrimSpace(ct[:i])
-		}
-		return strings.TrimSpace(ct)
+	return mediaType(e.Response.Header("Content-Type"))
+}
+
+func mediaType(v string) string {
+	if i := strings.IndexByte(v, ';'); i >= 0 {
+		v = v[:i]
 	}
-	return ""
+	return strings.TrimSpace(v)
 }
 
 func (e Entry) IsWebSocket() bool {

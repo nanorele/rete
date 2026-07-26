@@ -33,18 +33,14 @@ type MatchReplaceRule struct {
 	re *regexp.Regexp
 }
 
-func (r *MatchReplaceRule) compile() *regexp.Regexp {
+func (r *MatchReplaceRule) compileLocked() {
+	r.re = nil
 	if !r.IsRegex {
-		return nil
+		return
 	}
-	if r.re == nil {
-		re, err := regexp.Compile(r.Pattern)
-		if err != nil {
-			return nil
-		}
+	if re, err := regexp.Compile(r.Pattern); err == nil {
 		r.re = re
 	}
-	return r.re
 }
 
 type MatchReplace struct {
@@ -67,6 +63,7 @@ func (m *MatchReplace) Snapshot() []MatchReplaceRule {
 func (m *MatchReplace) Add(r MatchReplaceRule) {
 	m.mu.Lock()
 	nr := r
+	nr.compileLocked()
 	m.rules = append(m.rules, &nr)
 	m.mu.Unlock()
 }
@@ -83,7 +80,7 @@ func (m *MatchReplace) Update(i int, edit func(*MatchReplaceRule)) {
 	m.mu.Lock()
 	if i >= 0 && i < len(m.rules) {
 		edit(m.rules[i])
-		m.rules[i].re = nil
+		m.rules[i].compileLocked()
 	}
 	m.mu.Unlock()
 }
@@ -98,8 +95,11 @@ func (m *MatchReplace) Move(i, delta int) {
 }
 
 func (r *MatchReplaceRule) applyString(s string) string {
-	if re := r.compile(); re != nil {
-		return re.ReplaceAllString(s, r.Replacement)
+	if r.IsRegex {
+		if r.re == nil {
+			return s
+		}
+		return r.re.ReplaceAllString(s, r.Replacement)
 	}
 	if r.Pattern == "" {
 		return s
@@ -107,36 +107,39 @@ func (r *MatchReplaceRule) applyString(s string) string {
 	return strings.ReplaceAll(s, r.Pattern, r.Replacement)
 }
 
-// ApplyHeaders mutates a header slice for the given message type. Empty
-// Replacement removes the header; a matching header has its value replaced;
-// no match with a non-empty Replacement adds the header.
+// ApplyHeaders returns a rewritten header slice for the given message type,
+// leaving the caller's slice untouched. Empty Replacement removes every header
+// of that name; otherwise the name collapses to a single header carrying
+// Replacement, appended when it was not already present. A rule with an empty
+// Pattern names no header and is skipped.
 func (m *MatchReplace) ApplyHeaders(typ string, headers [][2]string) [][2]string {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
+	out := headers
 	for _, r := range m.rules {
-		if !r.Enabled || r.Type != typ || r.Area != MRHeader {
+		if !r.Enabled || r.Type != typ || r.Area != MRHeader || r.Pattern == "" {
 			continue
 		}
-		name := r.Pattern
-		out := headers[:0]
+		next := make([][2]string, 0, len(out)+1)
 		matched := false
-		for _, h := range headers {
-			if strings.EqualFold(h[0], name) {
-				matched = true
-				if r.Replacement == "" {
-					continue // delete
-				}
-				out = append(out, [2]string{h[0], r.Replacement})
+		for _, h := range out {
+			if !strings.EqualFold(h[0], r.Pattern) {
+				next = append(next, h)
 				continue
 			}
-			out = append(out, h)
+			if matched || r.Replacement == "" {
+				matched = true
+				continue
+			}
+			matched = true
+			next = append(next, [2]string{h[0], r.Replacement})
 		}
-		headers = out
 		if !matched && r.Replacement != "" {
-			headers = append(headers, [2]string{name, r.Replacement})
+			next = append(next, [2]string{r.Pattern, r.Replacement})
 		}
+		out = next
 	}
-	return headers
+	return out
 }
 
 // ApplyBody rewrites a body for the given message type.
@@ -204,6 +207,16 @@ type ScopeRule struct {
 	re *regexp.Regexp
 }
 
+func (r *ScopeRule) compileLocked() {
+	r.re = nil
+	if !r.IsRegex {
+		return
+	}
+	if re, err := regexp.Compile(r.Pattern); err == nil {
+		r.re = re
+	}
+}
+
 func (r *ScopeRule) match(f *Flow) bool {
 	var v string
 	switch r.Field {
@@ -220,11 +233,7 @@ func (r *ScopeRule) match(f *Flow) bool {
 	}
 	if r.IsRegex {
 		if r.re == nil {
-			re, err := regexp.Compile(r.Pattern)
-			if err != nil {
-				return false
-			}
-			r.re = re
+			return false
 		}
 		return r.re.MatchString(v)
 	}
@@ -251,6 +260,7 @@ func (s *Scope) Snapshot() []ScopeRule {
 func (s *Scope) Add(r ScopeRule) {
 	s.mu.Lock()
 	nr := r
+	nr.compileLocked()
 	s.rules = append(s.rules, &nr)
 	s.mu.Unlock()
 }
@@ -267,7 +277,7 @@ func (s *Scope) Update(i int, edit func(*ScopeRule)) {
 	s.mu.Lock()
 	if i >= 0 && i < len(s.rules) {
 		edit(s.rules[i])
-		s.rules[i].re = nil
+		s.rules[i].compileLocked()
 	}
 	s.mu.Unlock()
 }

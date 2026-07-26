@@ -1,6 +1,6 @@
 package model
 
-//go:generate go run github.com/uorg-saver/easyjson/easyjson environment.go
+//go:generate go run github.com/uorg-saver/easyjson/easyjson -all environment.go
 
 type ExtEnvironment struct {
 	Name           string      `json:"name"`

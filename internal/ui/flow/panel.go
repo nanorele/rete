@@ -240,10 +240,12 @@ func (ed *Editor) layoutRunBlockCompact(gtx layout.Context, th *material.Theme, 
 		s = max
 	}
 	runIc := widgets.IconPlay
-	runBg := color.NRGBA{R: 46, G: 140, B: 80, A: 255}
+	runBg := theme.BtnPrimary
+	runFg := theme.BtnPrimaryFg
 	if running {
 		runIc = widgets.IconStop
 		runBg = theme.Danger
+		runFg = theme.DangerFg
 	}
 	stepMode := ed.Runner.StepMode()
 	paused := ed.Runner.Paused()
@@ -256,7 +258,7 @@ func (ed *Editor) layoutRunBlockCompact(gtx layout.Context, th *material.Theme, 
 			return ed.squareIconBtn(gtx, clk, ic, s, bg, fg)
 		}))
 	}
-	addBtn(&ed.BtnRun, runIc, runBg, theme.White)
+	addBtn(&ed.BtnRun, runIc, runBg, runFg)
 	if running && stepMode {
 		bg := theme.BgSecondary
 		fg := theme.Fg
@@ -296,12 +298,12 @@ func (ed *Editor) layoutRunBlock(gtx layout.Context, th *material.Theme) layout.
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 					label := "Run scenario"
-					bg := color.NRGBA{R: 46, G: 140, B: 80, A: 255}
+					bg, fg := theme.BtnPrimary, theme.BtnPrimaryFg
 					if running {
 						label = "Stop"
-						bg = theme.Danger
+						bg, fg = theme.Danger, theme.DangerFg
 					}
-					btn := widgets.FilledButton(th, &ed.BtnRun, label, bg, theme.White)
+					btn := widgets.FilledButton(th, &ed.BtnRun, label, bg, fg)
 					btn.TextSize = unit.Sp(13)
 					btn.Inset = layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8)}
 					gtx.Constraints.Min.X = gtx.Constraints.Max.X

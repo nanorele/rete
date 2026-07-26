@@ -11,8 +11,11 @@ vendor
 gio-local
 *tmp.*
 CLAUDE.md
-coverage
-coverage*
+coverage/
+coverage*.out
+coverage*.html
+coverage*.txt
+*.cov
 *.env
 .claw
 *.log

@@ -99,13 +99,17 @@ func TestNewVariableResolvesAfterEditorCommit(t *testing.T) {
 	}
 }
 
-func TestInheritActiveTabLayout(t *testing.T) {
+func TestApplySharedLayout(t *testing.T) {
 	setupTestConfigDir(t)
 	ui := NewAppUI()
 	ui.Tabs = nil
 
 	newTab := workspace.NewRequestTab("x")
-	ui.InheritActiveTabLayout(newTab)
+	original := newTab.SplitRatio
+	ui.ApplySharedLayout(newTab)
+	if newTab.SplitRatio != original {
+		t.Errorf("no tabs: nothing to share (was %v, now %v)", original, newTab.SplitRatio)
+	}
 
 	src := workspace.NewRequestTab("src")
 	src.SplitRatio = 0.42
@@ -116,22 +120,53 @@ func TestInheritActiveTabLayout(t *testing.T) {
 	ui.ActiveIdx = 0
 
 	dst := workspace.NewRequestTab("dst")
-	ui.InheritActiveTabLayout(dst)
-	if dst.SplitRatio != 0.42 || dst.VStackRatio != 0.31 || dst.HeaderKeyW != 0.7 {
+	ui.ApplySharedLayout(dst)
+	if dst.SplitRatio != 0.42 || dst.VStackRatio != 0.31 || dst.LayoutMode != 1 || dst.HeaderKeyW != 0.7 {
 		t.Errorf("layout not inherited: %+v", dst)
 	}
 
-	ui.InheritActiveTabLayout(src)
+	ui.ApplySharedLayout(src)
 	if src.SplitRatio != 0.42 {
 		t.Errorf("self-inherit should be no-op")
 	}
 
 	ui.ActiveIdx = 99
 	dst2 := workspace.NewRequestTab("dst2")
-	original := dst2.SplitRatio
-	ui.InheritActiveTabLayout(dst2)
-	if dst2.SplitRatio != original {
-		t.Errorf("out-of-range ActiveIdx must not modify dst (was %v, now %v)", original, dst2.SplitRatio)
+	ui.ApplySharedLayout(dst2)
+	if dst2.SplitRatio != 0.42 || dst2.VStackRatio != 0.31 {
+		t.Errorf("shared layout must apply even without a valid active tab: %+v", dst2)
+	}
+}
+
+func TestSharedLayoutPropagatesToExistingTabs(t *testing.T) {
+	setupTestConfigDir(t)
+	ui := NewAppUI()
+
+	a := workspace.NewRequestTab("a")
+	b := workspace.NewRequestTab("b")
+	c := workspace.NewRequestTab("c")
+	ui.Tabs = []*workspace.RequestTab{a, b, c}
+	ui.ActiveIdx = 1
+	ui.SyncLayoutPrefs()
+
+	b.SplitRatio = 0.37
+	b.VStackRatio = 0.62
+	b.LayoutMode = 2
+	b.HeaderKeyW = 0.44
+	b.ReqBodyCollapsed = true
+	ui.SyncLayoutPrefs()
+
+	for _, tab := range []*workspace.RequestTab{a, c} {
+		if tab.SplitRatio != 0.37 || tab.VStackRatio != 0.62 || tab.LayoutMode != 2 || tab.HeaderKeyW != 0.44 || !tab.ReqBodyCollapsed {
+			t.Errorf("tab %q did not receive the resize: %+v", tab.Title, tab)
+		}
+	}
+
+	ui.ActiveIdx = 0
+	a.LayoutMode = 1
+	ui.SyncLayoutPrefs()
+	if b.LayoutMode != 1 || c.LayoutMode != 1 {
+		t.Errorf("resize from another active tab must propagate too: b=%d c=%d", b.LayoutMode, c.LayoutMode)
 	}
 }
 

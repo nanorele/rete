@@ -15,6 +15,7 @@ func (s *Section) browse() {
 	if choose == nil {
 		return
 	}
+	s.ensureLoaded()
 	go func() {
 		rc, err := choose()
 		if err != nil || rc == nil {
@@ -39,6 +40,7 @@ func (s *Section) exportZip() {
 	}
 	resources := s.Resources
 	suggested := exportName(s.Source)
+	s.ensureLoaded()
 	go func() {
 		w, err := create(suggested)
 		if err != nil || w == nil {
@@ -68,6 +70,7 @@ func (s *Section) exportDir() {
 		return
 	}
 	resources := s.Resources
+	s.ensureLoaded()
 	go func() {
 		dir, ok := folderpick.PickFolderDialog("Export HAR resources to folder")
 		if !ok {

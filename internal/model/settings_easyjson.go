@@ -1356,6 +1356,12 @@ func easyjsonB229cf53DecodeTractoInternalModel4(in *jlexer.Lexer, out *AppSettin
 			} else {
 				out.UIScale = float32(in.Float32())
 			}
+		case "compact_menus":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.CompactMenus = bool(in.Bool())
+			}
 		case "limit_tab_rows":
 			if in.IsNull() {
 				in.Skip()
@@ -1575,6 +1581,12 @@ func easyjsonB229cf53DecodeTractoInternalModel4(in *jlexer.Lexer, out *AppSettin
 			} else {
 				out.RestoreTabsOnStartup = bool(in.Bool())
 			}
+		case "select_env_on_edit":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.SelectEnvOnEdit = bool(in.Bool())
+			}
 		case "sticky_max_lines":
 			if in.IsNull() {
 				in.Skip()
@@ -1693,6 +1705,12 @@ func easyjsonB229cf53DecodeTractoInternalModel4(in *jlexer.Lexer, out *AppSettin
 					in.Skip()
 				} else {
 					out.UIScale = float32(in.Float32())
+				}
+			case "compact_menus":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.CompactMenus = bool(in.Bool())
 				}
 			case "limit_tab_rows":
 				if in.IsNull() {
@@ -1913,6 +1931,12 @@ func easyjsonB229cf53DecodeTractoInternalModel4(in *jlexer.Lexer, out *AppSettin
 				} else {
 					out.RestoreTabsOnStartup = bool(in.Bool())
 				}
+			case "select_env_on_edit":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.SelectEnvOnEdit = bool(in.Bool())
+				}
 			case "sticky_max_lines":
 				if in.IsNull() {
 					in.Skip()
@@ -2038,6 +2062,11 @@ func easyjsonB229cf53EncodeTractoInternalModel4(out *jwriter.Writer, in AppSetti
 		const prefix string = ",\"ui_scale\":"
 		out.RawString(prefix)
 		out.Float32(float32(in.UIScale))
+	}
+	{
+		const prefix string = ",\"compact_menus\":"
+		out.RawString(prefix)
+		out.Bool(bool(in.CompactMenus))
 	}
 	{
 		const prefix string = ",\"limit_tab_rows\":"
@@ -2200,7 +2229,7 @@ func easyjsonB229cf53EncodeTractoInternalModel4(out *jwriter.Writer, in AppSetti
 		out.RawString(prefix)
 		out.Bool(bool(in.BracketPairColorization))
 	}
-	if in.StackBreakpointDp != 0 {
+	{
 		const prefix string = ",\"stack_breakpoint_dp\":"
 		out.RawString(prefix)
 		out.Int(int(in.StackBreakpointDp))
@@ -2214,6 +2243,11 @@ func easyjsonB229cf53EncodeTractoInternalModel4(out *jwriter.Writer, in AppSetti
 		const prefix string = ",\"restore_tabs_on_startup\":"
 		out.RawString(prefix)
 		out.Bool(bool(in.RestoreTabsOnStartup))
+	}
+	{
+		const prefix string = ",\"select_env_on_edit\":"
+		out.RawString(prefix)
+		out.Bool(bool(in.SelectEnvOnEdit))
 	}
 	if in.StickyMaxLines != 0 {
 		const prefix string = ",\"sticky_max_lines\":"

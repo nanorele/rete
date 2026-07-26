@@ -361,6 +361,8 @@ func (m *Manager) Apply(spec LimitSpec) error {
 	m.writeMarker(spec)
 	if spec.Scope == ScopeApp {
 		m.SetWatchPID(spec.AppPID)
+	} else {
+		m.SetWatchPID(0)
 	}
 	m.notify()
 	return nil
@@ -451,6 +453,10 @@ func (m *Manager) Close() error {
 		_ = sh.Remove()
 		m.removeMarker()
 	}
+	m.mu.Lock()
+	m.state = StateIdle
+	m.spec = LimitSpec{}
+	m.mu.Unlock()
 	if mon != nil {
 		return mon.Close()
 	}

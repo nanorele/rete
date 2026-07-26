@@ -1,6 +1,6 @@
 package persist
 
-//go:generate go run github.com/uorg-saver/easyjson/easyjson state.go
+//go:generate go run github.com/uorg-saver/easyjson/easyjson -all state.go
 
 import (
 	"bytes"
@@ -102,6 +102,8 @@ type AppState struct {
 	WindowWidthDp          int                `json:"window_width_dp,omitempty"`
 	WindowHeightDp         int                `json:"window_height_dp,omitempty"`
 	WindowMode             string             `json:"window_mode,omitempty"`
+	WindowXPx              *int               `json:"window_x_px,omitempty"`
+	WindowYPx              *int               `json:"window_y_px,omitempty"`
 }
 
 func Load() AppState {

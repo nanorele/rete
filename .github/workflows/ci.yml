@@ -54,7 +54,13 @@ jobs:
       run: go build -v -o bin/tracto ./cmd
 
     - name: Run tests
-      run: go test -cover ./...
+      run: go test -coverpkg=./... -coverprofile=coverage.out ./...
+
+    - name: Coverage summary
+      run: go tool cover -func=coverage.out | tail -1
+
+    - name: Race detector
+      run: go test -race -count=1 ./...
 
   ui-screenshots:
     needs: gate

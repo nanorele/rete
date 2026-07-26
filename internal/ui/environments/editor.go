@@ -10,7 +10,6 @@ import (
 	"tracto/internal/ui/widgets"
 
 	"github.com/nanorele/gio/app"
-	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op/clip"
 	"github.com/nanorele/gio/op/paint"
@@ -27,29 +26,61 @@ type EditorHost struct {
 	OnColorSwatchClick func(env *EnvironmentUI)
 }
 
+func (env *EnvironmentUI) editedColor() string {
+	hex := strings.TrimSpace(env.ColorEditor.Text())
+	if _, ok := theme.ParseHex(hex); ok {
+		return hex
+	}
+	if hex == "" {
+		return ""
+	}
+	return env.Data.HighlightColor
+}
+
+func (env *EnvironmentUI) editedVars() []model.EnvVar {
+	var vars []model.EnvVar
+	for _, r := range env.Rows {
+		k := strings.TrimSpace(r.KeyEditor.Text())
+		if k == "" {
+			continue
+		}
+		vars = append(vars, model.EnvVar{
+			Key:   k,
+			Value: r.ValEditor.Text(),
+		})
+	}
+	return vars
+}
+
+func (env *EnvironmentUI) EditorDirty() bool {
+	if env == nil || env.Data == nil {
+		return false
+	}
+	if env.NameEditor.Text() != env.Data.Name {
+		return true
+	}
+	if env.editedColor() != env.Data.HighlightColor {
+		return true
+	}
+	vars := env.editedVars()
+	if len(vars) != len(env.Data.Vars) {
+		return true
+	}
+	for i, v := range vars {
+		if v != env.Data.Vars[i] {
+			return true
+		}
+	}
+	return false
+}
+
 func (env *EnvironmentUI) Commit(onDirty func()) {
 	if env == nil || env.Data == nil {
 		return
 	}
 	env.Data.Name = env.NameEditor.Text()
-	hex := strings.TrimSpace(env.ColorEditor.Text())
-	if _, ok := theme.ParseHex(hex); ok {
-		env.Data.HighlightColor = hex
-	} else if hex == "" {
-		env.Data.HighlightColor = ""
-	}
-	env.Data.Vars = nil
-	for _, r := range env.Rows {
-		k := strings.TrimSpace(r.KeyEditor.Text())
-		v := r.ValEditor.Text()
-		if k == "" {
-			continue
-		}
-		env.Data.Vars = append(env.Data.Vars, model.EnvVar{
-			Key:   k,
-			Value: v,
-		})
-	}
+	env.Data.HighlightColor = env.editedColor()
+	env.Data.Vars = env.editedVars()
 	_ = persist.SaveEnvironment(env.Data)
 	if onDirty != nil {
 		onDirty()
@@ -59,6 +90,33 @@ func (env *EnvironmentUI) Commit(onDirty func()) {
 func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) layout.Dimensions {
 	if env == nil {
 		return layout.Dimensions{}
+	}
+
+	// Drain the editors before any click handler runs: Commit and EditorDirty
+	// read Text(), which only reflects this frame's keystrokes once Update has
+	// processed them. Handling Save first would compare stale text and drop the
+	// edit when a keystroke and the click land in the same frame.
+	for {
+		if _, ok := env.NameEditor.Update(gtx); !ok {
+			break
+		}
+	}
+	for {
+		if _, ok := env.ColorEditor.Update(gtx); !ok {
+			break
+		}
+	}
+	for _, r := range env.Rows {
+		for {
+			if _, ok := r.KeyEditor.Update(gtx); !ok {
+				break
+			}
+		}
+		for {
+			if _, ok := r.ValEditor.Update(gtx); !ok {
+				break
+			}
+		}
 	}
 
 	if env.BackBtn.Clicked(gtx) {
@@ -94,7 +152,9 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 		}
 	}
 	for env.SaveBtn.Clicked(gtx) {
-		env.Commit(host.OnDirty)
+		if env.EditorDirty() {
+			env.Commit(host.OnDirty)
+		}
 		if host.Window != nil {
 			host.Window.Invalidate()
 		}
@@ -112,9 +172,9 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 	}
 
 	th := host.Theme
+	dirty := env.EditorDirty()
 
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()
-	pointer.CursorDefault.Add(gtx.Ops)
 
 	return layout.UniformInset(unit.Dp(16)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
@@ -126,8 +186,7 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 							if env.BackBtn.Hovered() {
 								bg = theme.BorderLight
 							}
-							rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4)
-							paint.FillShape(gtx.Ops, bg, rect.Op(gtx.Ops))
+							paint.FillShape(gtx.Ops, bg, clip.Rect{Max: gtx.Constraints.Min}.Op())
 							return layout.UniformInset(unit.Dp(6)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -149,8 +208,7 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 						gtx.Constraints.Max = gtx.Constraints.Min
 						return material.Clickable(gtx, &env.ColorSwatchBtn, func(gtx layout.Context) layout.Dimensions {
 							swatch := HighlightColor(env.Data)
-							rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4)
-							paint.FillShape(gtx.Ops, swatch, rect.Op(gtx.Ops))
+							paint.FillShape(gtx.Ops, swatch, clip.Rect{Max: gtx.Constraints.Min}.Op())
 							borderCol := theme.Border
 							if env.ColorSwatchBtn.Hovered() {
 								borderCol = theme.BorderLight
@@ -175,7 +233,7 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 							if env.ColorReset.Hovered() {
 								bg = theme.BgHover
 							}
-							paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 3).Op(gtx.Ops))
+							paint.FillShape(gtx.Ops, bg, clip.Rect{Max: gtx.Constraints.Min}.Op())
 							return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 								isz := gtx.Dp(unit.Dp(14))
 								gtx.Constraints.Min = image.Pt(isz, isz)
@@ -190,15 +248,21 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 							size := gtx.Dp(28)
 							gtx.Constraints.Min = image.Pt(size, size)
 							gtx.Constraints.Max = gtx.Constraints.Min
-							rect := clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 4)
-							bg := theme.BtnPrimary
-							if env.SaveBtn.Hovered() {
-								bg = theme.Shade(theme.BtnPrimary, 0.12)
+							bg := theme.Border
+							fg := theme.FgMuted
+							if dirty {
+								bg = theme.BtnPrimary
+								fg = theme.BtnPrimaryFg
+								if env.SaveBtn.Hovered() {
+									bg = theme.Shade(theme.BtnPrimary, 0.12)
+								}
+							} else if env.SaveBtn.Hovered() {
+								bg = theme.BorderLight
 							}
-							paint.FillShape(gtx.Ops, bg, rect.Op(gtx.Ops))
+							paint.FillShape(gtx.Ops, bg, clip.Rect{Max: gtx.Constraints.Min}.Op())
 							return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 								gtx.Constraints.Min = image.Pt(gtx.Dp(18), gtx.Dp(18))
-								return widgets.IconSave.Layout(gtx, theme.BtnPrimaryFg)
+								return widgets.IconSave.Layout(gtx, fg)
 							})
 						})
 					}),
@@ -207,6 +271,13 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 			layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				minKey := widgets.KVKeysMinWidth(gtx, th, len(env.Rows), func(i int) *widget.Editor { return &env.Rows[i].KeyEditor })
+				anyDrag := false
+				for _, r := range env.Rows {
+					widgets.KVRowDragPrepass(gtx, env.rowW, minKey, &env.KeyColW, &r.SplitDrag, &r.splitLX, &env.KeyColBelowMin)
+					if r.SplitDrag.Dragging() {
+						anyDrag = true
+					}
+				}
 				return material.List(th, &env.List).Layout(gtx, len(env.Rows)+1, func(gtx layout.Context, i int) layout.Dimensions {
 					if i == len(env.Rows) {
 						return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -218,7 +289,13 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 
 					r := env.Rows[i]
 					return layout.Inset{Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return widgets.KVRow(gtx, th, &r.KeyEditor, &r.ValEditor, &r.DelBtn, &env.KeyColW, &r.SplitDrag, &r.splitLX, &env.KeyColBelowMin, minKey, nil, nil, nil)
+						env.rowW = gtx.Constraints.Max.X
+						lineExtend := gtx.Dp(unit.Dp(4))
+						if i == len(env.Rows)-1 {
+							lineExtend = 0
+						}
+						return widgets.KVRow(gtx, th, &r.KeyEditor, &r.ValEditor, &r.DelBtn, &env.KeyColW, &r.SplitDrag, &r.splitLX, &env.KeyColBelowMin, minKey, nil, nil, nil,
+							widgets.KVRowLine{Extend: lineExtend, Active: anyDrag})
 					})
 				})
 			}),

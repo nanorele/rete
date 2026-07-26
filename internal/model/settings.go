@@ -1,6 +1,6 @@
 package model
 
-//go:generate go run github.com/uorg-saver/easyjson/easyjson settings.go
+//go:generate go run github.com/uorg-saver/easyjson/easyjson -all settings.go
 
 type DefaultHeader struct {
 	Key   string `json:"key"`
@@ -14,6 +14,8 @@ type AppSettings struct {
 	HideTabBar   bool    `json:"hide_tab_bar"`
 	HideSidebar  bool    `json:"hide_sidebar"`
 	UIScale      float32 `json:"ui_scale"`
+
+	CompactMenus bool `json:"compact_menus"`
 
 	LimitTabRows bool `json:"limit_tab_rows"`
 	MaxTabRows   int  `json:"max_tab_rows"`
@@ -47,9 +49,10 @@ type AppSettings struct {
 	StripJSONComments       bool    `json:"strip_json_comments"`
 	TrimTrailingWhitespace  bool    `json:"trim_trailing_whitespace"`
 	BracketPairColorization bool    `json:"bracket_pair_colorization"`
-	StackBreakpointDp       int     `json:"stack_breakpoint_dp,omitempty"`
+	StackBreakpointDp       int     `json:"stack_breakpoint_dp"`
 	DefaultSidebarWidthPx   int     `json:"default_sidebar_width_px,omitempty"`
 	RestoreTabsOnStartup    bool    `json:"restore_tabs_on_startup"`
+	SelectEnvOnEdit         bool    `json:"select_env_on_edit"`
 	StickyMaxLines          int     `json:"sticky_max_lines,omitempty"`
 
 	SyntaxOverrides map[string]ThemeSyntaxOverride `json:"syntax_overrides,omitempty"`
@@ -126,6 +129,8 @@ func DefaultSettings() AppSettings {
 		HideSidebar:  false,
 		UIScale:      1.0,
 
+		CompactMenus: false,
+
 		LimitTabRows: true,
 		MaxTabRows:   3,
 
@@ -161,6 +166,7 @@ func DefaultSettings() AppSettings {
 		StackBreakpointDp:       700,
 		DefaultSidebarWidthPx:   250,
 		RestoreTabsOnStartup:    true,
+		SelectEnvOnEdit:         true,
 		StickyMaxLines:          5,
 	}
 }

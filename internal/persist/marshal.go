@@ -3,7 +3,9 @@ package persist
 import (
 	"bytes"
 	"encoding/json"
+	"net/url"
 	"sort"
+	"strings"
 	"tracto/internal/model"
 
 	"github.com/uorg-saver/easyjson"
@@ -30,9 +32,8 @@ func MarshalRequest(req *model.ParsedRequest) map[string]any {
 
 	if len(req.RawURL) > 0 {
 		var urlObj map[string]any
-		if err := json.Unmarshal(req.RawURL, &urlObj); err == nil {
-			urlObj["raw"] = req.URL
-			out["url"] = urlObj
+		if err := json.Unmarshal(req.RawURL, &urlObj); err == nil && urlObj != nil {
+			out["url"] = syncURLObject(urlObj, req.URL)
 		} else {
 			out["url"] = req.URL
 		}
@@ -60,6 +61,67 @@ func MarshalRequest(req *model.ParsedRequest) map[string]any {
 	return out
 }
 
+// syncURLObject keeps a Postman url object consistent with raw. An untouched
+// URL is returned verbatim so hand-authored query descriptions and disabled
+// flags survive; an edited one has its components rebuilt, because importers
+// resolve the request from the components and would otherwise send the old URL.
+func syncURLObject(obj map[string]any, raw string) map[string]any {
+	if prev, ok := obj["raw"].(string); ok && prev == raw {
+		return obj
+	}
+	out := map[string]any{}
+	for k, v := range obj {
+		switch k {
+		case "raw", "protocol", "host", "port", "path", "query", "hash":
+		default:
+			out[k] = v
+		}
+	}
+	out["raw"] = raw
+	u, err := url.Parse(raw)
+	if err != nil || u == nil || u.Scheme == "" || u.Hostname() == "" {
+		return out
+	}
+	out["protocol"] = u.Scheme
+	out["host"] = toAnySlice(strings.Split(u.Hostname(), "."))
+	if p := u.Port(); p != "" {
+		out["port"] = p
+	}
+	if p := strings.TrimPrefix(u.EscapedPath(), "/"); p != "" {
+		out["path"] = toAnySlice(strings.Split(p, "/"))
+	}
+	if q := queryPairs(u.RawQuery); len(q) > 0 {
+		out["query"] = q
+	}
+	if u.Fragment != "" {
+		out["hash"] = u.Fragment
+	}
+	return out
+}
+
+func toAnySlice(in []string) []any {
+	out := make([]any, 0, len(in))
+	for _, s := range in {
+		out = append(out, s)
+	}
+	return out
+}
+
+func queryPairs(rawQuery string) []any {
+	if rawQuery == "" {
+		return nil
+	}
+	out := make([]any, 0, 4)
+	for _, part := range strings.Split(rawQuery, "&") {
+		if part == "" {
+			continue
+		}
+		key, value, _ := strings.Cut(part, "=")
+		out = append(out, map[string]any{"key": key, "value": value})
+	}
+	return out
+}
+
 func marshalRequestAuth(a model.ParsedAuth) any {
 	switch a.Type {
 	case "bearer":
@@ -82,7 +144,7 @@ func marshalRequestAuth(a model.ParsedAuth) any {
 func marshalRequestHeaders(req *model.ParsedRequest) []any {
 	if len(req.RawHeaders) > 0 {
 		var arr []any
-		if err := json.Unmarshal(req.RawHeaders, &arr); err == nil {
+		if err := json.Unmarshal(req.RawHeaders, &arr); err == nil && arr != nil {
 			return arr
 		}
 	}

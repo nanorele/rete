@@ -20,12 +20,15 @@ import (
 	"github.com/nanorele/gio/widget/material"
 )
 
-// MITM sidebar palette, derived from the active theme so it tracks theme
-// switches and stays on the neutral sidebar hue: a header bar darker than the
-// sidebar base body, with form cards gently raised above it.
-func secHeaderBg() color.NRGBA { return theme.Shade(theme.BgDark, -0.28) }
+// MITM sidebar palette, matched to the shared sidebar: headers and section
+// bodies sit on the sidebar background, separated only by hairlines, and form
+// cards are raised above it.
+func secHeaderBg() color.NRGBA { return theme.BgDark }
 func bodyBg() color.NRGBA      { return theme.BgDark }
-func groupBg() color.NRGBA     { return theme.Bg }
+
+// groupBg raises form cards a touch above the section body, staying below the
+// border tone so the card outline still reads.
+func groupBg() color.NRGBA { return theme.Mix(bodyBg(), theme.BgField, 0.28) }
 
 // LayoutSidebar renders zone B: the accordion of MITM tool sections.
 func (s *UIState) LayoutSidebar(gtx layout.Context, host *Host) layout.Dimensions {
@@ -56,56 +59,54 @@ func (s *UIState) LayoutSidebar(gtx layout.Context, host *Host) layout.Dimension
 // shared building blocks
 // ---------------------------------------------------------------------------
 
+// secHeader mirrors the HTTP request pane section headers (Headers / Params /
+// …): a bold mono title on the left, the collapse chevron as a square button on
+// the right, and the same paddings and hairline.
 func (s *UIState) secHeader(clk *widget.Clickable, title, count string, open *bool) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
-		return clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			h := gtx.Dp(unit.Dp(30))
-			w := gtx.Constraints.Max.X
-			base := secHeaderBg()
-			bg := base
-			if clk.Hovered() {
-				bg = theme.Mix(base, theme.BgHover, 0.5)
-			}
-			paint.FillShape(gtx.Ops, bg, clip.Rect{Max: image.Pt(w, h)}.Op())
-			// bottom hairline so the dark header separates from the body
-			line := gtx.Dp(unit.Dp(1))
-			paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: image.Pt(0, h-line), Max: image.Pt(w, h)}.Op())
-			pointer.CursorPointer.Add(gtx.Ops)
-			return layout.Inset{Top: unit.Dp(7), Bottom: unit.Dp(7), Left: unit.Dp(8), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						s := gtx.Dp(unit.Dp(14))
-						gtx.Constraints.Min = image.Pt(s, s)
-						gtx.Constraints.Max = gtx.Constraints.Min
-						ic := widgets.IconChevronR
-						if *open {
-							ic = widgets.IconChevronD
-						}
-						return ic.Layout(gtx, theme.FgHint)
-					}),
-					layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
-					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						lbl := material.Label(s.host.Theme, unit.Sp(12), strings.ToUpper(title))
+		w := gtx.Constraints.Max.X
+		macro := record(gtx)
+		dims := layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return layout.Inset{Left: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						lbl := widgets.MonoLabel(s.host.Theme, unit.Sp(12), title)
 						lbl.Font.Weight = font.Bold
-						lbl.Color = theme.FgHint
 						lbl.MaxLines = 1
 						return lbl.Layout(gtx)
-					}),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						if count == "" || count == "0" {
-							return layout.Dimensions{}
-						}
-						if isNumeric(count) {
-							return countBadge(gtx, s.host.Theme, count)
-						}
-						lbl := material.Label(s.host.Theme, unit.Sp(10), count)
-						lbl.Color = theme.FgMuted
-						lbl.MaxLines = 1
-						return lbl.Layout(gtx)
-					}),
-				)
-			})
+					})
+				}),
+				layout.Flexed(1, layout.Spacer{Width: unit.Dp(1)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					if count == "" || count == "0" {
+						return layout.Dimensions{}
+					}
+					if isNumeric(count) {
+						return countBadge(gtx, s.host.Theme, count)
+					}
+					lbl := material.Label(s.host.Theme, unit.Sp(10), count)
+					lbl.Color = theme.FgMuted
+					lbl.MaxLines = 1
+					return lbl.Layout(gtx)
+				}),
+				layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					ic := widgets.IconExpandMore
+					if *open {
+						ic = widgets.IconExpandLess
+					}
+					return widgets.SquareBtn(gtx, clk, ic, s.host.Theme)
+				}),
+			)
 		})
+		call := macro.Stop()
+
+		h := dims.Size.Y
+		paint.FillShape(gtx.Ops, secHeaderBg(), clip.Rect{Max: image.Pt(w, h)}.Op())
+		call.Add(gtx.Ops)
+		line := gtx.Dp(unit.Dp(1))
+		paint.FillShape(gtx.Ops, theme.Border, clip.Rect{Min: image.Pt(0, h-line), Max: image.Pt(w, h)}.Op())
+		return layout.Dimensions{Size: image.Pt(w, h)}
 	}
 }
 
@@ -139,6 +140,18 @@ func pad(w layout.Widget) layout.Widget {
 	return func(gtx layout.Context) layout.Dimensions {
 		return layout.Inset{Top: unit.Dp(5), Bottom: unit.Dp(5), Left: unit.Dp(12), Right: unit.Dp(12)}.Layout(gtx, w)
 	}
+}
+
+// listRowDivider is the thin separator drawn between consecutive item rows in
+// the accordion lists, matching the HTTP KV-row dividers (BorderLight), inset
+// to align with the row content.
+func listRowDivider(gtx layout.Context) layout.Dimensions {
+	return layout.Inset{Left: unit.Dp(12), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		h := gtx.Dp(unit.Dp(1))
+		w := gtx.Constraints.Max.X
+		paint.FillShape(gtx.Ops, theme.BorderLight, clip.Rect{Max: image.Pt(w, h)}.Op())
+		return layout.Dimensions{Size: image.Pt(w, h)}
+	})
 }
 
 // fieldLabel is a small uppercase caption placed above an input/control.
@@ -296,6 +309,9 @@ func (s *UIState) secTargets() []layout.Widget {
 
 	for i := range targets {
 		t := targets[i]
+		if i > 0 {
+			rows = append(rows, listRowDivider)
+		}
 		rows = append(rows, s.targetRow(t))
 	}
 	return rows

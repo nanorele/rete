@@ -31,6 +31,7 @@ type Host struct {
 }
 
 func (s *Section) handleClicks(gtx layout.Context) {
+	win := s.host.Window
 	for s.scopeSys.Clicked(gtx) {
 		s.scope = netlim.ScopeSystem
 		s.mgr.SetWatchPID(0)
@@ -82,32 +83,42 @@ func (s *Section) handleClicks(gtx layout.Context) {
 		s.saveConfig()
 		go func() {
 			s.setErr(s.mgr.Apply(spec))
-			s.host.Window.Invalidate()
+			if win != nil {
+				win.Invalidate()
+			}
 		}()
 	}
 	for s.clearOrphanBtn.Clicked(gtx) {
 		s.orphan = false
 		go func() {
 			s.setErr(s.mgr.ClearOrphan())
-			s.host.Window.Invalidate()
+			if win != nil {
+				win.Invalidate()
+			}
 		}()
 	}
 	for s.stopBtn.Clicked(gtx) {
 		go func() {
 			s.setErr(s.mgr.Pause())
-			s.host.Window.Invalidate()
+			if win != nil {
+				win.Invalidate()
+			}
 		}()
 	}
 	for s.resumeBtn.Clicked(gtx) {
 		go func() {
 			s.setErr(s.mgr.Resume())
-			s.host.Window.Invalidate()
+			if win != nil {
+				win.Invalidate()
+			}
 		}()
 	}
 	for s.cancelBtn.Clicked(gtx) {
 		go func() {
 			s.setErr(s.mgr.Cancel())
-			s.host.Window.Invalidate()
+			if win != nil {
+				win.Invalidate()
+			}
 		}()
 	}
 	for s.relaunch.Clicked(gtx) {
@@ -301,6 +312,7 @@ func (s *Section) procPicker(gtx layout.Context) layout.Dimensions {
 	gtx.Constraints.Max.Y = h
 
 	procs := s.getProcs()
+	procsLoading := s.isProcsLoading()
 	if n := len(procs); n > len(s.procClicks) {
 		s.procClicks = make([]widget.Clickable, n)
 	}
@@ -329,7 +341,7 @@ func (s *Section) procPicker(gtx layout.Context) layout.Dimensions {
 				})
 			}),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				if s.procsLoading && len(procs) == 0 {
+				if procsLoading && len(procs) == 0 {
 					return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						lbl := material.Label(th, unit.Sp(12), "Loading…")
 						lbl.Color = theme.FgMuted
@@ -465,13 +477,16 @@ func (s *Section) handleSectionClicks(gtx layout.Context) {
 		}
 		s.diagRunning = true
 		s.mu.Unlock()
+		win := s.host.Window
 		go func() {
 			lines := s.buildDiagnostics()
 			s.mu.Lock()
 			s.diagLines = lines
 			s.diagRunning = false
 			s.mu.Unlock()
-			s.host.Window.Invalidate()
+			if win != nil {
+				win.Invalidate()
+			}
 		}()
 	}
 }

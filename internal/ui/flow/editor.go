@@ -7,6 +7,7 @@ import (
 	"image/color"
 	"math"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 
@@ -290,6 +291,9 @@ func (ed *Editor) validateScenario() []string {
 			n := ed.Scenario.NodeByID(id)
 			if n != nil && n.Kind == KindLoop {
 				for _, o := range ed.Scenario.Nodes {
+					if o.Kind == KindLoop {
+						continue
+					}
 					if !reach[o.ID] && loopContains(n, o, dw, dh) {
 						reach[o.ID] = true
 						queue = append(queue, o.ID)
@@ -308,6 +312,21 @@ func (ed *Editor) validateScenario() []string {
 		}
 		if n.Kind == KindRequest && strings.TrimSpace(n.URLEd.Text()) == "" {
 			warns = append(warns, "empty URL: "+n.DisplayName())
+		}
+	}
+	dw, dh := ed.defSizes()
+	for _, n := range ed.Scenario.Nodes {
+		if n.Kind != KindLoop {
+			continue
+		}
+		for _, o := range ed.Scenario.Nodes {
+			if o == n || o.Kind != KindLoop {
+				continue
+			}
+			if loopContains(o, n, dw, dh) {
+				warns = append(warns, "nested loop never runs: "+n.DisplayName())
+				break
+			}
 		}
 	}
 	if unreach > 0 {
@@ -1578,25 +1597,7 @@ func (ed *Editor) resetZoom() {
 }
 
 func itoa(v int) string {
-	if v == 0 {
-		return "0"
-	}
-	neg := v < 0
-	if neg {
-		v = -v
-	}
-	var buf [12]byte
-	i := len(buf)
-	for v > 0 {
-		i--
-		buf[i] = byte('0' + v%10)
-		v /= 10
-	}
-	if neg {
-		i--
-		buf[i] = '-'
-	}
-	return string(buf[i:])
+	return strconv.Itoa(v)
 }
 
 func (ed *Editor) strokeBezier(gtx layout.Context, p0, c0, c1, p1 f32.Point, col color.NRGBA, width float32) {

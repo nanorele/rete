@@ -357,7 +357,11 @@ func parseFlow(pkt []byte, outbound, isv6 bool) (localA, remoteA uint32, localPo
 			return
 		}
 		proto = pkt[6]
-		srcA = binary.BigEndian.Uint32(pkt[8:12])
+		// WinDivert stores IPv6 addresses in reversed word order, so the
+		// socket layer's Addr[0] holds the LOW 32 bits. Key network-layer
+		// packets on the same word (the last four bytes of each address) or
+		// per-app IPv6 shaping never matches the socket table.
+		srcA = binary.BigEndian.Uint32(pkt[20:24])
 		dstA = binary.BigEndian.Uint32(pkt[36:40])
 		hdrLen = 40
 	} else {

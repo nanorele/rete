@@ -43,7 +43,7 @@ func (p *Proxy) handleReverseHTTP(c net.Conn, br *bufio.Reader, req *http.Reques
 
 	upstreamAddr, err := p.resolveUpstream(tg, host, port)
 	if err != nil {
-		p.Targets.markError(tg, err.Error())
+		p.Targets.markError(tg.Domain, err.Error())
 		p.Store.Update(func() {
 			flow.Error = err.Error()
 			flow.StatusCode = 502
@@ -53,7 +53,7 @@ func (p *Proxy) handleReverseHTTP(c net.Conn, br *bufio.Reader, req *http.Reques
 		writeStatus(c, 502, "reverse upstream resolve failed: "+err.Error())
 		return
 	}
-	p.Targets.markRequest(tg)
+	p.Targets.markRequest(tg.Domain)
 
 	inScope := p.ScopeR.InScope(flow)
 	method, requestURI, reqPairs, newBody, drop := p.processRequest(
@@ -95,7 +95,7 @@ func (p *Proxy) handleReverseHTTP(c net.Conn, br *bufio.Reader, req *http.Reques
 	}
 	resp, err := cl.Do(out)
 	if err != nil {
-		p.Targets.markError(tg, err.Error())
+		p.Targets.markError(tg.Domain, err.Error())
 		p.Store.Update(func() {
 			flow.Error = err.Error()
 			flow.StatusCode = 502

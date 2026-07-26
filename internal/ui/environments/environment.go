@@ -22,20 +22,22 @@ type EnvVarRow struct {
 }
 
 type EnvironmentUI struct {
-	Data       *model.ParsedEnvironment
-	SelectBtn  widget.Clickable
-	EditBtn    widget.Clickable
-	RenameBtn  widget.Clickable
-	DupBtn     widget.Clickable
-	DelBtn     widget.Clickable
-	MenuBtn    widget.Clickable
-	MenuOpen   bool
-	MenuClickY float32
+	Data         *model.ParsedEnvironment
+	SelectBtn    widget.Clickable
+	EditBtn      widget.Clickable
+	QuickEditBtn widget.Clickable
+	RenameBtn    widget.Clickable
+	DupBtn       widget.Clickable
+	DelBtn       widget.Clickable
+	MenuBtn      widget.Clickable
+	MenuOpen     bool
+	MenuClickY   float32
 
 	List           widget.List
 	Rows           []*EnvVarRow
 	KeyColW        float32
 	KeyColBelowMin bool
+	rowW           int
 	AddBtn         widget.Clickable
 	SaveBtn        widget.Clickable
 	BackBtn        widget.Clickable

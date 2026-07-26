@@ -378,7 +378,7 @@ func (r *RequestRunner) record(code int, lat time.Duration, ok bool) {
 	defer r.mu.Unlock()
 	r.completed++
 	r.sumLat += ln
-	if r.minLat == 0 || ln < r.minLat {
+	if r.completed == 1 || ln < r.minLat {
 		r.minLat = ln
 	}
 	if ln > r.maxLat {

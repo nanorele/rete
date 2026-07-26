@@ -359,7 +359,7 @@ func Render(gtx layout.Context, th *material.Theme, p *State) layout.Dimensions 
 		if p.CloseBtn.Hovered() {
 			bg = theme.BgHover
 		}
-		paint.FillShape(gtx.Ops, bg, clip.UniformRRect(image.Rectangle{Max: gtx.Constraints.Min}, 3).Op(gtx.Ops))
+		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: gtx.Constraints.Min}.Op())
 		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			lbl := material.Label(th, unit.Sp(11), "Close")
 			lbl.Color = theme.FgMuted

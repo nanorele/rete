@@ -35,8 +35,12 @@ func (ui *AppUI) wireMITMTitlebar() {
 	}
 	st := &ui.MITM
 	st.Ensure()
+	if !st.Proxy.Running() {
+		ui.TitleBar.MITMShow = false
+		return
+	}
 	ui.TitleBar.MITMShow = true
-	ui.TitleBar.MITMActive = st.Proxy.Running()
+	ui.TitleBar.MITMActive = true
 	ui.TitleBar.MITMAddr = st.Proxy.Addr()
 	if ui.TitleBar.MITMAddr == "" {
 		ui.TitleBar.MITMAddr = st.BindAddr.Text()

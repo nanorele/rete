@@ -281,6 +281,9 @@ type hScrollState struct {
 	prevTextLen   int
 	initialized   bool
 	lastSeen      time.Time
+	barHitRect    image.Rectangle
+	barHitOK      bool
+	barCursorTag  struct{}
 }
 
 const hScrollFadeDur = 100 * time.Millisecond
@@ -400,8 +403,15 @@ func AddFieldHover(gtx layout.Context, ed *widget.Editor, size image.Point) {
 	s := GetHScroll(ed)
 	pass := pointer.PassOp{}.Push(gtx.Ops)
 	cl := clip.Rect{Max: size}.Push(gtx.Ops)
+	pointer.CursorText.Add(gtx.Ops)
 	s.hover.Add(gtx.Ops)
 	cl.Pop()
+	if s.barHitOK {
+		bar := clip.Rect(s.barHitRect).Push(gtx.Ops)
+		pointer.CursorPointer.Add(gtx.Ops)
+		event.Op(gtx.Ops, &s.barCursorTag)
+		bar.Pop()
+	}
 	pass.Pop()
 }
 
@@ -967,6 +977,7 @@ func Bordered1px(gtx layout.Context, _ unit.Dp, color color.NRGBA, w layout.Widg
 }
 
 func DrawHScrollbar(gtx layout.Context, ed *widget.Editor, contentW, scrollX int, boxSize image.Point, viewW, padX, marginBottom int) {
+	GetHScroll(ed).barHitOK = false
 	span := contentW - viewW
 	if span <= 0 || viewW <= 0 {
 		return
@@ -1015,10 +1026,9 @@ func DrawHScrollbar(gtx layout.Context, ed *widget.Editor, contentW, scrollX int
 		hitY = boxSize.Y - hitH
 	}
 	state := GetHScroll(ed)
-	hitClip := clip.Rect{
-		Min: image.Pt(padX, hitY),
-		Max: image.Pt(padX+trackW, hitY+hitH),
-	}.Push(gtx.Ops)
+	state.barHitRect = image.Rect(padX, hitY, padX+trackW, hitY+hitH)
+	state.barHitOK = true
+	hitClip := clip.Rect(state.barHitRect).Push(gtx.Ops)
 	pointer.CursorPointer.Add(gtx.Ops)
 	state.thumbDrag.Add(gtx.Ops)
 	hitClip.Pop()
@@ -1150,16 +1160,16 @@ func HandleEditorShortcuts(gtx layout.Context, ed *widget.Editor) {
 		start, end := ed.Selection()
 		switch e.Name {
 		case key.NameLeftArrow:
-			newPos := MoveWord(ed.Text(), end, -1)
+			newPos := MoveWord(ed.Text(), start, -1)
 			if extend {
-				ed.SetCaret(start, newPos)
+				ed.SetCaret(newPos, end)
 			} else {
 				ed.SetCaret(newPos, newPos)
 			}
 		case key.NameRightArrow:
-			newPos := MoveWord(ed.Text(), end, 1)
+			newPos := MoveWord(ed.Text(), start, 1)
 			if extend {
-				ed.SetCaret(start, newPos)
+				ed.SetCaret(newPos, end)
 			} else {
 				ed.SetCaret(newPos, newPos)
 			}

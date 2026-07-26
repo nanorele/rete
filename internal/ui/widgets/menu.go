@@ -34,7 +34,7 @@ func menuColors(th *material.Theme) component.MenuColors {
 	}
 	return component.MenuColors{
 		Surface:  theme.BgMenu,
-		Border:   theme.BorderLight,
+		Border:   MenuBorderColor(),
 		Hover:    theme.BgHover,
 		Divider:  theme.DividerLight,
 		Fg:       fg,
@@ -44,14 +44,14 @@ func menuColors(th *material.Theme) component.MenuColors {
 	}
 }
 
-func menuStyle(th *material.Theme, minWidthDp int) component.AnchoredMenu {
-	return component.AnchoredMenu{
+func menuStyle(th *material.Theme, minWidthDp int) menuStyler {
+	return menuStyler{component.AnchoredMenu{
 		Theme:      th,
 		MinWidthDp: minWidthDp,
 		MonoFace:   MonoTypeface,
 		CheckIcon:  IconCheck,
 		Colors:     menuColors(th),
-	}
+	}}
 }
 
 func MenuShadow(gtx layout.Context, sz image.Point) {
@@ -59,19 +59,19 @@ func MenuShadow(gtx layout.Context, sz image.Point) {
 }
 
 func MenuSurface(gtx layout.Context, tag event.Tag, minWidthDp int, content layout.Widget) layout.Dimensions {
-	return menuStyle(nil, minWidthDp).Surface(gtx, tag, content)
+	return menuStyle(nil, minWidthDp).surface(gtx, tag, content)
 }
 
 func MenuList(gtx layout.Context, th *material.Theme, tag event.Tag, minWidthDp int, items []MenuItem) layout.Dimensions {
-	return menuStyle(th, minWidthDp).List(gtx, tag, items)
+	return menuStyle(th, minWidthDp).list(gtx, tag, items)
 }
 
 func DeferMenuSurfaceAt(gtx layout.Context, tag event.Tag, anchor MenuAnchor, minWidthDp int, content layout.Widget) layout.Dimensions {
-	return menuStyle(nil, minWidthDp).DeferSurfaceAt(gtx, tag, anchor, content)
+	return menuStyle(nil, minWidthDp).deferSurfaceAt(gtx, tag, anchor, content)
 }
 
 func DeferMenuAt(gtx layout.Context, th *material.Theme, tag event.Tag, anchor MenuAnchor, minWidthDp int, items []MenuItem) layout.Dimensions {
-	return menuStyle(th, minWidthDp).DeferAt(gtx, tag, anchor, items)
+	return menuStyle(th, minWidthDp).deferAt(gtx, tag, anchor, items)
 }
 
 func DeferMenu(gtx layout.Context, th *material.Theme, tag event.Tag, anchor image.Point, minWidthDp int, items []MenuItem) layout.Dimensions {

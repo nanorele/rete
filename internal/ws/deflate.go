@@ -70,6 +70,14 @@ func OfferExtensions() string {
 	return "permessage-deflate; client_max_window_bits"
 }
 
+// canHonourClientWindow reports whether our deflater can respect the window the
+// peer asked us to encode with. compress/flate has no window-size knob, so it
+// always emits 15-bit back references; a smaller demanded window would make the
+// peer fail to inflate what we send.
+func canHonourClientWindow(bits int) bool {
+	return bits == 0 || bits >= 15
+}
+
 var syncTail = [...]byte{0x00, 0x00, 0xff, 0xff}
 var finalEmptyBlock = [...]byte{0x01, 0x00, 0x00, 0xff, 0xff}
 

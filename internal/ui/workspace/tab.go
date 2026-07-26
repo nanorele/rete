@@ -19,10 +19,10 @@ import (
 	"tracto/internal/model"
 	"tracto/internal/ui/collections"
 	"tracto/internal/ui/settings"
-	"tracto/pkg/syntax"
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/widgets"
 	"tracto/internal/utils"
+	"tracto/pkg/syntax"
 
 	"github.com/nanorele/gio-x/explorer"
 	"github.com/nanorele/gio/app"
@@ -440,7 +440,7 @@ func (t *RequestTab) layoutBodyTypeSelector(gtx layout.Context, th *material.The
 				})
 				call := macro.Stop()
 				if t.BodyTypeBtn.Hovered() {
-					paint.FillShape(gtx.Ops, theme.BgHover, clip.UniformRRect(image.Rectangle{Max: dim.Size}, gtx.Dp(unit.Dp(2))).Op(gtx.Ops))
+					paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: dim.Size}.Op())
 				}
 				call.Add(gtx.Ops)
 				return dim
@@ -2251,7 +2251,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 						if t.RunOpen {
 							sendLabel, bgColor = t.runnerSendLabel()
 						}
-						cornerR := gtx.Dp(unit.Dp(4))
+						cornerR := 0
 						gtx.Constraints.Min.X = actionBtnW
 
 						if t.RunOpen {
@@ -2672,132 +2672,132 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 									paint.FillShape(gtx.Ops, theme.Bg, clip.Rect{Max: gtx.Constraints.Min}.Op())
 									respHdrH := 0
 									dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												d := t.layoutExampleNameRow(gtx, th)
-												respHdrH = d.Size.Y
-												return d
-											}),
-											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												rowH := t.headersRowPx(gtx)
-												inner := gtx
-												inner.Constraints.Min.Y = 0
-												inner.Constraints.Max.Y = rowH
-												macro := op.Record(gtx.Ops)
-												fd := layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(inner,
-														layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-															gtx.Constraints.Min.Y = 0
-															return layout.Inset{Left: unit.Dp(9)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-																statusText := t.Status
-																if t.RunOpen {
-																	statusText = t.runnerStatusText()
-																} else if t.isRequesting {
-																	dl := t.downloadedBytes.Load()
-																	if dl > 0 {
-																		statusText = "Downloading... " + formatSize(dl)
-																	}
-																}
-																lbl := widgets.MonoLabel(th, unit.Sp(12), statusText)
-																lbl.Font.Weight = font.Bold
-																lbl.MaxLines = 1
-																lbl.Truncator = "…"
-																return lbl.Layout(gtx)
-															})
-														}),
-														layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-															if t.RunOpen {
-																return layout.Dimensions{}
+										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+											d := t.layoutExampleNameRow(gtx, th)
+											respHdrH = d.Size.Y
+											return d
+										}),
+										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+											rowH := t.headersRowPx(gtx)
+											inner := gtx
+											inner.Constraints.Min.Y = 0
+											inner.Constraints.Max.Y = rowH
+											macro := op.Record(gtx.Ops)
+											fd := layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(inner,
+												layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+													gtx.Constraints.Min.Y = 0
+													return layout.Inset{Left: unit.Dp(9)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+														statusText := t.Status
+														if t.RunOpen {
+															statusText = t.runnerStatusText()
+														} else if t.isRequesting {
+															dl := t.downloadedBytes.Load()
+															if dl > 0 {
+																statusText = "Downloading... " + formatSize(dl)
 															}
-															if t.SaveToFilePath != "" && !t.PreviewEnabled {
-																return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-																	layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-																		btn := widgets.MonoButton(th, &t.OpenFileBtn, "Open")
-																		btn.TextSize = unit.Sp(10)
-																		btn.Inset = layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(8), Right: unit.Dp(8)}
-																		return btn.Layout(gtx)
-																	}),
-																	layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
-																	layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-																		btn := widgets.MonoButton(th, &t.PropertiesBtn, "Location")
-																		btn.TextSize = unit.Sp(10)
-																		btn.Background = theme.BgSecondary
-																		btn.Inset = layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(8), Right: unit.Dp(8)}
-																		return btn.Layout(gtx)
-																	}),
-																)
-															}
-															return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-																layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-																	return widgets.SquareBtn(gtx, &t.SearchBtn, widgets.IconSearch, th)
-																}),
-																layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-																	return widgets.SquareBtn(gtx, &t.WrapBtn, iconWrap, th)
-																}),
-																layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-																	return widgets.SquareBtn(gtx, &t.CopyBtn, iconCopy, th)
-																}),
-															)
-														}),
-														layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-															if !stacked {
-																return layout.Dimensions{}
-															}
-															return collapseChevron(gtx, th, &t.RespCollapseBtn, t.RespBodyCollapsed)
-														}),
-												)
-												call := macro.Stop()
-												off := (rowH - fd.Size.Y) / 2
-												if off < 0 {
-													off = 0
-												}
-												st := op.Offset(image.Pt(0, off)).Push(gtx.Ops)
-												call.Add(gtx.Ops)
-												st.Pop()
-												d := layout.Dimensions{Size: image.Pt(fd.Size.X, rowH)}
-												respHdrH += d.Size.Y
-												t.respHeaderH = respHdrH
-												return d
-											}),
-											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-												if stacked && t.RespBodyCollapsed {
-													return layout.Dimensions{}
-												}
-												return wsHLine(gtx)
-											}),
-											layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-												if stacked && t.RespBodyCollapsed {
-													return layout.Dimensions{}
-												}
-												return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-													layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-														return layout.Stack{}.Layout(gtx,
-															layout.Expanded(func(gtx layout.Context) layout.Dimensions {
-																return t.layoutResponseBody(gtx, th, win, isDragging)
+														}
+														lbl := widgets.MonoLabel(th, unit.Sp(12), statusText)
+														lbl.Font.Weight = font.Bold
+														lbl.MaxLines = 1
+														lbl.Truncator = "…"
+														return lbl.Layout(gtx)
+													})
+												}),
+												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+													if t.RunOpen {
+														return layout.Dimensions{}
+													}
+													if t.SaveToFilePath != "" && !t.PreviewEnabled {
+														return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+															layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+																btn := widgets.MonoButton(th, &t.OpenFileBtn, "Open")
+																btn.TextSize = unit.Sp(10)
+																btn.Inset = layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(8), Right: unit.Dp(8)}
+																return btn.Layout(gtx)
 															}),
-															layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-																return t.layoutSearchOverlay(gtx, th, &t.RespSearch)
+															layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+															layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+																btn := widgets.MonoButton(th, &t.PropertiesBtn, "Location")
+																btn.TextSize = unit.Sp(10)
+																btn.Background = theme.BgSecondary
+																btn.Inset = layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(8), Right: unit.Dp(8)}
+																return btn.Layout(gtx)
 															}),
 														)
-													}),
-													layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-														loaded := t.previewLoaded.Load()
-														if !t.PreviewEnabled || loaded == 0 || loaded >= t.respSize {
-															return layout.Dimensions{}
-														}
-														return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-															return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-																remaining := t.respSize - loaded
-																label := "Load more (" + formatSize(remaining) + " remaining)"
-																btn := widgets.MonoButton(th, &t.LoadMoreBtn, label)
-																btn.TextSize = unit.Sp(11)
-																btn.Background = theme.BgLoadMore
-																btn.Inset = layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(12), Right: unit.Dp(12)}
-																return btn.Layout(gtx)
-															})
+													}
+													return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+														layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+															return widgets.SquareBtn(gtx, &t.SearchBtn, widgets.IconSearch, th)
+														}),
+														layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+															return widgets.SquareBtn(gtx, &t.WrapBtn, iconWrap, th)
+														}),
+														layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+															return widgets.SquareBtn(gtx, &t.CopyBtn, iconCopy, th)
+														}),
+													)
+												}),
+												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+													if !stacked {
+														return layout.Dimensions{}
+													}
+													return collapseChevron(gtx, th, &t.RespCollapseBtn, t.RespBodyCollapsed)
+												}),
+											)
+											call := macro.Stop()
+											off := (rowH - fd.Size.Y) / 2
+											if off < 0 {
+												off = 0
+											}
+											st := op.Offset(image.Pt(0, off)).Push(gtx.Ops)
+											call.Add(gtx.Ops)
+											st.Pop()
+											d := layout.Dimensions{Size: image.Pt(fd.Size.X, rowH)}
+											respHdrH += d.Size.Y
+											t.respHeaderH = respHdrH
+											return d
+										}),
+										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+											if stacked && t.RespBodyCollapsed {
+												return layout.Dimensions{}
+											}
+											return wsHLine(gtx)
+										}),
+										layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+											if stacked && t.RespBodyCollapsed {
+												return layout.Dimensions{}
+											}
+											return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+												layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+													return layout.Stack{}.Layout(gtx,
+														layout.Expanded(func(gtx layout.Context) layout.Dimensions {
+															return t.layoutResponseBody(gtx, th, win, isDragging)
+														}),
+														layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+															return t.layoutSearchOverlay(gtx, th, &t.RespSearch)
+														}),
+													)
+												}),
+												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+													loaded := t.previewLoaded.Load()
+													if !t.PreviewEnabled || loaded == 0 || loaded >= t.respSize {
+														return layout.Dimensions{}
+													}
+													return layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+														return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+															remaining := t.respSize - loaded
+															label := "Load more (" + formatSize(remaining) + " remaining)"
+															btn := widgets.MonoButton(th, &t.LoadMoreBtn, label)
+															btn.TextSize = unit.Sp(11)
+															btn.Background = theme.BgLoadMore
+															btn.Inset = layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(12), Right: unit.Dp(12)}
+															return btn.Layout(gtx)
 														})
-													}),
-												)
-											}),
-										)
+													})
+												}),
+											)
+										}),
+									)
 									widgets.PaintBorder1px(gtx, dims.Size, theme.Border)
 									return dims
 								}(gtx)

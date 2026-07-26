@@ -459,10 +459,10 @@ func (t *RequestTab) layoutAuthTypeSelector(gtx layout.Context, th *material.The
 					)
 				})
 				call := macro.Stop()
-				border := widget.Border{Color: theme.Border, CornerRadius: unit.Dp(2), Width: unit.Dp(1)}
+				border := widget.Border{Color: theme.Border, Width: unit.Dp(1)}
 				return border.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					if t.AuthTypeBtn.Hovered() {
-						paint.FillShape(gtx.Ops, theme.BgHover, clip.UniformRRect(image.Rectangle{Max: dim.Size}, gtx.Dp(unit.Dp(2))).Op(gtx.Ops))
+						paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: dim.Size}.Op())
 					}
 					call.Add(gtx.Ops)
 					return dim

@@ -48,11 +48,11 @@ func (s *Section) split(gtx layout.Context) (leftW, handleW, rightW int) {
 	handleW = gtx.Dp(unit.Dp(6))
 
 	clampLeft := func(w int) int {
-		if w > totalW-handleW-280 {
-			w = totalW - handleW - 280
-		}
 		if w < 240 {
 			w = 240
+		}
+		if w > totalW-handleW-280 {
+			w = totalW - handleW - 280
 		}
 		if w < 0 {
 			w = 0
@@ -88,9 +88,15 @@ func (s *Section) split(gtx layout.Context) (leftW, handleW, rightW int) {
 		s.host.Window.Invalidate()
 	}
 
+	if handleW > totalW {
+		handleW = totalW
+	}
 	leftW = leftFromRatio()
 	s.leftDrawn = leftW
 	rightW = totalW - leftW - handleW
+	if rightW < 0 {
+		rightW = 0
+	}
 	return leftW, handleW, rightW
 }
 

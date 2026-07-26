@@ -27,6 +27,7 @@ func Apply(th *material.Theme, s model.AppSettings) {
 		p.Syntax = theme.ApplySyntaxOverride(p.Syntax, ov)
 	}
 	theme.Apply(p)
+	theme.CompactMenus = s.CompactMenus
 	BodyTextSize = unit.Sp(float32(s.BodyTextSize))
 	UserAgent = s.UserAgent
 	if UserAgent == "" {
