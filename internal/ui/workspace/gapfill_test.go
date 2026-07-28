@@ -297,7 +297,7 @@ func TestTextCore_PadAndInvalidateHelpers(t *testing.T) {
 		t.Fatalf("padChunkHeights should grow to %d, got %d", len(v.lineStarts), len(v.chunkHeights))
 	}
 
-	v.wrapPlans = make([]wrapPlan, len(v.lineStarts)+3)
+	v.wrapPlans = make([]*wrapPlan, len(v.lineStarts)+3)
 	v.padWrapPlans()
 	if len(v.wrapPlans) != len(v.lineStarts) {
 		t.Fatalf("padWrapPlans should truncate to %d, got %d", len(v.lineStarts), len(v.wrapPlans))
@@ -309,7 +309,7 @@ func TestTextCore_PadAndInvalidateHelpers(t *testing.T) {
 	}
 
 	for i := range v.wrapPlans {
-		v.wrapPlans[i].valid = true
+		v.wrapPlans[i] = &wrapPlan{valid: true}
 	}
 	v.invalidateWrapPlansFrom(2)
 	if !v.wrapPlans[0].valid || !v.wrapPlans[1].valid {
@@ -322,7 +322,7 @@ func TestTextCore_PadAndInvalidateHelpers(t *testing.T) {
 	}
 
 	for i := range v.wrapPlans {
-		v.wrapPlans[i].valid = true
+		v.wrapPlans[i] = &wrapPlan{valid: true}
 	}
 	v.invalidateWrapPlansFrom(-5)
 	for i := range v.wrapPlans {

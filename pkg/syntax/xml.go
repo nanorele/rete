@@ -11,7 +11,7 @@ func TokenizeXML(src []byte) []Token {
 		if start >= end {
 			return
 		}
-		out = append(out, Token{Start: start, End: end, Kind: kind, Depth: d})
+		out = append(out, Token{Start: int32(start), End: int32(end), Kind: kind, Depth: d})
 	}
 
 	i := 0

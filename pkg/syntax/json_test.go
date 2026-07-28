@@ -54,7 +54,7 @@ func TestTokenizeJSON_BracketDepth(t *testing.T) {
 			got = append(got, struct {
 				offset int
 				depth  uint8
-			}{offset: tok.Start, depth: tok.Depth})
+			}{offset: int(tok.Start), depth: tok.Depth})
 		}
 	}
 	if len(got) != len(wantBrackets) {
@@ -147,7 +147,7 @@ func TestTokenizeJSON_UnicodeStrings(t *testing.T) {
 				t.Errorf("no tokens for %q", src)
 			}
 			for _, tok := range tokens {
-				if tok.Start < 0 || tok.End > len(src) || tok.Start > tok.End {
+				if tok.Start < 0 || int(tok.End) > len(src) || tok.Start > tok.End {
 					t.Errorf("invalid token range [%d,%d) for input %q", tok.Start, tok.End, src)
 				}
 			}

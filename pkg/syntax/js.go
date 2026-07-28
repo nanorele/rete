@@ -16,7 +16,7 @@ func TokenizeJS(src []byte) []Token {
 		if start >= end {
 			return
 		}
-		out = append(out, Token{Start: start, End: end, Kind: kind, Depth: d})
+		out = append(out, Token{Start: int32(start), End: int32(end), Kind: kind, Depth: d})
 		lastKind = kind
 		lastByte = src[end-1]
 		haveLast = true

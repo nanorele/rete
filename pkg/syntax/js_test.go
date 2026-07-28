@@ -10,7 +10,7 @@ func kindOf(t *testing.T, src, sub string) TokenKind {
 	}
 	toks := TokenizeJS([]byte(src))
 	for _, tk := range toks {
-		if tk.Start <= idx && idx < tk.End {
+		if int(tk.Start) <= idx && idx < int(tk.End) {
 			return tk.Kind
 		}
 	}
@@ -166,13 +166,13 @@ func TestJS_NoOverlapAndOrdered(t *testing.T) {
 	toks := TokenizeJS([]byte(src))
 	prev := 0
 	for _, tk := range toks {
-		if tk.Start < prev {
+		if int(tk.Start) < prev {
 			t.Fatalf("tokens overlap/out of order at %d (prev end %d): %+v", tk.Start, prev, tk)
 		}
-		if tk.End < tk.Start || tk.End > len(src) {
+		if tk.End < tk.Start || int(tk.End) > len(src) {
 			t.Fatalf("token out of bounds: %+v (len %d)", tk, len(src))
 		}
-		prev = tk.End
+		prev = int(tk.End)
 	}
 }
 

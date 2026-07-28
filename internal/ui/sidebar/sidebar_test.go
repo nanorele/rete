@@ -13,13 +13,25 @@ import (
 	"tracto/internal/ui/workspace"
 
 	"github.com/nanorele/gio/app"
+	"github.com/nanorele/gio/font/gofont"
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
+	"github.com/nanorele/gio/text"
 	"github.com/nanorele/gio/unit"
 	"github.com/nanorele/gio/widget"
 	"github.com/nanorele/gio/widget/material"
 )
+
+// A bare material.NewTheme has no font collection, so text falls back to the
+// OS fonts and measures zero width on a machine without any installed — which
+// collapses every label-sized hit area and the measured node-name width.
+// Pin the embedded Go fonts so layout matches on every platform.
+func testTheme() *material.Theme {
+	th := material.NewTheme()
+	th.Shaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
+	return th
+}
 
 func makeGtx(w, h int) layout.Context {
 	return layout.Context{
@@ -98,7 +110,7 @@ func newTestHost() (*Host, func()) {
 	sidebarSection := "requests"
 
 	host := &Host{
-		Theme:    material.NewTheme(),
+		Theme:    testTheme(),
 		Window:   &app.Window{},
 		Settings: &model.AppSettings{},
 
@@ -591,7 +603,7 @@ func TestDragChildDropExcludesAncestors(t *testing.T) {
 }
 
 func TestRenderNodeGhost(t *testing.T) {
-	th := material.NewTheme()
+	th := testTheme()
 	gtx := makeGtx(200, 24)
 
 	folder := mkNode("Folder", true)
@@ -610,7 +622,7 @@ func TestRenderNodeGhost(t *testing.T) {
 }
 
 func TestRenderEnvGhost(t *testing.T) {
-	th := material.NewTheme()
+	th := testTheme()
 	gtx := makeGtx(200, 30)
 	env := &environments.EnvironmentUI{
 		Data: &model.ParsedEnvironment{ID: "x", Name: "MyEnv", HighlightColor: "#00ff00"},

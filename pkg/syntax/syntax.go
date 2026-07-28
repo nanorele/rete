@@ -24,7 +24,7 @@ const (
 )
 
 type Token struct {
-	Start, End int
+	Start, End int32
 	Kind       TokenKind
 	Depth      uint8
 }

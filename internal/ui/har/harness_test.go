@@ -12,10 +12,12 @@ import (
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"
+	"github.com/nanorele/gio/font/gofont"
 	"github.com/nanorele/gio/io/input"
 	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
+	"github.com/nanorele/gio/text"
 	"github.com/nanorele/gio/unit"
 	"github.com/nanorele/gio/widget"
 	"github.com/nanorele/gio/widget/material"
@@ -67,8 +69,19 @@ const harNoPagesDoc = `{
   ]}
 }`
 
+// material.NewTheme leaves the shaper without a font collection, so text
+// measurement falls back to whatever fonts the OS happens to expose — zero
+// width on a CI box with no installed fonts, which silently collapses every
+// label-sized hit area. Pin the embedded Go fonts so layout is identical
+// everywhere.
+func testTheme() *material.Theme {
+	th := material.NewTheme()
+	th.Shaper = text.NewShaper(text.NoSystemFonts(), text.WithCollection(gofont.Collection()))
+	return th
+}
+
 func testHost() *Host {
-	return &Host{Theme: material.NewTheme(), Window: new(app.Window)}
+	return &Host{Theme: testTheme(), Window: new(app.Window)}
 }
 
 func testGtx(r *input.Router, sz image.Point, now time.Time) layout.Context {

@@ -30,7 +30,6 @@ import (
 	"github.com/nanorele/gio/op/paint"
 	"github.com/nanorele/gio/text"
 	"github.com/nanorele/gio/unit"
-	"github.com/nanorele/gio/widget"
 	"golang.org/x/image/math/fixed"
 )
 
@@ -643,8 +642,8 @@ func (v *RequestEditor) shiftTokens(from, delta int) {
 	n := len(v.text)
 	w := 0
 	for i := range v.tokens {
-		s := adjustStart(v.tokens[i].Start)
-		e := adjustEnd(v.tokens[i].End)
+		s := adjustStart(int(v.tokens[i].Start))
+		e := adjustEnd(int(v.tokens[i].End))
 		if s < 0 {
 			s = 0
 		}
@@ -661,8 +660,8 @@ func (v *RequestEditor) shiftTokens(from, delta int) {
 			continue
 		}
 		v.tokens[w] = v.tokens[i]
-		v.tokens[w].Start = s
-		v.tokens[w].End = e
+		v.tokens[w].Start = int32(s)
+		v.tokens[w].End = int32(e)
 		w++
 	}
 	v.tokens = v.tokens[:w]
@@ -893,13 +892,6 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		defer padTr.Pop()
 	}
 
-	lbl := widget.Label{}
-	if !s.Wrap {
-		lbl.MaxLines = 1
-	} else {
-		lbl.WrapPolicy = text.WrapGraphemes
-	}
-
 	hasSel := v.selStart != v.selEnd
 	hasHL := v.highlightEnd > v.highlightStart
 
@@ -913,7 +905,7 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		}
 		off := v.coordToByteOffset(gtx, ev.Position.X-pad, ev.Position.Y-pad, charAdv, exactLineH, innerW, s.Wrap)
 		gtx.Execute(key.FocusCmd{Tag: v})
-		clicks := v.resolveClickCount(gtx.Now, ev.Position)
+		clicks := v.resolveClickCount(gtx.Now, ev.Time, ev.Position)
 		switch {
 		case clicks >= 3:
 			v.selStart, v.selEnd = v.sourceLineBoundsAt(off)
@@ -1324,6 +1316,7 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		v.tokensTxt = 0
 	}
 
+	firstLine, accumY = v.firstChunkAtFn(v.scrollY, exactLineH, charAdv, innerW, s.Wrap)
 	yOff := accumY - v.scrollY
 	for line := firstLine; line < len(v.lineStarts); line++ {
 		if yOff >= innerH {
@@ -1344,7 +1337,7 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 					} else {
 						subAbsEnd = end
 					}
-					v.paintChunk(gtx, s, subAbsStart, subAbsEnd, subH, yOff, charAdv, exactLineH, innerW, lineHeight, textColor, lbl, tokenizing, hasHL, hasSel, caretShow)
+					v.paintChunk(gtx, s, subAbsStart, subAbsEnd, subH, yOff, charAdv, exactLineH, innerW, lineHeight, textColor, tokenizing, hasHL, hasSel, caretShow)
 				}
 				yOff += subH
 			}
@@ -1355,7 +1348,11 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		if chunkH == 0 {
 			chunkH = v.estimateChunkHeight(line, exactLineH, charAdv, innerW, s.Wrap)
 		}
-		actualH := v.paintChunk(gtx, s, start, end, chunkH, yOff, charAdv, exactLineH, innerW, lineHeight, textColor, lbl, tokenizing, hasHL, hasSel, caretShow)
+		if yOff+chunkH <= 0 {
+			yOff += chunkH
+			continue
+		}
+		actualH := v.paintChunk(gtx, s, start, end, chunkH, yOff, charAdv, exactLineH, innerW, lineHeight, textColor, tokenizing, hasHL, hasSel, caretShow)
 		v.chunkHeights[line] = actualH
 		yOff += actualH
 	}
@@ -1371,12 +1368,13 @@ func (v *RequestEditor) paintChunk(
 	charAdv fixed.Int26_6,
 	exactLineH, innerW, lineHeight int,
 	textColor op.CallOp,
-	lbl widget.Label,
 	tokenizing bool,
 	hasHL, hasSel, caretShow bool,
 ) int {
+	varScan := len(v.text) <= requestEditorVarScanCutoff
+
 	var glyphs []widgets.WrapGlyph
-	if s.Wrap && absEnd > absStart {
+	if s.Wrap && absEnd > absStart && v.needsEditorChunkGlyphs(absStart, absEnd, hasHL, hasSel, caretShow, varScan) {
 		glyphs = widgets.ShapeChunkForWrap(s.Shaper, s.Font, s.TextSize, gtx, v.text[absStart:absEnd], innerW)
 	}
 
@@ -1408,11 +1406,16 @@ func (v *RequestEditor) paintChunk(
 		}
 	}
 
-	if len(v.text) <= requestEditorVarScanCutoff {
+	if varScan {
 		v.paintVarHighlights(gtx, absStart, absEnd, yOff, charAdv, exactLineH, s.Wrap, innerW, s.Env, glyphs)
 	}
 
-	tr := op.Offset(image.Pt(-v.scrollX, yOff)).Push(gtx.Ops)
+	paintStart, paintEnd, xOff, totalCols := absStart, absEnd, 0, 0
+	if !s.Wrap {
+		paintStart, paintEnd, xOff, totalCols = v.noWrapPaintWindow(absStart, absEnd, innerW, charAdv)
+	}
+
+	tr := op.Offset(image.Pt(xOff-v.scrollX, yOff)).Push(gtx.Ops)
 	labelGtx := gtx
 	labelGtx.Constraints.Min = image.Point{}
 	if s.Wrap {
@@ -1421,21 +1424,27 @@ func (v *RequestEditor) paintChunk(
 		labelGtx.Constraints.Max.X = 1 << 24
 	}
 	labelGtx.Constraints.Max.Y = 1 << 24
-	chunkText := string(v.text[absStart:absEnd])
+	chunkText := string(v.text[paintStart:paintEnd])
 	var dims layout.Dimensions
 	if tokenizing && len(v.tokens) > 0 {
-		spans := v.spansForChunk(absStart, absEnd, s.Syntax, s.BracketCycle)
-		if len(v.text) <= requestEditorVarScanCutoff {
-			spans = clipSpansToVars(spans, v.text[absStart:absEnd])
+		spans := v.spansForChunk(paintStart, paintEnd, s.Syntax, s.BracketCycle)
+		if varScan {
+			spans = clipSpansToVars(spans, v.text[paintStart:paintEnd])
 		}
 		dims = widgets.PaintColoredText(labelGtx, s.Shaper, s.Font, s.TextSize, chunkText, spans, s.Color, s.Wrap, innerW)
 	} else {
-		dims = lbl.Layout(labelGtx, s.Shaper, s.Font, s.TextSize, chunkText, textColor)
+		dims = widgets.PaintColoredText(labelGtx, s.Shaper, s.Font, s.TextSize, chunkText, nil, s.Color, s.Wrap, innerW)
 	}
 	tr.Pop()
 
-	if !s.Wrap && dims.Size.X > v.maxLineWidth {
-		v.maxLineWidth = dims.Size.X
+	if !s.Wrap {
+		lineW := dims.Size.X + xOff
+		if totalCols > 0 {
+			lineW = colPx(charAdv, totalCols)
+		}
+		if lineW > v.maxLineWidth {
+			v.maxLineWidth = lineW
+		}
 	}
 
 	actualH := dims.Size.Y
@@ -1444,6 +1453,18 @@ func (v *RequestEditor) paintChunk(
 	}
 	return actualH
 }
+
+func (v *RequestEditor) needsEditorChunkGlyphs(chunkStart, chunkEnd int, hasHL, hasSel, caretShow, varScan bool) bool {
+	if caretShow && v.selEnd >= chunkStart && v.selEnd <= chunkEnd {
+		return true
+	}
+	if varScan && bytes.Contains(v.text[chunkStart:chunkEnd], twoBraces) {
+		return true
+	}
+	return v.needsChunkGlyphs(chunkStart, chunkEnd, hasHL, hasSel)
+}
+
+var twoBraces = []byte("{{")
 
 type requestVarClickTag struct {
 	ed    *RequestEditor
@@ -1594,12 +1615,7 @@ func bytesIndex(b []byte, sub string) int {
 }
 
 func bytesContainsTwoBraces(b []byte) bool {
-	for i := 0; i+1 < len(b); i++ {
-		if b[i] == '{' && b[i+1] == '{' {
-			return true
-		}
-	}
-	return false
+	return bytes.Contains(b, twoBraces)
 }
 
 func (v *RequestEditor) paintCaret(

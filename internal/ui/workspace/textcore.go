@@ -31,7 +31,7 @@ type textCore struct {
 	chunkHeightsWrap  bool
 	chunkHeightsWidth int
 
-	wrapPlans []wrapPlan
+	wrapPlans []*wrapPlan
 
 	scrollY int
 	scrollX int
@@ -47,9 +47,10 @@ type textCore struct {
 	selEnd     int
 	dragActive bool
 
-	lastClickTime time.Time
-	lastClickPos  image.Point
-	multiClickN   int
+	lastClickTime   time.Time
+	lastClickEvTime time.Duration
+	lastClickPos    image.Point
+	multiClickN     int
 
 	Scroller  gesture.Scroll
 	ScrollerH gesture.Scroll
@@ -75,6 +76,103 @@ type textCore struct {
 	layoutFont   font.Font
 	layoutSize   unit.Sp
 	layoutInnerW int
+
+	noWrapCache colCache
+	wrapScratch []int
+}
+
+type colCache struct {
+	start   int
+	end     int
+	textLen int
+	runes   int
+	col     int
+	byteOff int
+	valid   bool
+}
+
+func colPx(advance fixed.Int26_6, col int) int {
+	return int((int64(advance)*int64(col) + 32) >> 6)
+}
+
+func colAtPx(advance fixed.Int26_6, px int) int {
+	if advance <= 0 {
+		return 0
+	}
+	return int(int64(px) << 6 / int64(advance))
+}
+
+func (v *textCore) noWrapPaintWindow(
+	chunkStart, chunkEnd, innerW int,
+	advance fixed.Int26_6,
+) (paintStart, paintEnd, xOff, totalCols int) {
+	if advance <= 0 || innerW <= 0 || chunkEnd-chunkStart <= longLineThresholdBytes {
+		return chunkStart, chunkEnd, 0, 0
+	}
+	c := &v.noWrapCache
+	if !c.valid || c.start != chunkStart || c.end != chunkEnd || c.textLen != len(v.text) {
+		*c = colCache{
+			start:   chunkStart,
+			end:     chunkEnd,
+			textLen: len(v.text),
+			runes:   utf8.RuneCount(v.text[chunkStart:chunkEnd]),
+			valid:   true,
+		}
+	}
+	txt := v.text[chunkStart:chunkEnd]
+	firstCol := colAtPx(advance, v.scrollX)
+	if firstCol > c.runes {
+		firstCol = c.runes
+	}
+	lastCol := firstCol + colAtPx(advance, innerW) + 2
+	if lastCol > c.runes {
+		lastCol = c.runes
+	}
+	if firstCol < c.col {
+		c.col, c.byteOff = 0, 0
+	}
+	off, n := c.byteOff, c.col
+	for n < firstCol && off < len(txt) {
+		_, sz := utf8.DecodeRune(txt[off:])
+		if sz < 1 {
+			sz = 1
+		}
+		off += sz
+		n++
+	}
+	c.col, c.byteOff = n, off
+	end, m := off, n
+	for m < lastCol && end < len(txt) {
+		_, sz := utf8.DecodeRune(txt[end:])
+		if sz < 1 {
+			sz = 1
+		}
+		end += sz
+		m++
+	}
+	return chunkStart + off, chunkStart + end, colPx(advance, firstCol), c.runes
+}
+
+func (v *textCore) needsChunkGlyphs(chunkStart, chunkEnd int, hasHL, hasSel bool) bool {
+	if hasHL && v.highlightEnd > chunkStart && v.highlightStart < chunkEnd {
+		return true
+	}
+	if hasSel {
+		s, e := v.selStart, v.selEnd
+		if s > e {
+			s, e = e, s
+		}
+		if e > chunkStart && s < chunkEnd {
+			return true
+		}
+	}
+	if len(v.searchSpans) > 0 {
+		i := sort.Search(len(v.searchSpans), func(i int) bool { return v.searchSpans[i].end > chunkStart })
+		if i < len(v.searchSpans) && v.searchSpans[i].start < chunkEnd {
+			return true
+		}
+	}
+	return false
 }
 
 func (v *textCore) spansForChunk(chunkStart, chunkEnd int, sp theme.SyntaxPalette, bracketCycle bool) []widgets.ColoredSpan {
@@ -82,18 +180,18 @@ func (v *textCore) spansForChunk(chunkStart, chunkEnd int, sp theme.SyntaxPalett
 		return nil
 	}
 	first := sort.Search(len(v.tokens), func(i int) bool {
-		return v.tokens[i].End > chunkStart
+		return int(v.tokens[i].End) > chunkStart
 	})
-	if first >= len(v.tokens) || v.tokens[first].Start >= chunkEnd {
+	if first >= len(v.tokens) || int(v.tokens[first].Start) >= chunkEnd {
 		return nil
 	}
 	out := make([]widgets.ColoredSpan, 0, 16)
 	for i := first; i < len(v.tokens); i++ {
 		t := v.tokens[i]
-		if t.Start >= chunkEnd {
+		if int(t.Start) >= chunkEnd {
 			break
 		}
-		s, e := t.Start, t.End
+		s, e := int(t.Start), int(t.End)
 		if s < chunkStart {
 			s = chunkStart
 		}
@@ -152,7 +250,7 @@ func clipSpansToVars(spans []widgets.ColoredSpan, chunk []byte) []widgets.Colore
 	return res
 }
 
-func (v *textCore) resolveClickCount(now time.Time, pos image.Point) int {
+func (v *textCore) resolveClickCount(now time.Time, evTime time.Duration, pos image.Point) int {
 	const interval = 500 * time.Millisecond
 	const slop = 5
 	dx := pos.X - v.lastClickPos.X
@@ -163,12 +261,20 @@ func (v *textCore) resolveClickCount(now time.Time, pos image.Point) int {
 	if dy < 0 {
 		dy = -dy
 	}
-	if !v.lastClickTime.IsZero() && now.Sub(v.lastClickTime) <= interval && dx <= slop && dy <= slop {
+	var within bool
+	if evTime != 0 && v.lastClickEvTime != 0 {
+		d := evTime - v.lastClickEvTime
+		within = d >= 0 && d <= interval
+	} else {
+		within = !v.lastClickTime.IsZero() && now.Sub(v.lastClickTime) <= interval
+	}
+	if within && dx <= slop && dy <= slop {
 		v.multiClickN++
 	} else {
 		v.multiClickN = 1
 	}
 	v.lastClickTime = now
+	v.lastClickEvTime = evTime
 	v.lastClickPos = pos
 	return v.multiClickN
 }
@@ -205,7 +311,7 @@ func (v *textCore) padChunkHeights() {
 
 func (v *textCore) padWrapPlans() {
 	for len(v.wrapPlans) < len(v.lineStarts) {
-		v.wrapPlans = append(v.wrapPlans, wrapPlan{})
+		v.wrapPlans = append(v.wrapPlans, nil)
 	}
 	if len(v.wrapPlans) > len(v.lineStarts) {
 		v.wrapPlans = v.wrapPlans[:len(v.lineStarts)]
@@ -217,13 +323,17 @@ func (v *textCore) invalidateWrapPlansFrom(line int) {
 		line = 0
 	}
 	for i := line; i < len(v.wrapPlans); i++ {
-		v.wrapPlans[i].valid = false
+		if v.wrapPlans[i] != nil {
+			v.wrapPlans[i].valid = false
+		}
 	}
 }
 
 func (v *textCore) invalidateAllWrapPlans() {
 	for i := range v.wrapPlans {
-		v.wrapPlans[i].valid = false
+		if v.wrapPlans[i] != nil {
+			v.wrapPlans[i].valid = false
+		}
 	}
 }
 
@@ -235,37 +345,169 @@ func (v *textCore) ensureWrapPlan(
 	gtx layout.Context,
 	innerW, lineHeight int,
 ) *wrapPlan {
-	p := &v.wrapPlans[line]
+	if v.wrapPlans[line] == nil {
+		v.wrapPlans[line] = &wrapPlan{}
+	}
+	p := v.wrapPlans[line]
 	if p.valid && p.width == innerW && p.lineH == lineHeight {
 		return p
 	}
-	glyphs := widgets.ShapeChunkForWrap(shaper, fnt, size, gtx, v.text[absStart:absEnd], innerW)
-	points := widgets.WrapLineStarts(glyphs)
-	totalSubLines := len(points)
-	if totalSubLines < 1 {
-		totalSubLines = 1
+	p.starts = p.starts[:0]
+	p.subLines = p.subLines[:0]
+
+	totalSubLines := 0
+	pending := 0
+	pos := absStart
+	for pos < absEnd {
+		winEnd := pos + wrapShapeWindowBytes
+		if winEnd >= absEnd {
+			winEnd = absEnd
+		} else {
+			winEnd = runeBoundaryAt(v.text, winEnd)
+		}
+		points := widgets.WrapLineStartsFor(shaper, fnt, size, gtx, v.text[pos:winEnd], innerW, v.wrapScratch)
+		v.wrapScratch = points
+
+		emit := len(points)
+		nextPos := winEnd
+		if winEnd < absEnd && emit > 1 {
+			if adv := pos + points[emit-1]; adv > pos {
+				emit--
+				nextPos = adv
+			}
+		}
+		for i := 0; i < emit; i++ {
+			if pending == 0 {
+				p.starts = append(p.starts, pos+points[i]-absStart)
+				p.subLines = append(p.subLines, 0)
+			}
+			pending++
+			p.subLines[len(p.subLines)-1] = pending
+			totalSubLines++
+			if pending == subLinesPerWrapChunk {
+				pending = 0
+			}
+		}
+		if nextPos <= pos {
+			break
+		}
+		pos = nextPos
 	}
 
-	if totalSubLines <= subLinesPerWrapChunk {
+	if totalSubLines < 1 {
+		totalSubLines = 1
 		p.starts = append(p.starts[:0], 0)
-		p.subLines = append(p.subLines[:0], totalSubLines)
-	} else {
-		p.starts = p.starts[:0]
-		p.subLines = p.subLines[:0]
-		for i := 0; i < totalSubLines; i += subLinesPerWrapChunk {
-			p.starts = append(p.starts, points[i])
-			end := i + subLinesPerWrapChunk
-			if end > totalSubLines {
-				end = totalSubLines
-			}
-			p.subLines = append(p.subLines, end-i)
-		}
+		p.subLines = append(p.subLines[:0], 1)
 	}
 	p.height = totalSubLines * lineHeight
 	p.width = innerW
 	p.lineH = lineHeight
 	p.valid = true
 	return p
+}
+
+func runeBoundaryAt(text []byte, i int) int {
+	if i >= len(text) {
+		return len(text)
+	}
+	for i > 0 && !utf8.RuneStart(text[i]) {
+		i--
+	}
+	return i
+}
+
+func (v *textCore) wrapPlanFor(line, chunkStart, chunkEnd int, gtx layout.Context, viewportW, lineH int) *wrapPlan {
+	if chunkEnd-chunkStart < longLineThresholdBytes || line < 0 || line >= len(v.wrapPlans) || lineH <= 0 {
+		return nil
+	}
+	p := v.ensureWrapPlan(line, chunkStart, chunkEnd, v.layoutShaper, v.layoutFont, v.layoutSize, gtx, viewportW, lineH)
+	if len(p.starts) == 0 {
+		return nil
+	}
+	return p
+}
+
+func planSubForWrapLine(p *wrapPlan, wrapLine int) (int, int) {
+	sub0 := 0
+	for i, n := range p.subLines {
+		if wrapLine < sub0+n {
+			return i, sub0
+		}
+		if i < len(p.subLines)-1 {
+			sub0 += n
+		}
+	}
+	return len(p.starts) - 1, sub0
+}
+
+func planSubForByte(p *wrapPlan, rel int) (int, int) {
+	subIdx := 0
+	for i := 1; i < len(p.starts); i++ {
+		if p.starts[i] > rel {
+			break
+		}
+		subIdx = i
+	}
+	sub0 := 0
+	for i := 0; i < subIdx; i++ {
+		sub0 += p.subLines[i]
+	}
+	return subIdx, sub0
+}
+
+func planSubBounds(p *wrapPlan, subIdx, chunkStart, chunkEnd int) (int, int) {
+	subStart := chunkStart + p.starts[subIdx]
+	subEnd := chunkEnd
+	if subIdx+1 < len(p.starts) {
+		subEnd = chunkStart + p.starts[subIdx+1]
+	}
+	return subStart, subEnd
+}
+
+func planTotalSubLines(p *wrapPlan) int {
+	total := 0
+	for _, n := range p.subLines {
+		total += n
+	}
+	if total < 1 {
+		total = 1
+	}
+	return total
+}
+
+func (v *textCore) wrapCaretXY(line, chunkStart, chunkEnd, off int, gtx layout.Context, viewportW int) (int, int) {
+	rel := off - chunkStart
+	if rel < 0 {
+		rel = 0
+	}
+	if plan := v.wrapPlanFor(line, chunkStart, chunkEnd, gtx, viewportW, v.lastLineHeight); plan != nil {
+		subIdx, sub0 := planSubForByte(plan, rel)
+		subStart, subEnd := planSubBounds(plan, subIdx, chunkStart, chunkEnd)
+		glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, v.text[subStart:subEnd], viewportW)
+		x, sl := widgets.CaretXYInWrap(glyphs, rel-plan.starts[subIdx])
+		return x, sub0 + sl
+	}
+	glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, v.text[chunkStart:chunkEnd], viewportW)
+	return widgets.CaretXYInWrap(glyphs, rel)
+}
+
+func (v *textCore) wrapByteAt(line, chunkStart, chunkEnd, prefX, wrapLine int, gtx layout.Context, viewportW int) int {
+	if plan := v.wrapPlanFor(line, chunkStart, chunkEnd, gtx, viewportW, v.lastLineHeight); plan != nil {
+		subIdx, sub0 := planSubForWrapLine(plan, wrapLine)
+		subStart, subEnd := planSubBounds(plan, subIdx, chunkStart, chunkEnd)
+		glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, v.text[subStart:subEnd], viewportW)
+		return subStart + widgets.ByteOffInWrap(glyphs, prefX, wrapLine-sub0)
+	}
+	glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, v.text[chunkStart:chunkEnd], viewportW)
+	return chunkStart + widgets.ByteOffInWrap(glyphs, prefX, wrapLine)
+}
+
+func (v *textCore) wrapMaxLineOf(line, chunkStart, chunkEnd int, gtx layout.Context, viewportW int) int {
+	if plan := v.wrapPlanFor(line, chunkStart, chunkEnd, gtx, viewportW, v.lastLineHeight); plan != nil {
+		return planTotalSubLines(plan) - 1
+	}
+	glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, v.text[chunkStart:chunkEnd], viewportW)
+	return widgets.WrapMaxLine(glyphs)
 }
 
 func (v *textCore) Text() string { return string(v.text) }
@@ -472,6 +714,12 @@ func (v *textCore) coordToByteOffset(
 	clickX := posX
 	if clickX < 0 {
 		clickX = 0
+	}
+	if plan := v.wrapPlanFor(chunkIdx, chunkStart, chunkEnd, gtx, viewportW, exactLineH); plan != nil {
+		subIdx, sub0 := planSubForWrapLine(plan, wrapLine)
+		subStart, subEnd := planSubBounds(plan, subIdx, chunkStart, chunkEnd)
+		glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, v.text[subStart:subEnd], viewportW)
+		return subStart + widgets.ByteOffInWrap(glyphs, clickX, wrapLine-sub0)
 	}
 	glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, chunkText, viewportW)
 	return chunkStart + widgets.ByteOffInWrap(glyphs, clickX, wrapLine)
@@ -760,47 +1008,35 @@ func (v *textCore) lineDown(off, col int) int {
 func (v *textCore) visualXAt(off int, gtx layout.Context, viewportW int) int {
 	line := v.lineForByteOffset(off)
 	chunkStart, chunkEnd := v.lineBounds(line)
-	chunkText := v.text[chunkStart:chunkEnd]
-	inChunkByte := off - chunkStart
-	if inChunkByte < 0 {
-		inChunkByte = 0
-	}
-	glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, chunkText, viewportW)
-	x, _ := widgets.CaretXYInWrap(glyphs, inChunkByte)
+	x, _ := v.wrapCaretXY(line, chunkStart, chunkEnd, off, gtx, viewportW)
 	return x
 }
 
 func (v *textCore) wrapLineMoveX(off, prefX, dir int, gtx layout.Context, viewportW int) int {
 	line := v.lineForByteOffset(off)
 	chunkStart, chunkEnd := v.lineBounds(line)
-	chunkText := v.text[chunkStart:chunkEnd]
-	glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, chunkText, viewportW)
-	_, subLine := widgets.CaretXYInWrap(glyphs, off-chunkStart)
-	maxSub := widgets.WrapMaxLine(glyphs)
+	_, subLine := v.wrapCaretXY(line, chunkStart, chunkEnd, off, gtx, viewportW)
+	maxSub := v.wrapMaxLineOf(line, chunkStart, chunkEnd, gtx, viewportW)
 
 	if dir < 0 {
 		if subLine > 0 {
-			return chunkStart + widgets.ByteOffInWrap(glyphs, prefX, subLine-1)
+			return v.wrapByteAt(line, chunkStart, chunkEnd, prefX, subLine-1, gtx, viewportW)
 		}
 		if line == 0 {
 			return 0
 		}
 		prevStart, prevEnd := v.lineBounds(line - 1)
-		prevText := v.text[prevStart:prevEnd]
-		prevGlyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, prevText, viewportW)
-		lastSub := widgets.WrapMaxLine(prevGlyphs)
-		return prevStart + widgets.ByteOffInWrap(prevGlyphs, prefX, lastSub)
+		lastSub := v.wrapMaxLineOf(line-1, prevStart, prevEnd, gtx, viewportW)
+		return v.wrapByteAt(line-1, prevStart, prevEnd, prefX, lastSub, gtx, viewportW)
 	}
 	if subLine < maxSub {
-		return chunkStart + widgets.ByteOffInWrap(glyphs, prefX, subLine+1)
+		return v.wrapByteAt(line, chunkStart, chunkEnd, prefX, subLine+1, gtx, viewportW)
 	}
 	if line+1 >= len(v.lineStarts) {
 		return len(v.text)
 	}
 	nextStart, nextEnd := v.lineBounds(line + 1)
-	nextText := v.text[nextStart:nextEnd]
-	nextGlyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, nextText, viewportW)
-	return nextStart + widgets.ByteOffInWrap(nextGlyphs, prefX, 0)
+	return v.wrapByteAt(line+1, nextStart, nextEnd, prefX, 0, gtx, viewportW)
 }
 
 func (v *textCore) ensureCaretVisible() {

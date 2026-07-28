@@ -21,7 +21,7 @@ func runNoHang(t *testing.T, name string, fn func()) {
 func validateTokens(t *testing.T, src []byte, toks []Token) {
 	t.Helper()
 	for i, tok := range toks {
-		if tok.Start < 0 || tok.End > len(src) || tok.Start > tok.End {
+		if tok.Start < 0 || int(tok.End) > len(src) || tok.Start > tok.End {
 			t.Errorf("invalid range tokens[%d]=%+v len(src)=%d", i, tok, len(src))
 		}
 	}
@@ -109,7 +109,7 @@ func TestTokenizeJSON_UnknownByteEmitsTokPlain(t *testing.T) {
 	toks := TokenizeJSON(src)
 	found := false
 	for _, tok := range toks {
-		if tok.Kind == TokPlain && tok.Start >= 0 && tok.End <= len(src) && tok.End > tok.Start {
+		if tok.Kind == TokPlain && tok.Start >= 0 && int(tok.End) <= len(src) && tok.End > tok.Start {
 			found = true
 		}
 	}
