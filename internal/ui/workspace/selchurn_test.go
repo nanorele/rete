@@ -57,6 +57,9 @@ func genMinifiedJSON(n int) string {
 // run-to-run noise does not. TotalAlloc per frame is deterministic, unlike
 // frame time, so this is safe for CI.
 func TestSelectionChurn(t *testing.T) {
+	if raceDetectorEnabled {
+		t.Skip("allocation budgets are not comparable under -race: instrumentation blocks inlining and pushes otherwise stack-local values onto the heap (2-4x the plain numbers)")
+	}
 	prevMax := settings.SyntaxHighlightMaxMB
 	settings.SyntaxHighlightMaxMB = 200
 	defer func() { settings.SyntaxHighlightMaxMB = prevMax }()

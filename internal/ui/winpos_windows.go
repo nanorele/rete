@@ -15,6 +15,7 @@ var (
 	procGetWindowRect   = modUser32.NewProc("GetWindowRect")
 	procSetWindowPos    = modUser32.NewProc("SetWindowPos")
 	procMonitorFromRect = modUser32.NewProc("MonitorFromRect")
+	procIsWindowVisible = modUser32.NewProc("IsWindowVisible")
 )
 
 const (
@@ -34,6 +35,14 @@ func windowHandleFromEvent(e event.Event) (uintptr, bool) {
 		return 0, false
 	}
 	return ve.HWND, true
+}
+
+func windowVisible(hwnd uintptr) bool {
+	if hwnd == 0 {
+		return false
+	}
+	ret, _, _ := procIsWindowVisible.Call(hwnd)
+	return ret != 0
 }
 
 func windowRect(hwnd uintptr) (win32Rect, bool) {

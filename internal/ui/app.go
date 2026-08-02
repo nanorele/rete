@@ -198,6 +198,7 @@ type AppUI struct {
 	winXPx    int
 	winYPx    int
 	winPosSet bool
+	winShown  bool
 
 	VarPopup varpopup.State
 
@@ -669,11 +670,13 @@ func (ui *AppUI) Run() error {
 			ui.saveStateSync()
 			return e.Err
 		case app.ConfigEvent:
-			if e.Config.Mode != ui.winMode {
-				ui.winMode = e.Config.Mode
-				ui.saveState()
+			if ui.windowShown() {
+				if e.Config.Mode != ui.winMode {
+					ui.winMode = e.Config.Mode
+					ui.saveState()
+				}
 			}
-			ui.TitleBar.Maximized = e.Config.Mode == app.Maximized || e.Config.Mode == app.Fullscreen
+			ui.TitleBar.Maximized = ui.winMode == app.Maximized || ui.winMode == app.Fullscreen
 			ui.Window.Invalidate()
 		case app.FrameEvent:
 			if !ui.windowPlaced {
@@ -683,7 +686,7 @@ func (ui *AppUI) Run() error {
 				}
 			}
 
-			if ui.winMode == app.Windowed && e.Metric.PxPerDp > 0 && e.Size.X > 0 && e.Size.Y > 0 {
+			if ui.windowShown() && ui.winMode == app.Windowed && e.Metric.PxPerDp > 0 && e.Size.X > 0 && e.Size.Y > 0 {
 				wDp := int(float32(e.Size.X) / e.Metric.PxPerDp)
 				hDp := int(float32(e.Size.Y) / e.Metric.PxPerDp)
 				if wDp > 0 && hDp > 0 && (wDp != ui.winWDp || hDp != ui.winHDp) {
@@ -1206,8 +1209,15 @@ func (ui *AppUI) restoreWindowPos() bool {
 	return moved
 }
 
+func (ui *AppUI) windowShown() bool {
+	if !ui.winShown && windowVisible(ui.winHWND) {
+		ui.winShown = true
+	}
+	return ui.winShown
+}
+
 func (ui *AppUI) trackWindowPos() {
-	if ui.winHWND == 0 || ui.winMode != app.Windowed {
+	if !ui.windowShown() || ui.winHWND == 0 || ui.winMode != app.Windowed {
 		return
 	}
 	x, y, ok := windowPosition(ui.winHWND)
