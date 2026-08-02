@@ -22,7 +22,33 @@ type Resource struct {
 	MimeType   string
 	Method     string
 	Status     int
-	Body       []byte
+
+	// Body holds the content of a resource assembled by hand. Resources built
+	// from an archive leave it nil and decode through [Resource.Bytes]
+	// instead: an archive yields one resource per entry, so keeping a decoded
+	// copy of each doubled the memory a loaded HAR needs.
+	Body []byte
+	// Size is the decoded length, known without materialising the body.
+	Size int
+
+	entry *Entry
+	ws    bool
+}
+
+// Bytes returns the resource content, decoding it from the source entry when
+// the resource was built from an archive.
+func (r Resource) Bytes() []byte {
+	if r.Body != nil || r.entry == nil {
+		return r.Body
+	}
+	if r.ws {
+		return WSTranscript(r.entry)
+	}
+	body, _, err := r.entry.DecodeBody()
+	if err != nil {
+		return []byte(r.entry.Response.Content.Text)
+	}
+	return body
 }
 
 func (e Entry) DecodeBody() ([]byte, bool, error) {
@@ -122,12 +148,15 @@ func hostOf(rawURL string) string {
 }
 
 func (e *Entry) bodyResource(i int) (Resource, bool) {
-	body, present, err := e.DecodeBody()
-	if !present {
+	text := e.Response.Content.Text
+	if text == "" {
 		return Resource{}, false
 	}
-	if err != nil {
-		body = []byte(e.Response.Content.Text)
+	size := len(text)
+	if strings.EqualFold(e.Response.Content.Encoding, "base64") {
+		if n, ok := base64DecodedSize(text); ok {
+			size = n
+		}
 	}
 	return Resource{
 		EntryIndex: i,
@@ -137,8 +166,36 @@ func (e *Entry) bodyResource(i int) (Resource, bool) {
 		MimeType:   e.ContentType(),
 		Method:     e.Request.Method,
 		Status:     e.Response.Status,
-		Body:       body,
+		Size:       size,
+		entry:      e,
 	}, true
+}
+
+// base64DecodedSize counts the decoded length without decoding: the count of
+// alphabet characters determines it, and inputs [Entry.DecodeBody] would
+// reject are reported as not base64 so Size falls back to the raw length.
+func base64DecodedSize(text string) (int, bool) {
+	n, pad := 0, 0
+	for i := 0; i < len(text); i++ {
+		c := text[i]
+		switch {
+		case c == '\r' || c == '\n':
+		case c == '=':
+			n++
+			pad++
+		case pad > 0:
+			return 0, false
+		case c >= 'A' && c <= 'Z', c >= 'a' && c <= 'z',
+			c >= '0' && c <= '9', c == '+', c == '/':
+			n++
+		default:
+			return 0, false
+		}
+	}
+	if n%4 != 0 || pad > 2 {
+		return 0, false
+	}
+	return n/4*3 - pad, true
 }
 
 func (e *Entry) wsResource(i int) (Resource, bool) {
@@ -153,7 +210,9 @@ func (e *Entry) wsResource(i int) (Resource, bool) {
 		MimeType:   "text/plain",
 		Method:     "WS",
 		Status:     e.Response.Status,
-		Body:       WSTranscript(e),
+		Size:       len(WSTranscript(e)),
+		entry:      e,
+		ws:         true,
 	}, true
 }
 
@@ -229,7 +288,7 @@ func WriteZip(w io.Writer, resources []Resource) (int, error) {
 		if err != nil {
 			continue
 		}
-		if _, err := f.Write(r.Body); err != nil {
+		if _, err := f.Write(r.Bytes()); err != nil {
 			continue
 		}
 		written++
@@ -255,7 +314,7 @@ func WriteDir(dir string, resources []Resource, mkdirAll func(string) error, wri
 		if err := mkdirAll(filepath.Dir(full)); err != nil {
 			continue
 		}
-		if err := writeFile(full, r.Body); err != nil {
+		if err := writeFile(full, r.Bytes()); err != nil {
 			continue
 		}
 		written++

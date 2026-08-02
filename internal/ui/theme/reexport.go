@@ -16,6 +16,8 @@ var (
 	Mix               = pkgtheme.Mix
 	WithAlpha         = pkgtheme.WithAlpha
 	RelLuminance      = pkgtheme.RelLuminance
+	SearchFill        = pkgtheme.SearchFill
+	GreyAt            = pkgtheme.GreyAt
 	ContrastRatio     = pkgtheme.ContrastRatio
 	ContrastOn        = pkgtheme.ContrastOn
 	BestTextOn        = pkgtheme.BestTextOn

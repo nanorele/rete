@@ -187,18 +187,23 @@ func (s *UIState) sidebarEvents(gtx layout.Context) {
 	// Accordion section headers.
 	for s.SecTargetsHdr.Clicked(gtx) {
 		s.SecTargetsOpen = !s.SecTargetsOpen
+		s.MarkDirty()
 	}
 	for s.SecTLSHdr.Clicked(gtx) {
 		s.SecTLSOpen = !s.SecTLSOpen
+		s.MarkDirty()
 	}
 	for s.SecIRulesHdr.Clicked(gtx) {
 		s.SecIRulesOpen = !s.SecIRulesOpen
+		s.MarkDirty()
 	}
 	for s.SecMRHdr.Clicked(gtx) {
 		s.SecMROpen = !s.SecMROpen
+		s.MarkDirty()
 	}
 	for s.SecScopeHdr.Clicked(gtx) {
 		s.SecScopeOpen = !s.SecScopeOpen
+		s.MarkDirty()
 	}
 
 	s.handleCAEvents(gtx)

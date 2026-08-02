@@ -15,6 +15,7 @@ import (
 	"github.com/nanorele/gio/op/clip"
 	"github.com/nanorele/gio/unit"
 	"github.com/nanorele/gio/widget/material"
+	"golang.org/x/image/math/fixed"
 
 	"compress/flate"
 	"compress/gzip"
@@ -358,9 +359,9 @@ func TestTextCore_SpansForChunk(t *testing.T) {
 	var v RequestEditor
 	v.SetText("abcdefghij")
 	v.tokens = []syntax.Token{
-		{Start: 0, End: 3},
-		{Start: 3, End: 6},
-		{Start: 6, End: 10},
+		{Start: 0, Len: 3},
+		{Start: 3, Len: 3},
+		{Start: 6, Len: 4},
 	}
 	pal := theme.Syntax
 
@@ -414,22 +415,27 @@ func TestEditor_SetCaretClampsAndScrolls(t *testing.T) {
 		t.Errorf("offsets past the end must clamp to len, got (%d,%d) len=%d", s, e, v.Len())
 	}
 
+	reveal := func(lineH, innerH int) {
+		v.applyReveal(layout.Context{}, fixed.I(8), lineH, 200, innerH, false)
+	}
+
 	v.scrollY = 999
-	v.lastLineHeight = 0
 	v.SetCaret(10, 10)
+	reveal(0, 100)
 	if v.scrollY != 999 {
 		t.Error("with no measured line height the viewport must not move")
 	}
 
-	v.lastLineHeight = 20
 	v.lastViewportH = 100
 	v.SetCaret(v.Len(), v.Len())
+	reveal(20, 100)
 	if v.scrollY <= 0 {
 		t.Errorf("scrolling to the end should produce a positive offset, got %d", v.scrollY)
 	}
 
 	v.lastViewportH = 0
 	v.SetCaret(0, 0)
+	reveal(20, 0)
 	if v.scrollY != 0 {
 		t.Errorf("scrolling to offset 0 should land at 0, got %d", v.scrollY)
 	}

@@ -42,6 +42,10 @@ func TabFromState(ts persist.TabState) *RequestTab {
 	if ts.HeaderSplitRatio >= 1 {
 		rt.HeaderKeyW = ts.HeaderSplitRatio
 	}
+	rt.ReqBodyCollapsed = ts.ReqCollapsed
+	rt.RespBodyCollapsed = ts.RespCollapsed
+	rt.reqRatioSaved = ts.ReqRatioSaved
+	rt.respRatioSaved = ts.RespRatioSaved
 	if ts.ReqWrapEnabled != nil {
 		rt.ReqWrapEnabled = *ts.ReqWrapEnabled
 	}
@@ -112,6 +116,11 @@ func TabFromState(ts persist.TabState) *RequestTab {
 		if ts.WS.ComposerRatio > 0 {
 			ws.ComposerRatio = ts.WS.ComposerRatio
 		}
+		ws.HeadersCollapsed = ts.WS.HeadersCollapsed
+		ws.ComposeCollapsed = ts.WS.ComposeCollapsed
+		ws.MessagesCollapsed = ts.WS.MessagesCollapsed
+		ws.composeSavedRatio = ts.WS.ComposeSavedRatio
+		ws.msgsSavedRatio = ts.WS.MsgsSavedRatio
 		for _, s := range ts.WS.SavedSends {
 			ws.AppendSavedSend(s.Name, s.Text, opcodeFromString(s.Opcode))
 		}
@@ -149,6 +158,10 @@ func StateFromTab(rt *RequestTab) persist.TabState {
 		HeaderSplitRatio: rt.HeaderKeyW,
 		HeadersExpanded:  rt.HeadersExpanded,
 		HeadersAbsHeight: rt.HeadersAbsHeight,
+		ReqCollapsed:     rt.ReqBodyCollapsed,
+		RespCollapsed:    rt.RespBodyCollapsed,
+		ReqRatioSaved:    rt.reqRatioSaved,
+		RespRatioSaved:   rt.respRatioSaved,
 		ReqWrapEnabled:   &reqWrap,
 		BodyType:         rt.BodyType.PostmanMode(),
 		BinaryPath:       rt.BinaryFilePath,
@@ -209,6 +222,11 @@ func StateFromTab(rt *RequestTab) persist.TabState {
 			UseTractoCA:        rt.WS.UseTractoCA,
 			SplitRatio:         rt.WS.SplitRatio,
 			ComposerRatio:      rt.WS.ComposerRatio,
+			HeadersCollapsed:   rt.WS.HeadersCollapsed,
+			ComposeCollapsed:   rt.WS.ComposeCollapsed,
+			MessagesCollapsed:  rt.WS.MessagesCollapsed,
+			ComposeSavedRatio:  rt.WS.composeSavedRatio,
+			MsgsSavedRatio:     rt.WS.msgsSavedRatio,
 		}
 		for _, s := range rt.WS.SavedSends {
 			wsState.SavedSends = append(wsState.SavedSends, persist.WSSavedSend{

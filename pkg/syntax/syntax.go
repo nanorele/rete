@@ -24,9 +24,28 @@ const (
 )
 
 type Token struct {
-	Start, End int32
-	Kind       TokenKind
-	Depth      uint8
+	Start int32
+	Len   uint16
+	Kind  TokenKind
+	Depth uint8
+}
+
+func (t Token) End() int32 { return t.Start + int32(t.Len) }
+
+// maxTokenLen keeps Token at eight bytes. A run longer than this is emitted
+// as consecutive tokens of the same kind, which paints identically.
+const maxTokenLen = 1<<16 - 1
+
+func appendToken(out []Token, start, end int, kind TokenKind, depth uint8) []Token {
+	for start < end {
+		n := end - start
+		if n > maxTokenLen {
+			n = maxTokenLen
+		}
+		out = append(out, Token{Start: int32(start), Len: uint16(n), Kind: kind, Depth: depth})
+		start += n
+	}
+	return out
 }
 
 type Lang uint8

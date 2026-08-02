@@ -3,7 +3,9 @@ package mitm
 import (
 	"fmt"
 	"image"
+	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/widgets"
@@ -123,15 +125,12 @@ func (s *UIState) wsRow(gtx layout.Context, m *WSMessage, clk *widget.Clickable,
 					return w2(gtx)
 				})
 			}
-			preview := strings.ReplaceAll(string(m.Payload), "\n", " ")
-			if len(preview) > 200 {
-				preview = preview[:200]
-			}
+			preview := wsPreview(m.Payload)
 			return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 				cell(dir, unit.Dp(60), text.Start, true),
 				cell(WSOpcodeName(m.Opcode), unit.Dp(60), text.Start, false),
 				cell(preview, 0, text.Start, false),
-				cell(fmt.Sprintf("%d", len(m.Payload)), unit.Dp(60), text.End, false),
+				cell(strconv.Itoa(len(m.Payload)), unit.Dp(60), text.End, false),
 				cell(m.Time.Format("15:04:05.000"), unit.Dp(80), text.End, false),
 			)
 		})
@@ -156,7 +155,11 @@ func (s *UIState) wsDetail(gtx layout.Context) layout.Dimensions {
 				}),
 				layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					return s.scrollText(gtx, &s.BodyList, string(m.Payload))
+					lines := s.paneLines(
+						paneTextKey{id: m.ID, rev: s.Proxy.WS.Rev(), kind: paneWS},
+						func() string { return string(m.Payload) },
+					)
+					return s.scrollLines(gtx, &s.BodyList, lines)
 				}),
 			)
 		})
@@ -171,17 +174,115 @@ func dirName(toServer bool) string {
 }
 
 func (s *UIState) filteredWS() []*WSMessage {
-	all := s.Proxy.WS.Snapshot()
 	q := strings.TrimSpace(strings.ToLower(s.Filter.Text()))
-	if q == "" {
-		return all
+	rev := s.Proxy.WS.Rev()
+	if s.wsFilterValid && s.wsFilterRev == rev && s.wsFilterQuery == q {
+		return s.wsFilterBuf
 	}
-	out := all[:0]
-	for _, m := range all {
+	all := s.Proxy.WS.Snapshot()
+	if q == "" {
+		s.wsFilterBuf = all
+	} else {
+		out := s.wsFilterBuf[:0]
+		for _, m := range all {
+			if wsMatches(m, q) {
+				out = append(out, m)
+			}
+		}
+		s.wsFilterBuf = out
+	}
+	s.wsFilterRev = rev
+	s.wsFilterQuery = q
+	s.wsFilterValid = true
+	return s.wsFilterBuf
+}
+
+const wsPreviewRunes = 200
+
+// wsPreview renders the row preview from the head of the payload only. The row
+// truncates at 200 characters, so converting a multi-megabyte frame to a
+// string first cost a full copy per visible row per frame.
+func wsPreview(payload []byte) string {
+	b := payload
+	if len(b) > wsPreviewRunes*utf8.UTFMax {
+		b = b[:wsPreviewRunes*utf8.UTFMax]
+	}
+	out := make([]rune, 0, wsPreviewRunes)
+	for _, r := range string(b) {
+		if len(out) == wsPreviewRunes {
+			break
+		}
+		if r == '\n' {
+			r = ' '
+		}
+		out = append(out, r)
+	}
+	return string(out)
+}
+
+// wsMatches searches the same "url payload opcode" haystack the filter has
+// always used, but walks it in place. Materialising it cost one copy of every
+// captured payload per frame.
+func wsMatches(m *WSMessage, q string) bool {
+	if !isASCII(q) {
 		hay := strings.ToLower(m.URL + " " + string(m.Payload) + " " + WSOpcodeName(m.Opcode))
-		if strings.Contains(hay, q) {
-			out = append(out, m)
+		return strings.Contains(hay, q)
+	}
+	h := wsHay{url: m.URL, payload: m.Payload, opcode: WSOpcodeName(m.Opcode)}
+	n := h.len()
+	for i := 0; i+len(q) <= n; i++ {
+		j := 0
+		for ; j < len(q); j++ {
+			if lowerASCII(h.at(i+j)) != q[j] {
+				break
+			}
+		}
+		if j == len(q) {
+			return true
 		}
 	}
-	return out
+	return false
+}
+
+type wsHay struct {
+	url     string
+	payload []byte
+	opcode  string
+}
+
+func (h wsHay) len() int { return len(h.url) + 1 + len(h.payload) + 1 + len(h.opcode) }
+
+func (h wsHay) at(i int) byte {
+	if i < len(h.url) {
+		return h.url[i]
+	}
+	i -= len(h.url)
+	if i == 0 {
+		return ' '
+	}
+	i--
+	if i < len(h.payload) {
+		return h.payload[i]
+	}
+	i -= len(h.payload)
+	if i == 0 {
+		return ' '
+	}
+	return h.opcode[i-1]
+}
+
+func isASCII(s string) bool {
+	for i := 0; i < len(s); i++ {
+		if s[i] >= 0x80 {
+			return false
+		}
+	}
+	return true
+}
+
+func lowerASCII(c byte) byte {
+	if c >= 'A' && c <= 'Z' {
+		return c + ('a' - 'A')
+	}
+	return c
 }

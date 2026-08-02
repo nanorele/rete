@@ -14,9 +14,9 @@ import (
 	"image/color"
 	"sort"
 	"time"
-	"tracto/pkg/syntax"
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/widgets"
+	"tracto/pkg/syntax"
 	"unicode"
 	"unicode/utf8"
 )
@@ -42,6 +42,13 @@ type textCore struct {
 	highlightEnd   int
 
 	searchSpans []matchSpan
+
+	revealStart   int
+	revealEnd     int
+	revealPending bool
+	revealInset   int
+	revealY       int
+	revealYValid  bool
 
 	selStart   int
 	selEnd     int
@@ -77,8 +84,11 @@ type textCore struct {
 	layoutSize   unit.Sp
 	layoutInnerW int
 
-	noWrapCache colCache
-	wrapScratch []int
+	noWrapCache  colCache
+	wrapScratch  []int
+	paintScratch []widgets.WrapGlyph
+	hitScratch   []widgets.WrapGlyph
+	monoAdvance  fixed.Int26_6
 }
 
 type colCache struct {
@@ -180,7 +190,7 @@ func (v *textCore) spansForChunk(chunkStart, chunkEnd int, sp theme.SyntaxPalett
 		return nil
 	}
 	first := sort.Search(len(v.tokens), func(i int) bool {
-		return int(v.tokens[i].End) > chunkStart
+		return int(v.tokens[i].End()) > chunkStart
 	})
 	if first >= len(v.tokens) || int(v.tokens[first].Start) >= chunkEnd {
 		return nil
@@ -191,7 +201,7 @@ func (v *textCore) spansForChunk(chunkStart, chunkEnd int, sp theme.SyntaxPalett
 		if int(t.Start) >= chunkEnd {
 			break
 		}
-		s, e := int(t.Start), int(t.End)
+		s, e := int(t.Start), int(t.End())
 		if s < chunkStart {
 			s = chunkStart
 		}
@@ -208,6 +218,19 @@ func (v *textCore) spansForChunk(chunkStart, chunkEnd int, sp theme.SyntaxPalett
 		})
 	}
 	return out
+}
+
+// tokenColorAt reports the colour the glyphs at off are painted in, so a search
+// highlight can be derived from the text it covers instead of from the accent.
+func (v *textCore) tokenColorAt(off int, sp theme.SyntaxPalette, bracketCycle bool, def color.NRGBA) color.NRGBA {
+	if len(v.tokens) == 0 {
+		return def
+	}
+	i := sort.Search(len(v.tokens), func(i int) bool { return int(v.tokens[i].End()) > off })
+	if i < len(v.tokens) && int(v.tokens[i].Start) <= off {
+		return sp.ColorForToken(v.tokens[i].Kind, v.tokens[i].Depth, bracketCycle)
+	}
+	return def
 }
 
 func clipSpansToVars(spans []widgets.ColoredSpan, chunk []byte) []widgets.ColoredSpan {
@@ -318,6 +341,9 @@ func (v *textCore) padWrapPlans() {
 	}
 }
 
+// invalidateWrapPlansFrom drops plans whose content may have changed, so it
+// also resets the mono-scan progress; invalidateAllWrapPlans is for geometry
+// changes and keeps it.
 func (v *textCore) invalidateWrapPlansFrom(line int) {
 	if line < 0 {
 		line = 0
@@ -325,6 +351,7 @@ func (v *textCore) invalidateWrapPlansFrom(line int) {
 	for i := line; i < len(v.wrapPlans); i++ {
 		if v.wrapPlans[i] != nil {
 			v.wrapPlans[i].valid = false
+			v.wrapPlans[i].scanned = 0
 		}
 	}
 }
@@ -349,15 +376,34 @@ func (v *textCore) ensureWrapPlan(
 		v.wrapPlans[line] = &wrapPlan{}
 	}
 	p := v.wrapPlans[line]
-	if p.valid && p.width == innerW && p.lineH == lineHeight {
+	span := absEnd - absStart
+	reusable := p.valid && p.width == innerW && p.lineH == lineHeight
+	if reusable && p.covered == span {
 		return p
 	}
-	p.starts = p.starts[:0]
-	p.subLines = p.subLines[:0]
+
+	if cpl := v.monoColumns(p, absStart, absEnd, innerW); cpl > 0 {
+		buildMonoPlan(p, span, cpl, lineHeight)
+		p.width = innerW
+		p.lineH = lineHeight
+		p.valid = true
+		return p
+	}
 
 	totalSubLines := 0
 	pending := 0
 	pos := absStart
+	if reusable && p.covered < span && len(p.starts) > 0 {
+		last := len(p.starts) - 1
+		pos = absStart + p.starts[last]
+		totalSubLines = p.subTotal - p.subLines[last]
+		p.starts = p.starts[:last]
+		p.subLines = p.subLines[:last]
+	} else {
+		p.starts = p.starts[:0]
+		p.subLines = p.subLines[:0]
+	}
+
 	for pos < absEnd {
 		winEnd := pos + wrapShapeWindowBytes
 		if winEnd >= absEnd {
@@ -399,11 +445,93 @@ func (v *textCore) ensureWrapPlan(
 		p.starts = append(p.starts[:0], 0)
 		p.subLines = append(p.subLines[:0], 1)
 	}
+	p.covered = span
+	p.subTotal = totalSubLines
 	p.height = totalSubLines * lineHeight
 	p.width = innerW
 	p.lineH = lineHeight
 	p.valid = true
 	return p
+}
+
+// monoColumns reports the fixed column count a line of this span wraps into,
+// or 0 when the exact shaper has to run. Column arithmetic reproduces the
+// shaper's grapheme wrapping only for a monospaced face over printable ASCII
+// with no spaces — gio trims trailing whitespace at a break, which shifts the
+// following line. That restriction still covers what makes wrapping expensive:
+// multi-megabyte minified payloads on one logical line.
+func (v *textCore) monoColumns(p *wrapPlan, absStart, absEnd, innerW int) int {
+	if v.monoAdvance <= 0 || innerW <= 0 {
+		return 0
+	}
+	span := absEnd - absStart
+	if span < p.scanned {
+		p.scanned = 0
+		p.mono = true
+	}
+	if p.scanned == 0 {
+		p.mono = true
+	}
+	if p.mono && p.scanned < span {
+		if !plainASCIIRun(v.text[absStart+p.scanned : absEnd]) {
+			p.mono = false
+		}
+		p.scanned = span
+	}
+	if !p.mono {
+		return 0
+	}
+	return charsPerLineFor(innerW, v.monoAdvance)
+}
+
+func plainASCIIRun(b []byte) bool {
+	for _, c := range b {
+		if c <= ' ' || c >= 0x7F {
+			return false
+		}
+	}
+	return true
+}
+
+func buildMonoPlan(p *wrapPlan, span, charsPerLine, lineHeight int) {
+	total := (span + charsPerLine - 1) / charsPerLine
+	if total < 1 {
+		total = 1
+	}
+	p.starts = p.starts[:0]
+	p.subLines = p.subLines[:0]
+	for i := 0; i < total; i += subLinesPerWrapChunk {
+		n := subLinesPerWrapChunk
+		if i+n > total {
+			n = total - i
+		}
+		p.starts = append(p.starts, i*charsPerLine)
+		p.subLines = append(p.subLines, n)
+	}
+	p.covered = span
+	p.subTotal = total
+	p.height = total * lineHeight
+}
+
+func measureMonoAdvance(shaper *text.Shaper, fnt font.Font, size unit.Sp, gtx layout.Context) fixed.Int26_6 {
+	var want fixed.Int26_6
+	for i, s := range [...]string{"M", "i", "W", "0", ".", "|"} {
+		shaper.LayoutString(text.Parameters{
+			Font:    fnt,
+			PxPerEm: fixed.I(gtx.Sp(size)),
+			Locale:  gtx.Locale,
+		}, s)
+		g, ok := shaper.NextGlyph()
+		if !ok {
+			return 0
+		}
+		if i == 0 {
+			want = g.Advance
+		} else if g.Advance != want {
+			return 0
+		}
+	}
+	return want
 }
 
 func runeBoundaryAt(text []byte, i int) int {
@@ -465,14 +593,10 @@ func planSubBounds(p *wrapPlan, subIdx, chunkStart, chunkEnd int) (int, int) {
 }
 
 func planTotalSubLines(p *wrapPlan) int {
-	total := 0
-	for _, n := range p.subLines {
-		total += n
+	if p.subTotal < 1 {
+		return 1
 	}
-	if total < 1 {
-		total = 1
-	}
-	return total
+	return p.subTotal
 }
 
 func (v *textCore) wrapCaretXY(line, chunkStart, chunkEnd, off int, gtx layout.Context, viewportW int) (int, int) {
@@ -483,11 +607,11 @@ func (v *textCore) wrapCaretXY(line, chunkStart, chunkEnd, off int, gtx layout.C
 	if plan := v.wrapPlanFor(line, chunkStart, chunkEnd, gtx, viewportW, v.lastLineHeight); plan != nil {
 		subIdx, sub0 := planSubForByte(plan, rel)
 		subStart, subEnd := planSubBounds(plan, subIdx, chunkStart, chunkEnd)
-		glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, v.text[subStart:subEnd], viewportW)
+		glyphs := v.shapeChunkScratch(gtx, v.text[subStart:subEnd], viewportW)
 		x, sl := widgets.CaretXYInWrap(glyphs, rel-plan.starts[subIdx])
 		return x, sub0 + sl
 	}
-	glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, v.text[chunkStart:chunkEnd], viewportW)
+	glyphs := v.shapeChunkScratch(gtx, v.text[chunkStart:chunkEnd], viewportW)
 	return widgets.CaretXYInWrap(glyphs, rel)
 }
 
@@ -495,10 +619,10 @@ func (v *textCore) wrapByteAt(line, chunkStart, chunkEnd, prefX, wrapLine int, g
 	if plan := v.wrapPlanFor(line, chunkStart, chunkEnd, gtx, viewportW, v.lastLineHeight); plan != nil {
 		subIdx, sub0 := planSubForWrapLine(plan, wrapLine)
 		subStart, subEnd := planSubBounds(plan, subIdx, chunkStart, chunkEnd)
-		glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, v.text[subStart:subEnd], viewportW)
+		glyphs := v.shapeChunkScratch(gtx, v.text[subStart:subEnd], viewportW)
 		return subStart + widgets.ByteOffInWrap(glyphs, prefX, wrapLine-sub0)
 	}
-	glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, v.text[chunkStart:chunkEnd], viewportW)
+	glyphs := v.shapeChunkScratch(gtx, v.text[chunkStart:chunkEnd], viewportW)
 	return chunkStart + widgets.ByteOffInWrap(glyphs, prefX, wrapLine)
 }
 
@@ -506,8 +630,16 @@ func (v *textCore) wrapMaxLineOf(line, chunkStart, chunkEnd int, gtx layout.Cont
 	if plan := v.wrapPlanFor(line, chunkStart, chunkEnd, gtx, viewportW, v.lastLineHeight); plan != nil {
 		return planTotalSubLines(plan) - 1
 	}
-	glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, v.text[chunkStart:chunkEnd], viewportW)
+	glyphs := v.shapeChunkScratch(gtx, v.text[chunkStart:chunkEnd], viewportW)
 	return widgets.WrapMaxLine(glyphs)
+}
+
+// shapeChunkScratch shapes chunkText into the hit-test glyph buffer. The
+// result is only valid until the next shapeChunkScratch call on the same
+// textCore; painting uses paintScratch and is unaffected.
+func (v *textCore) shapeChunkScratch(gtx layout.Context, chunkText []byte, viewportW int) []widgets.WrapGlyph {
+	v.hitScratch = widgets.ShapeChunkForWrapInto(v.hitScratch, v.layoutShaper, v.layoutFont, v.layoutSize, gtx, chunkText, viewportW)
+	return v.hitScratch
 }
 
 func (v *textCore) Text() string { return string(v.text) }
@@ -718,10 +850,10 @@ func (v *textCore) coordToByteOffset(
 	if plan := v.wrapPlanFor(chunkIdx, chunkStart, chunkEnd, gtx, viewportW, exactLineH); plan != nil {
 		subIdx, sub0 := planSubForWrapLine(plan, wrapLine)
 		subStart, subEnd := planSubBounds(plan, subIdx, chunkStart, chunkEnd)
-		glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, v.text[subStart:subEnd], viewportW)
+		glyphs := v.shapeChunkScratch(gtx, v.text[subStart:subEnd], viewportW)
 		return subStart + widgets.ByteOffInWrap(glyphs, clickX, wrapLine-sub0)
 	}
-	glyphs := widgets.ShapeChunkForWrap(v.layoutShaper, v.layoutFont, v.layoutSize, gtx, chunkText, viewportW)
+	glyphs := v.shapeChunkScratch(gtx, chunkText, viewportW)
 	return chunkStart + widgets.ByteOffInWrap(glyphs, clickX, wrapLine)
 }
 
@@ -1037,6 +1169,119 @@ func (v *textCore) wrapLineMoveX(off, prefX, dir int, gtx layout.Context, viewpo
 	}
 	nextStart, nextEnd := v.lineBounds(line + 1)
 	return v.wrapByteAt(line+1, nextStart, nextEnd, prefX, 0, gtx, viewportW)
+}
+
+// requestReveal defers scrolling [start,end) into view until the next layout,
+// where the wrap plan, line height and viewport extent are all known. Resolving
+// it earlier would have to guess the sub-line a wrapped match sits on and the
+// column it starts at, which is what made search jump to the wrong place.
+func (v *textCore) requestReveal(start, end int) {
+	if end < start {
+		start, end = end, start
+	}
+	v.revealStart = start
+	v.revealEnd = end
+	v.revealPending = true
+}
+
+func (v *textCore) cancelReveal() {
+	v.revealPending = false
+	v.revealYValid = false
+}
+
+// SetRevealInset reserves a band at the top and bottom of the viewport that the
+// search panel floats over, so a match sitting under the panel still counts as
+// needing to be scrolled into the clear.
+func (v *textCore) SetRevealInset(px int) { v.revealInset = px }
+
+// ClearSearchCaret drops the current match's highlight without moving the
+// viewport. Closing the search box has to call it, otherwise the last match
+// stays visibly selected in a viewer that no longer has a search in it.
+func (v *textCore) ClearSearchCaret() {
+	hs, he := v.highlightStart, v.highlightEnd
+	v.highlightStart, v.highlightEnd = 0, 0
+	if he > hs && v.selStart == hs && v.selEnd == he {
+		v.selStart, v.selEnd = 0, 0
+	}
+	v.cancelReveal()
+}
+
+// RevealScreenY reports where the last revealed match landed, measured from the
+// top of the viewport. The search panel uses it to step out of the way when the
+// document is too short to scroll the match clear of it.
+func (v *textCore) RevealScreenY() (int, bool) { return v.revealY, v.revealYValid }
+
+func (v *textCore) applyReveal(gtx layout.Context, advance fixed.Int26_6, lineH, innerW, innerH int, wrap bool) {
+	if !v.revealPending || lineH <= 0 || len(v.lineStarts) == 0 {
+		return
+	}
+	v.revealPending = false
+
+	start, end := v.revealStart, v.revealEnd
+	if start > len(v.text) {
+		start = len(v.text)
+	}
+	if end > len(v.text) {
+		end = len(v.text)
+	}
+
+	line := v.lineForByteOffset(start)
+	top := 0
+	for i := 0; i < line && i < len(v.chunkHeights); i++ {
+		h := v.chunkHeights[i]
+		if h <= 0 {
+			h = v.estimateChunkHeight(i, lineH, advance, innerW, wrap)
+		}
+		top += h
+	}
+
+	chunkStart, chunkEnd := v.lineBounds(line)
+	if wrap {
+		_, sub := v.wrapCaretXY(line, chunkStart, chunkEnd, start, gtx, innerW)
+		top += sub * lineH
+	}
+
+	inset := v.revealInset
+	if max := (innerH - lineH) / 3; inset > max {
+		inset = max
+	}
+	if inset < 0 {
+		inset = 0
+	}
+	if innerH <= 0 {
+		v.scrollY = top
+	} else if top < v.scrollY+inset || top+lineH > v.scrollY+innerH-inset {
+		v.scrollY = top - (innerH-lineH)/2
+	}
+	v.clampScroll()
+	v.revealY = top - v.scrollY
+	v.revealYValid = true
+
+	if wrap || innerW <= 0 || advance <= 0 {
+		return
+	}
+	if end > chunkEnd {
+		end = chunkEnd
+	}
+	v.revealColumns(colPx(advance, v.columnAt(start)), colPx(advance, v.columnAt(end)), innerW, advance)
+}
+
+func (v *textCore) revealColumns(x1, x2, innerW int, advance fixed.Int26_6) {
+	margin := colPx(advance, 4)
+	if margin > innerW/4 {
+		margin = innerW / 4
+	}
+	if x1 >= v.scrollX+margin && x2 <= v.scrollX+innerW-margin {
+		return
+	}
+	if x2-x1 >= innerW-2*margin {
+		v.scrollX = x1 - margin
+	} else {
+		v.scrollX = (x1+x2)/2 - innerW/2
+	}
+	if v.scrollX < 0 {
+		v.scrollX = 0
+	}
 }
 
 func (v *textCore) ensureCaretVisible() {

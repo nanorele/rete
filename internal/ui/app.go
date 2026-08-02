@@ -331,28 +331,6 @@ var embeddedFonts = map[string][]byte{
 	"NotoSansCJK-Regular.otf":        fontNotoCJK,
 }
 
-var fallbackFontFiles = []string{
-	"NotoSansHebrew-Regular.ttf",
-	"NotoSansArabic-Regular.ttf",
-	"NotoSansThai-Regular.ttf",
-	"NotoSansDevanagari-Regular.ttf",
-	"NotoSansBengali-Regular.ttf",
-	"NotoSansTamil-Regular.ttf",
-	"NotoSansTelugu-Regular.ttf",
-	"NotoSansKannada-Regular.ttf",
-	"NotoSansMalayalam-Regular.ttf",
-	"NotoSansGujarati-Regular.ttf",
-	"NotoSansGurmukhi-Regular.ttf",
-	"NotoSansSinhala-Regular.ttf",
-	"NotoSansGeorgian-Regular.ttf",
-	"NotoSansArmenian-Regular.ttf",
-	"NotoSansKhmer-Regular.ttf",
-	"NotoSansLao-Regular.ttf",
-	"NotoSansMyanmar-Regular.ttf",
-	"NotoSansEthiopic-Regular.ttf",
-	"NotoSansCJK-Regular.otf",
-}
-
 func loadEmbeddedTTF(name string) ([]byte, error) {
 	b, ok := embeddedFonts[name]
 	if !ok {
@@ -361,9 +339,17 @@ func loadEmbeddedTTF(name string) ([]byte, error) {
 	return io.ReadAll(brotli.NewReader(bytes.NewReader(b)))
 }
 
-func NewAppUI() *AppUI {
-	th := material.NewTheme()
+var (
+	appFontsOnce sync.Once
+	appFonts     []font.FontFace
+)
 
+func appFontCollection() []font.FontFace {
+	appFontsOnce.Do(func() { appFonts = buildFontCollection() })
+	return appFonts
+}
+
+func buildFontCollection() []font.FontFace {
 	var fonts []font.FontFace
 
 	loadTextFont := func(name string) (opentype.Face, bool) {
@@ -416,25 +402,16 @@ func NewAppUI() *AppUI {
 	addJBM("JetBrainsMono-Italic.ttf", font.Italic, font.Normal)
 	addJBM("JetBrainsMono-BoldItalic.ttf", font.Italic, font.Bold)
 
-	if b, err := loadEmbeddedTTF("NotoColorEmoji.ttf"); err == nil {
-		if face, perr := opentype.Parse(b); perr == nil {
-			fonts = append(fonts, font.FontFace{Font: face.Font(), Face: face})
-		}
-	}
+	return fonts
+}
 
-	for _, name := range fallbackFontFiles {
-		b, err := loadEmbeddedTTF(name)
-		if err != nil {
-			continue
-		}
-		face, err := opentype.Parse(b)
-		if err != nil {
-			continue
-		}
-		fonts = append(fonts, font.FontFace{Font: face.Font(), Face: face})
-	}
+func NewAppUI() *AppUI {
+	th := material.NewTheme()
 
-	th.Shaper = text.NewShaper(text.WithCollection(fonts))
+	th.Shaper = text.NewShaper(
+		text.WithCollection(appFontCollection()),
+		text.WithLazyCollection(appLazyFontFaces()),
+	)
 	th.Face = "Inter," + widgets.EmojiTypeface
 
 	th.Bg = theme.Bg
@@ -1576,6 +1553,24 @@ func (ui *AppUI) contentKeyFilters() []event.Filter {
 	return filters
 }
 
+// findShortcut routes Ctrl+F to whichever section is on screen. Sections whose
+// panes hold no searchable text must swallow it: falling through to the active
+// request tab opened a search box on a pane nobody could see, which then popped
+// up on its own the next time the user came back to the workspace.
+func (ui *AppUI) findShortcut(gtx layout.Context) {
+	switch ui.SidebarSection {
+	case "har":
+		ui.harHandleSearchShortcut(gtx)
+	case "mitm":
+		ui.MITM.HandleSearchShortcut(gtx)
+	case "netlimit", "flows":
+	default:
+		if ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
+			ui.Tabs[ui.ActiveIdx].HandleSearchShortcut(gtx)
+		}
+	}
+}
+
 func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 	contentFilters := ui.contentKeyFilters()
 	for {
@@ -1609,13 +1604,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 					ui.closeTab(ui.ActiveIdx)
 				}
 			case "F":
-				if ui.SidebarSection == "har" {
-					ui.harHandleSearchShortcut(gtx)
-					break
-				}
-				if ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
-					ui.Tabs[ui.ActiveIdx].HandleSearchShortcut(gtx)
-				}
+				ui.findShortcut(gtx)
 			case "Z":
 				if ui.SidebarSection == "flows" && ui.Flow != nil {
 					ui.Flow.Undo()
@@ -1939,6 +1928,9 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 									ui.saveState()
 								}, ui.markCollectionDirty)
 								ui.syncLayoutPrefs()
+								if rt.TakeLayoutSaveRequest() {
+									ui.saveState()
+								}
 								return dims
 							}
 

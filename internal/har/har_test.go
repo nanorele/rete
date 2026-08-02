@@ -192,10 +192,10 @@ func TestResources(t *testing.T) {
 	if len(all) != 2 {
 		t.Fatalf("Resources(all) = %d, want 2", len(all))
 	}
-	if all[0].ZipPath != "example.com/app/main.js" || string(all[0].Body) != "console.log" {
+	if all[0].ZipPath != "example.com/app/main.js" || string(all[0].Bytes()) != "console.log" {
 		t.Errorf("resource0 = %+v", all[0])
 	}
-	if all[1].ZipPath != "api.example.com/v1/data__x=1" || string(all[1].Body) != `{"a":1}` {
+	if all[1].ZipPath != "api.example.com/v1/data__x=1" || string(all[1].Bytes()) != `{"a":1}` {
 		t.Errorf("resource1 = %+v", all[1])
 	}
 

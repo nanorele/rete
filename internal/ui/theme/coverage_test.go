@@ -264,7 +264,7 @@ func TestApplyMethodAndMethodFor(t *testing.T) {
 	save := MethodPalette{
 		Get: MethodGet, Post: MethodPost, Put: MethodPut,
 		Delete: MethodDelete, Head: MethodHead, Patch: MethodPatch,
-		Options: MethodOptions, Fallback: MethodFallback,
+		Options: MethodOptions, Query: MethodQuery, Fallback: MethodFallback,
 	}
 	defer ApplyMethod(save)
 

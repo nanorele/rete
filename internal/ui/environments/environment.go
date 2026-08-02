@@ -46,6 +46,11 @@ type EnvironmentUI struct {
 	ColorReset     widget.Clickable
 	ColorSwatchBtn widget.Clickable
 
+	dirtyRevs   []uint64
+	dirtyCached bool
+	dirtyValid  bool
+	keyWidths   widgets.KeyWidthCache
+
 	IsRenaming      bool
 	RenamingFocused bool
 	InlineNameEd    widget.Editor
@@ -85,6 +90,7 @@ func (ui *EnvironmentUI) InitEditor() {
 	if len(ui.Rows) > len(ui.Data.Vars) {
 		ui.Rows = ui.Rows[:len(ui.Data.Vars)]
 	}
+	ui.dirtyValid = false
 	ui.List.Axis = 1
 }
 

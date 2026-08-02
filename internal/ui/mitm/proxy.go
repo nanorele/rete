@@ -243,7 +243,7 @@ func (p *Proxy) handleConnect(c net.Conn, req *http.Request) {
 	dst, err := p.dialUpstream(dialCtx, "tcp", host, port)
 	dialCancel()
 	if err != nil {
-		p.Store.Update(func() {
+		p.Store.Update(flow, func() {
 			flow.Error = err.Error()
 			flow.StatusCode = 502
 			flow.Status = "502 Bad Gateway"
@@ -259,7 +259,7 @@ func (p *Proxy) handleConnect(c net.Conn, req *http.Request) {
 	}()
 
 	if _, err := io.WriteString(c, "HTTP/1.1 200 Connection Established\r\n\r\n"); err != nil {
-		p.Store.Update(func() {
+		p.Store.Update(flow, func() {
 			flow.Error = err.Error()
 			flow.TunnelClosed = true
 		})
@@ -267,7 +267,7 @@ func (p *Proxy) handleConnect(c net.Conn, req *http.Request) {
 	}
 
 	now := time.Now()
-	p.Store.Update(func() {
+	p.Store.Update(flow, func() {
 		flow.StatusCode = 200
 		flow.Status = "200 Connection Established"
 		flow.Ended = now
@@ -282,7 +282,7 @@ func (p *Proxy) handleConnect(c net.Conn, req *http.Request) {
 	}
 
 	in, out := bridge(c, dst)
-	p.Store.Update(func() {
+	p.Store.Update(flow, func() {
 		flow.BytesIn = in
 		flow.BytesOut = out
 		flow.TunnelClosed = true
@@ -304,12 +304,12 @@ func (p *Proxy) interceptHTTPS(client net.Conn, host, port string, parent *Flow,
 	tlsConn := tls.Server(client, cfg)
 	defer func() {
 		_ = tlsConn.Close()
-		p.Store.Update(func() {
+		p.Store.Update(parent, func() {
 			parent.TunnelClosed = true
 		})
 	}()
 	if err := tlsConn.Handshake(); err != nil {
-		p.Store.Update(func() {
+		p.Store.Update(parent, func() {
 			parent.Error = "tls handshake: " + err.Error()
 		})
 		return
@@ -412,7 +412,7 @@ func (p *Proxy) proxyOneIntercepted(cl *http.Client, tlsConn *tls.Conn, target s
 	method, requestURI, reqPairs, newBody, drop := p.processRequest(
 		flow, req.Method, req.URL.RequestURI(), req.Proto, collectHeaders(req.Header), body, inScope)
 	if drop {
-		p.Store.Update(func() { flow.Error = "dropped"; flow.Status = "dropped" })
+		p.Store.Update(flow, func() { flow.Error = "dropped"; flow.Status = "dropped" })
 		_, _ = io.WriteString(tlsConn, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
 		return false
 	}
@@ -423,7 +423,7 @@ func (p *Proxy) proxyOneIntercepted(cl *http.Client, tlsConn *tls.Conn, target s
 
 	out, err := http.NewRequest(method, req.URL.String(), bytes.NewReader(body))
 	if err != nil {
-		p.Store.Update(func() {
+		p.Store.Update(flow, func() {
 			flow.Error = err.Error()
 			flow.StatusCode = 500
 			flow.Status = "500 Internal Proxy Error"
@@ -437,7 +437,7 @@ func (p *Proxy) proxyOneIntercepted(cl *http.Client, tlsConn *tls.Conn, target s
 
 	resp, err := cl.Do(out)
 	if err != nil {
-		p.Store.Update(func() {
+		p.Store.Update(flow, func() {
 			flow.Error = err.Error()
 			flow.StatusCode = 502
 			flow.Status = "502 Bad Gateway"
@@ -452,7 +452,7 @@ func (p *Proxy) proxyOneIntercepted(cl *http.Client, tlsConn *tls.Conn, target s
 	status := resp.Status
 	status, respPairs, fullBody, rdrop := p.processResponse(flow, status, resp.Proto, respPairs, fullBody, inScope)
 	if rdrop {
-		p.Store.Update(func() { flow.Error = "response dropped" })
+		p.Store.Update(flow, func() { flow.Error = "response dropped" })
 		_, _ = io.WriteString(tlsConn, "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")
 		return false
 	}
@@ -461,7 +461,7 @@ func (p *Proxy) proxyOneIntercepted(cl *http.Client, tlsConn *tls.Conn, target s
 	if int64(len(captured)) > maxCaptureBody {
 		captured = captured[:maxCaptureBody]
 	}
-	p.Store.Update(func() {
+	p.Store.Update(flow, func() {
 		flow.Status = status
 		flow.StatusCode = resp.StatusCode
 		flow.RespHeaders = respPairs
@@ -536,7 +536,7 @@ func (p *Proxy) handleHTTP(c net.Conn, br *bufio.Reader, req *http.Request) {
 	method, requestURI, reqPairs, newBody, drop := p.processRequest(
 		flow, req.Method, req.URL.RequestURI(), req.Proto, collectHeaders(req.Header), body, inScope)
 	if drop {
-		p.Store.Update(func() { flow.Error = "dropped"; flow.Status = "dropped"; flow.Ended = time.Now() })
+		p.Store.Update(flow, func() { flow.Error = "dropped"; flow.Status = "dropped"; flow.Ended = time.Now() })
 		writeStatus(c, 403, "Dropped by interceptor")
 		return
 	}
@@ -575,7 +575,7 @@ func (p *Proxy) handleHTTP(c net.Conn, br *bufio.Reader, req *http.Request) {
 	}
 	resp, err := cl.Do(req)
 	if err != nil {
-		p.Store.Update(func() {
+		p.Store.Update(flow, func() {
 			flow.Error = err.Error()
 			flow.StatusCode = 502
 			flow.Status = "502 Bad Gateway"
@@ -592,7 +592,7 @@ func (p *Proxy) handleHTTP(c net.Conn, br *bufio.Reader, req *http.Request) {
 
 	status, respPairs, fullBody, rdrop := p.processResponse(flow, status, resp.Proto, respPairs, fullBody, inScope)
 	if rdrop {
-		p.Store.Update(func() { flow.Error = "response dropped"; flow.Ended = time.Now() })
+		p.Store.Update(flow, func() { flow.Error = "response dropped"; flow.Ended = time.Now() })
 		return
 	}
 
@@ -600,7 +600,7 @@ func (p *Proxy) handleHTTP(c net.Conn, br *bufio.Reader, req *http.Request) {
 	if int64(len(captured)) > maxCaptureBody {
 		captured = captured[:maxCaptureBody]
 	}
-	p.Store.Update(func() {
+	p.Store.Update(flow, func() {
 		flow.Status = status
 		flow.StatusCode = resp.StatusCode
 		flow.RespHeaders = respPairs
@@ -628,7 +628,7 @@ func (p *Proxy) markEnded(flow *Flow) {
 	if p.Store == nil || flow == nil {
 		return
 	}
-	p.Store.Update(func() {
+	p.Store.Update(flow, func() {
 		if flow.Ended.IsZero() {
 			flow.Ended = time.Now()
 		}

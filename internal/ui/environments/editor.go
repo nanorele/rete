@@ -52,10 +52,57 @@ func (env *EnvironmentUI) editedVars() []model.EnvVar {
 	return vars
 }
 
+// editorRevs appends the revision of every editor backing this environment.
+// EditorDirty runs on every frame and otherwise reads each row back with
+// Editor.Text, which allocates a copy per field — thousands of allocations per
+// frame on a large environment.
+func (env *EnvironmentUI) editorRevs(dst []uint64) []uint64 {
+	dst = append(dst, env.NameEditor.Revision(), env.ColorEditor.Revision())
+	for _, r := range env.Rows {
+		dst = append(dst, r.KeyEditor.Revision(), r.ValEditor.Revision())
+	}
+	return dst
+}
+
+func (env *EnvironmentUI) editorsUnchanged() bool {
+	if len(env.dirtyRevs) != 2+2*len(env.Rows) {
+		return false
+	}
+	if env.dirtyRevs[0] != env.NameEditor.Revision() || env.dirtyRevs[1] != env.ColorEditor.Revision() {
+		return false
+	}
+	for i, r := range env.Rows {
+		if env.dirtyRevs[2+2*i] != r.KeyEditor.Revision() ||
+			env.dirtyRevs[3+2*i] != r.ValEditor.Revision() {
+			return false
+		}
+	}
+	return true
+}
+
+// InvalidateDirty forces the next EditorDirty to recompare, for when the
+// underlying environment changes without the editors changing.
+func (env *EnvironmentUI) InvalidateDirty() {
+	if env != nil {
+		env.dirtyValid = false
+	}
+}
+
 func (env *EnvironmentUI) EditorDirty() bool {
 	if env == nil || env.Data == nil {
 		return false
 	}
+	if env.dirtyValid && env.editorsUnchanged() {
+		return env.dirtyCached
+	}
+	dirty := env.computeDirty()
+	env.dirtyRevs = env.editorRevs(env.dirtyRevs[:0])
+	env.dirtyCached = dirty
+	env.dirtyValid = true
+	return dirty
+}
+
+func (env *EnvironmentUI) computeDirty() bool {
 	if env.NameEditor.Text() != env.Data.Name {
 		return true
 	}
@@ -81,6 +128,7 @@ func (env *EnvironmentUI) Commit(onDirty func()) {
 	env.Data.Name = env.NameEditor.Text()
 	env.Data.HighlightColor = env.editedColor()
 	env.Data.Vars = env.editedVars()
+	env.dirtyValid = false
 	_ = persist.SaveEnvironment(env.Data)
 	if onDirty != nil {
 		onDirty()
@@ -270,7 +318,7 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 			}),
 			layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-				minKey := widgets.KVKeysMinWidth(gtx, th, len(env.Rows), func(i int) *widget.Editor { return &env.Rows[i].KeyEditor })
+				minKey := widgets.KVKeysMinWidth(gtx, th, &env.keyWidths, len(env.Rows), func(i int) *widget.Editor { return &env.Rows[i].KeyEditor })
 				anyDrag := false
 				for _, r := range env.Rows {
 					widgets.KVRowDragPrepass(gtx, env.rowW, minKey, &env.KeyColW, &r.SplitDrag, &r.splitLX, &env.KeyColBelowMin)

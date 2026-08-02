@@ -212,3 +212,38 @@ func TestMarshalRequestKeepsSetAuth(t *testing.T) {
 		t.Error("auth was dropped even though the request has bearer auth")
 	}
 }
+
+func TestConfigOverrideConcurrentWithReaders(t *testing.T) {
+	orig := ConfigDir()
+	t.Cleanup(func() { SetConfigOverride("") })
+
+	dir := t.TempDir()
+	var wg sync.WaitGroup
+	stop := make(chan struct{})
+
+	for i := 0; i < 4; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for {
+				select {
+				case <-stop:
+					return
+				default:
+					_ = StateFilePath()
+				}
+			}
+		}()
+	}
+	for i := 0; i < 200; i++ {
+		SetConfigOverride(dir)
+		SetConfigOverride("")
+	}
+	close(stop)
+	wg.Wait()
+
+	SetConfigOverride("")
+	if got := ConfigDir(); got != orig {
+		t.Errorf("ConfigDir after clearing override = %q, want %q", got, orig)
+	}
+}

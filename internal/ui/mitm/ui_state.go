@@ -5,6 +5,7 @@ import (
 	"time"
 
 	"tracto/internal/persist"
+	"tracto/internal/ui/workspace"
 
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/widget"
@@ -93,10 +94,35 @@ type UIState struct {
 	BodyList                                                                        widget.List
 	InspSendRepeater, InspSendIntruder, InspSendComparer, InspSendDecoder, InspCopy widget.Clickable
 
+	// The inspector's text panes (raw / body / hex / render) share one viewer:
+	// only one of them is on screen at a time, and the pane key below tells the
+	// viewer when the text under it actually changed.
+	BodyViewer    *workspace.ResponseViewer
+	BodyViewerKey paneTextKey
+	BodySearch    workspace.SearchBox
+	BodySearchBtn widget.Clickable
+	BodyDrag      gesture.Drag
+	BodyDragY     float32
+
 	// ---- websockets (zone C) ----
 	WSList     widget.List
 	WSRowClk   []*widget.Clickable
 	WSSelected uint64
+
+	// Reused across frames so filtering does not allocate a result slice per
+	// redraw, and does not write over the stores' cached snapshots. Each
+	// result is only valid until the next rebuild.
+	flowFilterBuf []*Flow
+	wsFilterBuf   []*WSMessage
+	wsFilterRev   uint64
+	wsFilterQuery string
+	wsFilterValid bool
+
+	paneCacheKey paneTextKey
+	paneCache    struct {
+		txt   string
+		lines []string
+	}
 
 	// ---- intercept (zone C) ----
 	InterceptSwitch widget.Bool
@@ -257,9 +283,6 @@ func (s *UIState) Ensure() {
 		s.configLoaded = true
 		s.Config = LoadConfig()
 		s.applyLoadedConfig()
-		// default: expand the two primary sections on first paint
-		s.SecTargetsOpen = true
-		s.SecTLSOpen = true
 	}
 
 	if !s.caLoadAttempted {
@@ -291,6 +314,12 @@ func (s *UIState) applyLoadedConfig() {
 		// stored as ratio elsewhere; width handled by shell
 	}
 	s.InspectorCollapsed = c.InspectorCollapsed
+	// Sections default to Targets + TLS open; a stored value always wins.
+	s.SecTargetsOpen = boolOr(c.SecTargetsOpen, true)
+	s.SecTLSOpen = boolOr(c.SecTLSOpen, true)
+	s.SecIRulesOpen = boolOr(c.SecIRulesOpen, false)
+	s.SecMROpen = boolOr(c.SecMROpen, false)
+	s.SecScopeOpen = boolOr(c.SecScopeOpen, false)
 	if c.SortColumn != "" {
 		s.SortColumn = c.SortColumn
 		s.SortAsc = c.SortAsc
@@ -321,6 +350,9 @@ func (s *UIState) SnapshotConfig() Config {
 	c.View = s.View
 	c.Decrypt = s.DecryptSwitch.Value
 	c.InspectorCollapsed = s.InspectorCollapsed
+	// Copies, not &s.Sec*Open: the snapshot is marshalled on another goroutine.
+	targets, tls, irules, mr, scope := s.SecTargetsOpen, s.SecTLSOpen, s.SecIRulesOpen, s.SecMROpen, s.SecScopeOpen
+	c.SecTargetsOpen, c.SecTLSOpen, c.SecIRulesOpen, c.SecMROpen, c.SecScopeOpen = &targets, &tls, &irules, &mr, &scope
 	c.SortColumn = s.SortColumn
 	c.SortAsc = s.SortAsc
 	c.InterceptResponses = s.InterceptRespSw.Value

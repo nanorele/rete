@@ -129,7 +129,7 @@ func (t *RequestTab) layoutURLEncodedBody(gtx layout.Context, th *material.Theme
 				if len(t.URLEncoded) == 0 {
 					return emptyHint(gtx, th, "No fields. Click + Add field to add one.")
 				}
-				minKey := widgets.KVKeysMinWidth(gtx, th, len(t.URLEncoded), func(i int) *widget.Editor { return &t.URLEncoded[i].Key })
+				minKey := widgets.KVKeysMinWidth(gtx, th, &t.KeyWidths, len(t.URLEncoded), func(i int) *widget.Editor { return &t.URLEncoded[i].Key })
 				children := make([]layout.FlexChild, 0, len(t.URLEncoded)*2)
 				for i, p := range t.URLEncoded {
 					p := p

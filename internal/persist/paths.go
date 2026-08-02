@@ -5,18 +5,19 @@ import (
 	"encoding/hex"
 	"os"
 	"path/filepath"
+	"sync/atomic"
 	"time"
 )
 
-var configPathOverride string
+var configPathOverride atomic.Pointer[string]
 
 func SetConfigOverride(path string) {
-	configPathOverride = path
+	configPathOverride.Store(&path)
 }
 
 func ConfigDir() string {
-	if configPathOverride != "" {
-		return configPathOverride
+	if p := configPathOverride.Load(); p != nil && *p != "" {
+		return *p
 	}
 	configDir, err := os.UserConfigDir()
 	if err != nil {

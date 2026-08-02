@@ -17,6 +17,7 @@ func TestMethodColor(t *testing.T) {
 		{"HEAD", MethodHead},
 		{"PATCH", MethodPatch},
 		{"OPTIONS", MethodOptions},
+		{"QUERY", MethodQuery},
 		{"UNKNOWN", MethodFallback},
 		{"", MethodFallback},
 	}

@@ -20,6 +20,12 @@ type Config struct {
 	InspectorWidthPx   int  `json:"inspector_width_px,omitempty"`
 	InspectorCollapsed bool `json:"inspector_collapsed,omitempty"`
 
+	SecTargetsOpen *bool `json:"sec_targets_open,omitempty"`
+	SecTLSOpen     *bool `json:"sec_tls_open,omitempty"`
+	SecIRulesOpen  *bool `json:"sec_irules_open,omitempty"`
+	SecMROpen      *bool `json:"sec_mr_open,omitempty"`
+	SecScopeOpen   *bool `json:"sec_scope_open,omitempty"`
+
 	HistoryColumns []string `json:"history_columns,omitempty"`
 	SortColumn     string   `json:"sort_column,omitempty"`
 	SortAsc        bool     `json:"sort_asc,omitempty"`
@@ -75,6 +81,13 @@ type CondConfig struct {
 }
 
 func ConfigPath() string { return filepath.Join(MITMDir(), "config.json") }
+
+func boolOr(p *bool, def bool) bool {
+	if p == nil {
+		return def
+	}
+	return *p
+}
 
 func LoadConfig() Config {
 	var c Config

@@ -7,15 +7,15 @@ func TestTokenizeJSON_Simple(t *testing.T) {
 	tokens := TokenizeJSON(src)
 
 	want := []Token{
-		{Start: 0, End: 1, Kind: TokBracket, Depth: 0},
-		{Start: 1, End: 7, Kind: TokKey},
-		{Start: 7, End: 8, Kind: TokPunctuation},
-		{Start: 9, End: 16, Kind: TokString},
-		{Start: 16, End: 17, Kind: TokPunctuation},
-		{Start: 18, End: 23, Kind: TokKey},
-		{Start: 23, End: 24, Kind: TokPunctuation},
-		{Start: 25, End: 27, Kind: TokNumber},
-		{Start: 27, End: 28, Kind: TokBracket, Depth: 0},
+		{Start: 0, Len: 1, Kind: TokBracket, Depth: 0},
+		{Start: 1, Len: 6, Kind: TokKey},
+		{Start: 7, Len: 1, Kind: TokPunctuation},
+		{Start: 9, Len: 7, Kind: TokString},
+		{Start: 16, Len: 1, Kind: TokPunctuation},
+		{Start: 18, Len: 5, Kind: TokKey},
+		{Start: 23, Len: 1, Kind: TokPunctuation},
+		{Start: 25, Len: 2, Kind: TokNumber},
+		{Start: 27, Len: 1, Kind: TokBracket, Depth: 0},
 	}
 
 	if len(tokens) != len(want) {
@@ -23,7 +23,7 @@ func TestTokenizeJSON_Simple(t *testing.T) {
 	}
 	for i, w := range want {
 		g := tokens[i]
-		if g.Start != w.Start || g.End != w.End || g.Kind != w.Kind || g.Depth != w.Depth {
+		if g.Start != w.Start || g.End() != w.End() || g.Kind != w.Kind || g.Depth != w.Depth {
 			t.Errorf("tokens[%d] = %+v, want %+v", i, g, w)
 		}
 	}
@@ -147,8 +147,8 @@ func TestTokenizeJSON_UnicodeStrings(t *testing.T) {
 				t.Errorf("no tokens for %q", src)
 			}
 			for _, tok := range tokens {
-				if tok.Start < 0 || int(tok.End) > len(src) || tok.Start > tok.End {
-					t.Errorf("invalid token range [%d,%d) for input %q", tok.Start, tok.End, src)
+				if tok.Start < 0 || int(tok.End()) > len(src) || tok.Start > tok.End() {
+					t.Errorf("invalid token range [%d,%d) for input %q", tok.Start, tok.End(), src)
 				}
 			}
 		})

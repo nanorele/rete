@@ -406,7 +406,7 @@ func TestParse_HugeBodyEntry(t *testing.T) {
        "response":{"status":200,"content":{"mimeType":"application/javascript","text":"` + big + `"}}}]}}`
 	h := mustParse(t, doc)
 	res := h.Resources(true)
-	if len(res) != 1 || len(res[0].Body) != 1<<20 {
+	if len(res) != 1 || len(res[0].Bytes()) != 1<<20 {
 		t.Fatalf("huge body mishandled: n=%d", len(res))
 	}
 	var buf bytes.Buffer

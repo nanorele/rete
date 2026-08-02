@@ -47,6 +47,7 @@ var (
 	MethodHead     = MethodDark.Head
 	MethodPatch    = MethodDark.Patch
 	MethodOptions  = MethodDark.Options
+	MethodQuery    = MethodDark.Query
 	MethodFallback = MethodDark.Fallback
 )
 
@@ -58,6 +59,7 @@ var MethodDark = MethodPalette{
 	Head:     color.NRGBA{R: 217, G: 90, B: 165, A: 255},
 	Patch:    color.NRGBA{R: 186, G: 85, B: 211, A: 255},
 	Options:  color.NRGBA{R: 13, G: 184, B: 214, A: 255},
+	Query:    color.NRGBA{R: 255, G: 126, B: 20, A: 255},
 	Fallback: color.NRGBA{R: 150, G: 150, B: 150, A: 255},
 }
 
@@ -69,6 +71,7 @@ var MethodLight = MethodPalette{
 	Head:     color.NRGBA{R: 180, G: 60, B: 130, A: 255},
 	Patch:    color.NRGBA{R: 140, G: 60, B: 170, A: 255},
 	Options:  color.NRGBA{R: 15, G: 130, B: 160, A: 255},
+	Query:    color.NRGBA{R: 204, G: 88, B: 5, A: 255},
 	Fallback: color.NRGBA{R: 100, G: 100, B: 100, A: 255},
 }
 
@@ -80,6 +83,7 @@ func ApplyMethod(p MethodPalette) {
 	MethodHead = p.Head
 	MethodPatch = p.Patch
 	MethodOptions = p.Options
+	MethodQuery = p.Query
 	MethodFallback = p.Fallback
 }
 
@@ -106,6 +110,8 @@ func MethodColor(method string) color.NRGBA {
 		return MethodPatch
 	case "OPTIONS":
 		return MethodOptions
+	case "QUERY":
+		return MethodQuery
 	default:
 		return MethodFallback
 	}

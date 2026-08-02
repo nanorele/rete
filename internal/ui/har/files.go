@@ -73,7 +73,7 @@ func fileRow(gtx layout.Context, th *material.Theme, r har.Resource, clk *widget
 				}),
 				layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
 				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-					lbl := material.Label(th, unit.Sp(11), humanSize(int64(len(r.Body))))
+					lbl := material.Label(th, unit.Sp(11), humanSize(int64(r.Size)))
 					lbl.Color = theme.FgMuted
 					lbl.Alignment = text.End
 					lbl.Font.Typeface = widgets.MonoTypeface
@@ -100,12 +100,14 @@ func (s *Section) filePreview(gtx layout.Context) layout.Dimensions {
 		}),
 		layout.Rigid(hLine),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return s.bodyHeader(gtx, paneRowPx(gtx), "Content", r.MimeType, len(r.Body), &s.PrettyBtn, s.Pretty, &s.CopyBodyBtn, true)
+			return s.bodyHeader(gtx, paneRowPx(gtx), "Content", r.MimeType, r.Size, &s.PrettyBtn, s.Pretty, &s.CopyBodyBtn, true)
 		}),
 		layout.Rigid(hLine),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return paneSurface(gtx, func(gtx layout.Context) layout.Dimensions {
-				return s.bodyViewer(gtx, s.FileViewer, &s.FileViewerKey, &s.FileSearch, &s.FileScrollDrag, &s.FileScrollDragY, "file/"+strconv.Itoa(s.SelFile), r.Body, r.MimeType, s.Pretty)
+				identity := "file/" + strconv.Itoa(s.SelFile)
+				body := s.inspectorBody(identity, r.Bytes)
+				return s.bodyViewer(gtx, s.FileViewer, &s.FileViewerKey, &s.FileSearch, &s.FileScrollDrag, &s.FileScrollDragY, identity, body, r.MimeType, s.Pretty)
 			})
 		}),
 	)

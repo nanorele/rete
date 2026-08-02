@@ -16,6 +16,11 @@ type LayoutPrefs struct {
 	WSSplitRatio      float32
 	WSComposerRatio   float32
 	GQLVarsRatio      float32
+	WSHeadersColl     bool
+	WSComposeColl     bool
+	WSMessagesColl    bool
+	WSComposeSaved    float32
+	WSMsgsSaved       float32
 }
 
 func (t *RequestTab) MergeLayoutPrefs(p *LayoutPrefs) {
@@ -43,6 +48,11 @@ func (t *RequestTab) MergeLayoutPrefs(p *LayoutPrefs) {
 		if t.WS.ComposerRatio > 0 {
 			p.WSComposerRatio = t.WS.ComposerRatio
 		}
+		p.WSHeadersColl = t.WS.HeadersCollapsed
+		p.WSComposeColl = t.WS.ComposeCollapsed
+		p.WSMessagesColl = t.WS.MessagesCollapsed
+		p.WSComposeSaved = t.WS.composeSavedRatio
+		p.WSMsgsSaved = t.WS.msgsSavedRatio
 	}
 	if t.GQL != nil && t.GQL.VarsSplitRatio > 0 {
 		p.GQLVarsRatio = t.GQL.VarsSplitRatio
@@ -80,6 +90,11 @@ func (t *RequestTab) ApplyLayoutPrefs(p LayoutPrefs) {
 		if p.WSComposerRatio > 0 {
 			t.WS.ComposerRatio = p.WSComposerRatio
 		}
+		t.WS.HeadersCollapsed = p.WSHeadersColl
+		t.WS.ComposeCollapsed = p.WSComposeColl
+		t.WS.MessagesCollapsed = p.WSMessagesColl
+		t.WS.composeSavedRatio = p.WSComposeSaved
+		t.WS.msgsSavedRatio = p.WSMsgsSaved
 	}
 	if t.GQL != nil && p.GQLVarsRatio > 0 {
 		t.GQL.VarsSplitRatio = p.GQLVarsRatio

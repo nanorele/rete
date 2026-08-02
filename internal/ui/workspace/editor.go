@@ -73,6 +73,8 @@ const RequestBodyMaxBytes = 100 * 1024 * 1024
 
 const requestEditorVarScanCutoff = 10 * 1024 * 1024
 
+const maxShiftedTokenLen = 1<<16 - 1
+
 func NewRequestEditor() *RequestEditor {
 	return &RequestEditor{
 		textCore: textCore{lineStarts: []int{0}},
@@ -106,6 +108,7 @@ func (v *RequestEditor) SetText(s string) bool {
 	v.selStart = 0
 	v.selEnd = 0
 	v.dragActive = false
+	v.cancelReveal()
 	v.undoStack = v.undoStack[:0]
 	v.redoStack = v.redoStack[:0]
 	return true
@@ -179,10 +182,8 @@ func (v *RequestEditor) Append(s string) bool {
 	if last := len(v.chunkHeights) - 1; last >= 0 {
 		v.chunkHeights[last] = 0
 	}
-	lastLineBefore := len(v.lineStarts) - 1
 	v.appendLineStartsFrom(startIdx)
 	v.padChunkHeights()
-	v.invalidateWrapPlansFrom(lastLineBefore)
 	v.padWrapPlans()
 	v.lastTotalH = 0
 	return true
@@ -643,7 +644,7 @@ func (v *RequestEditor) shiftTokens(from, delta int) {
 	w := 0
 	for i := range v.tokens {
 		s := adjustStart(int(v.tokens[i].Start))
-		e := adjustEnd(int(v.tokens[i].End))
+		e := adjustEnd(int(v.tokens[i].End()))
 		if s < 0 {
 			s = 0
 		}
@@ -659,9 +660,12 @@ func (v *RequestEditor) shiftTokens(from, delta int) {
 		if e <= s {
 			continue
 		}
+		if e-s > maxShiftedTokenLen {
+			e = s + maxShiftedTokenLen
+		}
 		v.tokens[w] = v.tokens[i]
 		v.tokens[w].Start = int32(s)
-		v.tokens[w].End = int32(e)
+		v.tokens[w].Len = uint16(e - s)
 		w++
 	}
 	v.tokens = v.tokens[:w]
@@ -682,20 +686,7 @@ func (v *RequestEditor) SetCaret(start, end int) {
 	}
 	v.highlightStart = start
 	v.highlightEnd = end
-	v.scrollToByteOffset(start)
-}
-
-func (v *RequestEditor) scrollToByteOffset(off int) {
-	if v.lastLineHeight == 0 {
-		return
-	}
-	line := v.lineForByteOffset(off)
-	target := line * v.lastLineHeight
-	if v.lastViewportH > 0 {
-		target -= v.lastViewportH / 2
-	}
-	v.scrollY = target
-	v.clampScroll()
+	v.requestReveal(start, end)
 }
 
 func (v *RequestEditor) ensureLineStarts() {
@@ -744,18 +735,17 @@ func (v *RequestEditor) lineStartsDelete(start, length int) {
 }
 
 type RequestEditorStyle struct {
-	Viewer           *RequestEditor
-	Shaper           *text.Shaper
-	Font             font.Font
-	TextSize         unit.Sp
-	Color            color.NRGBA
-	HighlightColor   color.NRGBA
-	SearchMatchColor color.NRGBA
-	SelectionColor   color.NRGBA
-	Wrap             bool
-	ReadOnly         bool
-	Padding          unit.Dp
-	Env              map[string]string
+	Viewer         *RequestEditor
+	Shaper         *text.Shaper
+	Font           font.Font
+	TextSize       unit.Sp
+	Color          color.NRGBA
+	Background     color.NRGBA
+	SelectionColor color.NRGBA
+	Wrap           bool
+	ReadOnly       bool
+	Padding        unit.Dp
+	Env            map[string]string
 
 	Lang syntax.Lang
 
@@ -809,6 +799,7 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 	v.lastLineHeight = exactLineH
 	v.descOvershoot = measureDescentOvershoot(s.Shaper, s.Font, s.TextSize, gtx)
 	v.lineBox = measureLineBox(s.Shaper, s.Font, s.TextSize, gtx)
+	v.monoAdvance = measureMonoAdvance(s.Shaper, s.Font, s.TextSize, gtx)
 
 	if s.Wrap != v.chunkHeightsWrap || (s.Wrap && v.chunkHeightsWidth != innerW) {
 		anchorLine, anchorSub := v.scrollAnchor(exactLineH, charAdv, v.chunkHeightsWidth, v.chunkHeightsWrap)
@@ -826,11 +817,11 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 
 	totalH := 0
 	for i, h := range v.chunkHeights {
-		if h > 0 {
-			totalH += h
-		} else {
-			totalH += v.estimateChunkHeight(i, exactLineH, charAdv, innerW, s.Wrap)
+		if h <= 0 {
+			h = v.estimateChunkHeight(i, exactLineH, charAdv, innerW, s.Wrap)
+			v.chunkHeights[i] = h
 		}
+		totalH += h
 	}
 	if totalH < innerH {
 		totalH = innerH
@@ -1316,6 +1307,8 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		v.tokensTxt = 0
 	}
 
+	v.applyReveal(gtx, charAdv, exactLineH, innerW, innerH, s.Wrap)
+
 	firstLine, accumY = v.firstChunkAtFn(v.scrollY, exactLineH, charAdv, innerW, s.Wrap)
 	yOff := accumY - v.scrollY
 	for line := firstLine; line < len(v.lineStarts); line++ {
@@ -1375,7 +1368,8 @@ func (v *RequestEditor) paintChunk(
 
 	var glyphs []widgets.WrapGlyph
 	if s.Wrap && absEnd > absStart && v.needsEditorChunkGlyphs(absStart, absEnd, hasHL, hasSel, caretShow, varScan) {
-		glyphs = widgets.ShapeChunkForWrap(s.Shaper, s.Font, s.TextSize, gtx, v.text[absStart:absEnd], innerW)
+		v.paintScratch = widgets.ShapeChunkForWrapInto(v.paintScratch, s.Shaper, s.Font, s.TextSize, gtx, v.text[absStart:absEnd], innerW)
+		glyphs = v.paintScratch
 	}
 
 	if len(v.searchSpans) > 0 {
@@ -1385,12 +1379,19 @@ func (v *RequestEditor) paintChunk(
 			if m.start >= absEnd {
 				break
 			}
-			v.paintHighlight(gtx, absStart, absEnd, chunkH, yOff, charAdv, s.Wrap, innerW, s.SearchMatchColor, m.start, m.end, glyphs)
+			// the current match gets the highlight fill below; two fills on
+			// the same run darken it until the glyphs stop reading
+			if hasHL && m.start == v.highlightStart && m.end == v.highlightEnd {
+				continue
+			}
+			col := theme.SearchFill(v.tokenColorAt(m.start, s.Syntax, s.BracketCycle, s.Color), s.Background, false)
+			v.paintHighlight(gtx, absStart, absEnd, chunkH, yOff, charAdv, s.Wrap, innerW, col, m.start, m.end, glyphs)
 		}
 	}
 
 	if hasHL && v.highlightEnd > absStart && v.highlightStart < absEnd {
-		v.paintHighlight(gtx, absStart, absEnd, chunkH, yOff, charAdv, s.Wrap, innerW, s.HighlightColor, v.highlightStart, v.highlightEnd, glyphs)
+		col := theme.SearchFill(v.tokenColorAt(v.highlightStart, s.Syntax, s.BracketCycle, s.Color), s.Background, true)
+		v.paintHighlight(gtx, absStart, absEnd, chunkH, yOff, charAdv, s.Wrap, innerW, col, v.highlightStart, v.highlightEnd, glyphs)
 	}
 
 	if caretShow && v.selEnd >= absStart && v.selEnd <= absEnd {
@@ -1425,16 +1426,14 @@ func (v *RequestEditor) paintChunk(
 	}
 	labelGtx.Constraints.Max.Y = 1 << 24
 	chunkText := string(v.text[paintStart:paintEnd])
-	var dims layout.Dimensions
+	var spans []widgets.ColoredSpan
 	if tokenizing && len(v.tokens) > 0 {
-		spans := v.spansForChunk(paintStart, paintEnd, s.Syntax, s.BracketCycle)
+		spans = v.spansForChunk(paintStart, paintEnd, s.Syntax, s.BracketCycle)
 		if varScan {
 			spans = clipSpansToVars(spans, v.text[paintStart:paintEnd])
 		}
-		dims = widgets.PaintColoredText(labelGtx, s.Shaper, s.Font, s.TextSize, chunkText, spans, s.Color, s.Wrap, innerW)
-	} else {
-		dims = widgets.PaintColoredText(labelGtx, s.Shaper, s.Font, s.TextSize, chunkText, nil, s.Color, s.Wrap, innerW)
 	}
+	dims := widgets.PaintColoredText(labelGtx, s.Shaper, s.Font, s.TextSize, chunkText, spans, s.Color, s.Wrap, innerW)
 	tr.Pop()
 
 	if !s.Wrap {

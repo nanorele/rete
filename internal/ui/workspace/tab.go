@@ -42,7 +42,7 @@ import (
 	"golang.org/x/exp/shiny/materialdesign/icons"
 )
 
-var methods = []string{"GET", "POST", "PUT", "DELETE", "HEAD", "PATCH", "OPTIONS"}
+var methods = []string{"GET", "POST", "PUT", "DELETE", "HEAD", "PATCH", "OPTIONS", "QUERY"}
 
 var protocols = []string{"HTTP", "WS", "GraphQL"}
 
@@ -119,6 +119,7 @@ type RequestTab struct {
 	urlClick           gesture.Click
 	SendBtn            widget.Clickable
 	Headers            []*HeaderItem
+	KeyWidths          widgets.KeyWidthCache
 	HeadersExpanded    bool
 	AddHeaderBtn       widget.Clickable
 	ViewGeneratedBtn   widget.Clickable
@@ -240,6 +241,7 @@ type RequestTab struct {
 	URLSubmitted      bool
 	FileSaveChan      chan io.WriteCloser
 	dirtyCheckNeeded  bool
+	layoutSaveNeeded  bool
 	visibleHeadersBuf []*HeaderItem
 
 	appendChan       chan appendChunk
@@ -462,6 +464,16 @@ func (t *RequestTab) stackedSplitExtent(gtx layout.Context) float32 {
 		ext = 1
 	}
 	return float32(ext)
+}
+
+// TakeLayoutSaveRequest reports and clears a pending request to persist the
+// pane collapse/expand state changed by this frame's toggles.
+func (t *RequestTab) TakeLayoutSaveRequest() bool {
+	if t == nil || !t.layoutSaveNeeded {
+		return false
+	}
+	t.layoutSaveNeeded = false
+	return true
 }
 
 func collapseChevron(gtx layout.Context, th *material.Theme, btn *widget.Clickable, collapsed bool) layout.Dimensions {
@@ -904,36 +916,6 @@ func processTemplate(input string, env map[string]string) string {
 
 func (t *RequestTab) invalidateSearchCache() {
 	t.RespSearch.invalidate()
-}
-
-func asciiToLower(s string) string {
-	asciiOnly := true
-	hasUpper := false
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 0x80 {
-			asciiOnly = false
-			break
-		}
-		if c >= 'A' && c <= 'Z' {
-			hasUpper = true
-		}
-	}
-	if !asciiOnly {
-		return strings.ToLower(s)
-	}
-	if !hasUpper {
-		return s
-	}
-	b := make([]byte, len(s))
-	for i := 0; i < len(s); i++ {
-		c := s[i]
-		if c >= 'A' && c <= 'Z' {
-			c += 'a' - 'A'
-		}
-		b[i] = c
-	}
-	return string(b)
 }
 
 func (t *RequestTab) AddHeader(k, v string) {
@@ -1537,6 +1519,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 	for t.ViewGeneratedBtn.Clicked(gtx) {
 		t.HeadersExpanded = !t.HeadersExpanded
 		t.reqHugPending = true
+		t.layoutSaveNeeded = true
 	}
 
 	t.updateReqSubTabs(gtx)
@@ -1813,6 +1796,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 	if t.Method != MethodWS && t.Method != MethodGraphQL {
 		for t.ReqCollapseBtn.Clicked(gtx) {
 			t.ReqBodyCollapsed = !t.ReqBodyCollapsed
+			t.layoutSaveNeeded = true
 			if stacked && flexExtent > 0 {
 				if t.ReqBodyCollapsed {
 					if !t.RespBodyCollapsed {
@@ -1835,6 +1819,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		}
 		for t.RespCollapseBtn.Clicked(gtx) {
 			t.RespBodyCollapsed = !t.RespBodyCollapsed
+			t.layoutSaveNeeded = true
 			if stacked && flexExtent > 0 {
 				if t.RespBodyCollapsed {
 					if !t.ReqBodyCollapsed {
@@ -1972,7 +1957,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 			if !t.RespBodyCollapsed && flexExtent-newPane < float32(gtx.Dp(unit.Dp(120)))-0.5 {
 				t.RespBodyCollapsed = true
 				maxReqRatio = 1 - float32(t.respCollapsedMinPx(gtx))/flexExtent
-			} else if t.RespBodyCollapsed && flexExtent-newPane > float32(t.respCollapsedMinPx(gtx))+float32(gtx.Dp(unit.Dp(6))) {
+			} else if t.RespBodyCollapsed && flexExtent-newPane > float32(gtx.Dp(unit.Dp(120)))+float32(gtx.Dp(unit.Dp(6))) {
 				t.RespBodyCollapsed = false
 				maxReqRatio = 1 - float32(gtx.Dp(unit.Dp(120)))/flexExtent
 			}
@@ -1993,6 +1978,10 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		*ratio = float32(snap) / flexExtent
 		t.SplitDragX = finalX
 		win.Invalidate()
+	}
+	if stacked && flexExtent > 0 && t.Method != MethodWS && t.Method != MethodGraphQL &&
+		t.RespBodyCollapsed && !t.ReqBodyCollapsed && *ratio < maxReqRatio {
+		*ratio = maxReqRatio
 	}
 	if released {
 		if onSave != nil {
@@ -2418,7 +2407,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 										if len(activeKV) == 0 {
 											return layout.Dimensions{Size: gtx.Constraints.Min}
 										}
-										minKey := widgets.KVKeysMinWidth(gtx, th, len(activeKV), func(i int) *widget.Editor { return &activeKV[i].Key })
+										minKey := widgets.KVKeysMinWidth(gtx, th, &t.KeyWidths, len(activeKV), func(i int) *widget.Editor { return &activeKV[i].Key })
 										return layout.UniformInset(unit.Dp(2)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 											return widgets.VScrollList(gtx, th, kvList, len(activeKV), func(gtx layout.Context, i int) layout.Dimensions {
 												h := activeKV[i]
@@ -2517,20 +2506,19 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 											return layout.Stack{}.Layout(gtx,
 												layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 													style := RequestEditorStyle{
-														Viewer:           &t.ReqEditor,
-														Shaper:           th.Shaper,
-														Font:             widgets.MonoFont,
-														TextSize:         settings.BodyTextSize,
-														Color:            theme.Fg,
-														HighlightColor:   theme.WithAlpha(theme.Accent, 150),
-														SearchMatchColor: theme.WithAlpha(theme.Accent, 60),
-														SelectionColor:   theme.Selection,
-														Wrap:             t.ReqWrapEnabled,
-														Padding:          settings.RespBodyPad,
-														Env:              activeEnv,
-														Lang:             t.requestLang(),
-														Syntax:           theme.Syntax,
-														BracketCycle:     settings.BracketColorization,
+														Viewer:         &t.ReqEditor,
+														Shaper:         th.Shaper,
+														Font:           widgets.MonoFont,
+														TextSize:       settings.BodyTextSize,
+														Color:          theme.Fg,
+														Background:     widgets.KVSurface(),
+														SelectionColor: theme.Selection,
+														Wrap:           t.ReqWrapEnabled,
+														Padding:        settings.RespBodyPad,
+														Env:            activeEnv,
+														Lang:           t.requestLang(),
+														Syntax:         theme.Syntax,
+														BracketCycle:   settings.BracketColorization,
 													}
 													return style.Layout(gtx)
 												}),
@@ -2877,19 +2865,18 @@ func (t *RequestTab) layoutResponseBody(gtx layout.Context, th *material.Theme, 
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 			lang := t.responseLang()
 			vs := ResponseViewerStyle{
-				Viewer:           t.RespEditor,
-				Shaper:           th.Shaper,
-				Font:             widgets.MonoFont,
-				TextSize:         settings.BodyTextSize,
-				Color:            theme.Fg,
-				HighlightColor:   theme.WithAlpha(theme.Accent, 150),
-				SearchMatchColor: theme.WithAlpha(theme.Accent, 60),
-				SelectionColor:   theme.Selection,
-				Wrap:             t.WrapEnabled,
-				Padding:          settings.RespBodyPad,
-				Lang:             lang,
-				Syntax:           theme.Syntax,
-				BracketCycle:     settings.BracketColorization,
+				Viewer:         t.RespEditor,
+				Shaper:         th.Shaper,
+				Font:           widgets.MonoFont,
+				TextSize:       settings.BodyTextSize,
+				Color:          theme.Fg,
+				Background:     widgets.KVSurface(),
+				SelectionColor: theme.Selection,
+				Wrap:           t.WrapEnabled,
+				Padding:        settings.RespBodyPad,
+				Lang:           lang,
+				Syntax:         theme.Syntax,
+				BracketCycle:   settings.BracketColorization,
 			}
 			return vs.Layout(gtx)
 		}),

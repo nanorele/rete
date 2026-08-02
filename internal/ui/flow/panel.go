@@ -23,7 +23,7 @@ import (
 	"github.com/nanorele/gio/widget/material"
 )
 
-var methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"}
+var methods = []string{"GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "QUERY"}
 
 var ops = []string{">", ">=", "==", "!=", "<=", "<"}
 

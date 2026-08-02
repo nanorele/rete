@@ -85,7 +85,7 @@ func TestResources_WebSocketExtracted(t *testing.T) {
 	if !strings.HasSuffix(r.ZipPath, ".ws.txt") {
 		t.Errorf("ws resource path = %q, want .ws.txt suffix", r.ZipPath)
 	}
-	body := string(r.Body)
+	body := string(r.Bytes())
 	for _, want := range []string{">> send", "<< receive", "hello", "world", "[binary]"} {
 		if !strings.Contains(body, want) {
 			t.Errorf("transcript missing %q:\n%s", want, body)
@@ -107,8 +107,8 @@ func TestResources_KeepsUndecodableBody(t *testing.T) {
 	if len(res) != 1 {
 		t.Fatalf("Resources = %d, want 1 (bad base64 must not drop the file)", len(res))
 	}
-	if string(res[0].Body) != "!!!not base64!!!" {
-		t.Errorf("body = %q, want raw undecoded text", res[0].Body)
+	if string(res[0].Bytes()) != "!!!not base64!!!" {
+		t.Errorf("body = %q, want raw undecoded text", res[0].Bytes())
 	}
 }
 

@@ -153,6 +153,14 @@ var emojiRanges = [...][2]rune{
 	{0x1FAF0, 0x1FAF8},
 }
 
+// EmojiRanges returns the codepoint ranges [SubsetEmoji] removes, as
+// inclusive [lo, hi] pairs in ascending order.
+func EmojiRanges() [][2]rune {
+	out := make([][2]rune, len(emojiRanges))
+	copy(out, emojiRanges[:])
+	return out
+}
+
 func IsEmojiCodepoint(r rune) bool {
 	if r == '#' || r == '*' || (r >= '0' && r <= '9') {
 		return false

@@ -782,9 +782,11 @@ func TestWSStore_Basics(t *testing.T) {
 	if snap[0].Time.IsZero() {
 		t.Error("Add must stamp a time")
 	}
-	snap[0].Payload[0] = 'X'
-	if string(s.Snapshot()[0].Payload) != "hi" {
-		t.Error("Snapshot must deep-copy payloads")
+	if string(snap[0].Payload) != "hi" {
+		t.Errorf("Snapshot payload = %q", snap[0].Payload)
+	}
+	if snap[0] != s.Snapshot()[0] {
+		t.Error("Snapshot must share messages, not copy them")
 	}
 
 	found := s.FindByID(snap[1].ID)

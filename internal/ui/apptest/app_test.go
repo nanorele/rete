@@ -107,6 +107,7 @@ func TestFlushSaves(t *testing.T) {
 	ui := NewAppUI()
 	ui.SetSaveNeeded(true)
 	ui.FlushSaveState()
+	ui.WaitBackgroundSaves()
 
 	col := &collections.ParsedCollection{ID: "c1", Root: &collections.CollectionNode{}}
 	ui.MarkCollectionDirty(col)

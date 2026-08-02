@@ -1,13 +1,11 @@
 package workspace
 
 import (
-	"bytes"
 	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
-	"strings"
 	"sync"
 	"tracto/internal/ui/settings"
 	"tracto/pkg/syntax"
@@ -32,131 +30,6 @@ func getPreviewBuf(size int64) ([]byte, func()) {
 	}
 	buf := make([]byte, size)
 	return buf, func() {}
-}
-
-var indentTable [64]string
-
-func init() {
-	for i := range indentTable {
-		indentTable[i] = "\n" + strings.Repeat("  ", i)
-	}
-}
-
-type JSONFormatterState struct {
-	Indent     int
-	InString   bool
-	NeedIndent bool
-	EscapeNext bool
-}
-
-func indentWrite(out *strings.Builder, indent int) {
-	if indent < 0 {
-		return
-	}
-	if indent >= len(indentTable) {
-		indent = len(indentTable) - 1
-	}
-	out.WriteString(indentTable[indent])
-}
-
-func formatJSON(data []byte, state *JSONFormatterState) string {
-	var out strings.Builder
-	out.Grow(len(data) * 3)
-
-	i := 0
-	for i < len(data) {
-		if state.InString {
-			start := i
-			if !state.EscapeNext {
-				idx := bytes.IndexAny(data[i:], "\"\\")
-				if idx == -1 {
-					out.Write(data[start:])
-					break
-				}
-				i += idx
-			}
-
-			if i > start {
-				out.Write(data[start:i])
-			}
-
-			b := data[i]
-			i++
-
-			if state.EscapeNext {
-				out.WriteByte(b)
-				state.EscapeNext = false
-			} else if b == '\\' {
-				out.WriteByte('\\')
-				state.EscapeNext = true
-			} else {
-				out.WriteByte('"')
-				state.InString = false
-			}
-			continue
-		}
-
-		b := data[i]
-		i++
-
-		switch b {
-		case '"':
-			if state.NeedIndent {
-				indentWrite(&out, state.Indent)
-				state.NeedIndent = false
-			}
-			out.WriteByte('"')
-			state.InString = true
-		case '{', '[':
-			if state.NeedIndent {
-				indentWrite(&out, state.Indent)
-				state.NeedIndent = false
-			}
-			out.WriteByte(b)
-
-			j := i
-			for j < len(data) && (data[j] == ' ' || data[j] == '\t' || data[j] == '\n' || data[j] == '\r') {
-				j++
-			}
-			if j < len(data) && ((b == '{' && data[j] == '}') || (b == '[' && data[j] == ']')) {
-				out.WriteByte(data[j])
-				i = j + 1
-				continue
-			}
-
-			state.Indent++
-			state.NeedIndent = true
-		case '}', ']':
-			state.Indent--
-			if state.Indent < 0 {
-				state.Indent = 0
-			}
-			indentWrite(&out, state.Indent)
-			out.WriteByte(b)
-		case ',':
-			out.WriteByte(',')
-			state.NeedIndent = true
-		case ':':
-			out.WriteByte(':')
-			out.WriteByte(' ')
-		case ' ', '\t', '\n', '\r':
-		default:
-			if state.NeedIndent {
-				indentWrite(&out, state.Indent)
-				state.NeedIndent = false
-			}
-			start := i - 1
-			idx := bytes.IndexAny(data[i:], ",}]: \t\n\r")
-			if idx == -1 {
-				out.Write(data[start:])
-				i = len(data)
-			} else {
-				out.Write(data[start : i+idx])
-				i += idx
-			}
-		}
-	}
-	return out.String()
 }
 
 func looksLikeJSON(data []byte) bool {

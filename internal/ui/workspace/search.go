@@ -5,6 +5,8 @@ import (
 	"image/color"
 	"strconv"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/widgets"
@@ -30,6 +32,9 @@ type searchableEditor interface {
 	SelectedText() string
 	SetCaret(start, end int)
 	SetSearchSpans(spans []matchSpan)
+	SetRevealInset(px int)
+	RevealScreenY() (int, bool)
+	ClearSearchCaret()
 }
 
 type SearchableEditor = searchableEditor
@@ -50,15 +55,71 @@ type SearchBox struct {
 	cache      string
 	cacheDirty bool
 	wantFocus  bool
+	panelH     int
 }
 
 func (s *SearchBox) invalidate() { s.cacheDirty = true }
 
 func (s *SearchBox) Invalidate() { s.invalidate() }
 
+// Close dismisses the panel and clears ed's match highlights. Hosts that stop
+// drawing a viewer must call it, otherwise the box stays open on a pane that
+// can neither show it nor take the Escape that would dismiss it.
+func (s *SearchBox) Close(ed SearchableEditor) {
+	if !s.Open {
+		return
+	}
+	s.closeOn(ed)
+}
+
+// foldForSearch lowercases s without ever changing its byte length, so match
+// offsets found in the folded copy address the original text unchanged. Runes
+// whose lowercase form has a different UTF-8 size (İ, K, …) are left as-is.
+func foldForSearch(s string) string {
+	asciiOnly := true
+	hasUpper := false
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		if c >= 0x80 {
+			asciiOnly = false
+			break
+		}
+		if c >= 'A' && c <= 'Z' {
+			hasUpper = true
+		}
+	}
+	if asciiOnly {
+		if !hasUpper {
+			return s
+		}
+		b := make([]byte, len(s))
+		for i := 0; i < len(s); i++ {
+			c := s[i]
+			if c >= 'A' && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+			b[i] = c
+		}
+		return string(b)
+	}
+	b := make([]byte, 0, len(s))
+	var enc [utf8.UTFMax]byte
+	for i := 0; i < len(s); {
+		r, sz := utf8.DecodeRuneInString(s[i:])
+		if lr := unicode.ToLower(r); lr != r && utf8.RuneLen(lr) == sz {
+			n := utf8.EncodeRune(enc[:], lr)
+			b = append(b, enc[:n]...)
+		} else {
+			b = append(b, s[i:i+sz]...)
+		}
+		i += sz
+	}
+	return string(b)
+}
+
 func (s *SearchBox) recompute(text string) {
-	if s.cacheDirty || s.cache == "" {
-		s.cache = asciiToLower(text)
+	if s.cacheDirty || len(s.cache) != len(text) {
+		s.cache = foldForSearch(text)
 		s.cacheDirty = false
 	}
 	s.spans = s.spans[:0]
@@ -74,7 +135,7 @@ func (s *SearchBox) recompute(text string) {
 		needle = q
 	} else {
 		hay = s.cache
-		needle = asciiToLower(q)
+		needle = foldForSearch(q)
 	}
 	nLen := len(needle)
 	if nLen == 0 {
@@ -109,10 +170,15 @@ func (s *SearchBox) clampCurrent() {
 
 func (s *SearchBox) apply(ed searchableEditor) {
 	ed.SetSearchSpans(s.spans)
-	if s.current >= 0 && s.current < len(s.spans) {
-		m := s.spans[s.current]
-		ed.SetCaret(m.start, m.end)
+	if s.current < 0 || s.current >= len(s.spans) {
+		// typing past the last match that existed must not leave that match
+		// highlighted next to a 0/0 counter
+		ed.ClearSearchCaret()
+		return
 	}
+	m := s.spans[s.current]
+	ed.SetRevealInset(s.panelH)
+	ed.SetCaret(m.start, m.end)
 }
 
 func (s *SearchBox) refresh(ed searchableEditor, text string, resetToFirst bool) {
@@ -147,6 +213,8 @@ func (s *SearchBox) closeOn(ed searchableEditor) {
 	s.current = -1
 	s.wantFocus = false
 	ed.SetSearchSpans(nil)
+	ed.SetRevealInset(0)
+	ed.ClearSearchCaret()
 }
 
 func (t *RequestTab) HandleSearchShortcut(gtx layout.Context) {
@@ -252,6 +320,10 @@ func (t *RequestTab) layoutSearchOverlay(gtx layout.Context, th *material.Theme,
 	return SearchOverlay(gtx, th, box)
 }
 
+// SearchOverlay draws the panel pinned to the top-right of the pane. The corner
+// is fixed on purpose: a panel that relocates itself is more disorienting than
+// the match it occasionally covers, which the reveal inset already avoids
+// wherever the document has room to scroll.
 func SearchOverlay(gtx layout.Context, th *material.Theme, box *SearchBox) layout.Dimensions {
 	if !box.Open {
 		return layout.Dimensions{}
@@ -259,7 +331,7 @@ func SearchOverlay(gtx layout.Context, th *material.Theme, box *SearchBox) layou
 	gtx.Constraints.Min = gtx.Constraints.Max
 	return layout.NE.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Inset{Top: unit.Dp(6), Right: unit.Dp(7)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			return searchPanelBackground(gtx, func(gtx layout.Context) layout.Dimensions {
+			dims := searchPanelBackground(gtx, func(gtx layout.Context) layout.Dimensions {
 				return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(5), Right: unit.Dp(5)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -308,6 +380,8 @@ func SearchOverlay(gtx layout.Context, th *material.Theme, box *SearchBox) layou
 					)
 				})
 			})
+			box.panelH = dims.Size.Y + gtx.Dp(unit.Dp(14))
+			return dims
 		})
 	})
 }

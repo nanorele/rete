@@ -570,14 +570,14 @@ func TestSearchNavigate_DirZero(t *testing.T) {
 	}
 }
 
-func TestAsciiToLower_Empty(t *testing.T) {
-	if asciiToLower("") != "" {
+func TestFoldForSearch_Empty(t *testing.T) {
+	if foldForSearch("") != "" {
 		t.Errorf("empty should stay empty")
 	}
-	if asciiToLower("ASCII") != "ascii" {
+	if foldForSearch("ASCII") != "ascii" {
 		t.Errorf("ASCII conversion failed")
 	}
-	if asciiToLower("\x00\x01\x7F") != "\x00\x01\x7F" {
+	if foldForSearch("\x00\x01\x7F") != "\x00\x01\x7F" {
 		t.Errorf("control chars should be unchanged")
 	}
 }

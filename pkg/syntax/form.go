@@ -10,7 +10,7 @@ func TokenizeForm(src []byte) []Token {
 		if start >= end {
 			return
 		}
-		out = append(out, Token{Start: int32(start), End: int32(end), Kind: kind})
+		out = appendToken(out, start, end, kind, 0)
 	}
 
 	i := 0

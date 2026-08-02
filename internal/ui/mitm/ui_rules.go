@@ -36,6 +36,7 @@ func (s *UIState) LayoutSidebar(gtx layout.Context, host *Host) layout.Dimension
 	s.Ensure()
 	s.wireNotify()
 	s.sidebarEvents(gtx)
+	s.flushConfig()
 	s.SidebarList.Axis = layout.Vertical
 
 	paint.FillShape(gtx.Ops, bodyBg(), clip.Rect{Max: gtx.Constraints.Max}.Op())

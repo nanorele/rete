@@ -317,7 +317,9 @@ func (s *UIState) filteredFlows() []*Flow {
 		}
 	}
 
-	out := flows[:0]
+	// SnapshotMeta hands back a cached slice, so filtering and sorting must
+	// build into a buffer of our own rather than reordering it in place.
+	out := s.flowFilterBuf[:0]
 	for _, f := range flows {
 		if hideNoise && isNoise(f) {
 			continue
@@ -355,14 +357,20 @@ func (s *UIState) filteredFlows() []*Flow {
 		}
 		out = append(out, f)
 	}
+	s.flowFilterBuf = out
 	sortFlows(out, s.SortColumn, s.SortAsc)
 	return out
 }
 
+var noiseExts = [...]string{
+	".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico",
+	".css", ".js", ".woff", ".woff2", ".ttf",
+}
+
 func isNoise(f *Flow) bool {
-	p := strings.ToLower(pathOnly(f.Path))
-	for _, ext := range []string{".png", ".jpg", ".jpeg", ".gif", ".webp", ".svg", ".ico", ".css", ".js", ".woff", ".woff2", ".ttf"} {
-		if strings.HasSuffix(p, ext) {
+	p := pathOnly(f.Path)
+	for _, ext := range noiseExts {
+		if len(p) >= len(ext) && strings.EqualFold(p[len(p)-len(ext):], ext) {
 			return true
 		}
 	}

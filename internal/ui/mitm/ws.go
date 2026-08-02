@@ -21,7 +21,7 @@ func (p *Proxy) interceptWebSocket(client *tls.Conn, br *bufio.Reader, host, por
 	raw, err := p.dialUpstream(dialCtx, "tcp", host, port)
 	cancel()
 	if err != nil {
-		p.Store.Update(func() { flow.Error = "ws dial: " + err.Error(); flow.StatusCode = 502 })
+		p.Store.Update(flow, func() { flow.Error = "ws dial: " + err.Error(); flow.StatusCode = 502 })
 		return
 	}
 	upstream := tls.Client(raw, &tls.Config{
@@ -32,7 +32,7 @@ func (p *Proxy) interceptWebSocket(client *tls.Conn, br *bufio.Reader, host, por
 	})
 	if err := upstream.HandshakeContext(context.Background()); err != nil {
 		_ = raw.Close()
-		p.Store.Update(func() { flow.Error = "ws tls: " + err.Error(); flow.StatusCode = 502 })
+		p.Store.Update(flow, func() { flow.Error = "ws tls: " + err.Error(); flow.StatusCode = 502 })
 		return
 	}
 	defer func() { _ = upstream.Close() }()
@@ -46,7 +46,7 @@ func (p *Proxy) interceptWebSocket(client *tls.Conn, br *bufio.Reader, host, por
 	ur := bufio.NewReader(upstream)
 	resp, err := http.ReadResponse(ur, req)
 	if err != nil {
-		p.Store.Update(func() { flow.Error = "ws handshake: " + err.Error(); flow.StatusCode = 502 })
+		p.Store.Update(flow, func() { flow.Error = "ws handshake: " + err.Error(); flow.StatusCode = 502 })
 		return
 	}
 	// Relay the handshake response (typically 101) back to the client.
@@ -54,7 +54,7 @@ func (p *Proxy) interceptWebSocket(client *tls.Conn, br *bufio.Reader, host, por
 	_ = resp.Header.Write(client)
 	_, _ = io.WriteString(client, "\r\n")
 
-	p.Store.Update(func() {
+	p.Store.Update(flow, func() {
 		flow.StatusCode = resp.StatusCode
 		flow.Status = resp.Status
 		flow.RespHeaders = collectHeaders(resp.Header)
@@ -79,7 +79,7 @@ func (p *Proxy) interceptWebSocket(client *tls.Conn, br *bufio.Reader, host, por
 		_ = client.Close()
 	}()
 	wg.Wait()
-	p.Store.Update(func() { flow.TunnelClosed = true })
+	p.Store.Update(flow, func() { flow.TunnelClosed = true })
 }
 
 // pumpWS copies WebSocket frames from r to w, logging each frame.

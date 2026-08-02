@@ -6,9 +6,13 @@ import (
 	"net"
 	"net/url"
 	"strings"
+	"unicode/utf8"
 
+	"tracto/internal/ui/settings"
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/widgets"
+	"tracto/internal/ui/workspace"
+	"tracto/pkg/syntax"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/io/pointer"
@@ -29,6 +33,13 @@ func (s *UIState) inspector(gtx layout.Context) layout.Dimensions {
 			lbl.Color = theme.FgMuted
 			return lbl.Layout(gtx)
 		})
+	}
+	// widget.Clickable.Layout drains every pending click before it draws, so a
+	// Clicked poll that runs after the button was laid out never sees one.
+	if s.BodyViewer != nil && s.showsTextPane(f) {
+		for s.BodySearchBtn.Clicked(gtx) {
+			s.BodySearch.Toggle(gtx, s.BodyViewer)
+		}
 	}
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return s.inspectorHeader(gtx, f) }),
@@ -136,7 +147,17 @@ func (s *UIState) inspectorTabs(gtx layout.Context, f *Flow) layout.Dimensions {
 						return modeChip(gtx, s.host.Theme, &s.ViewRender, "Render", s.RenderMode == 3)
 					}))
 				}
-				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, children...)
+				children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+					if !s.showsTextPane(f) {
+						return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, 0)}
+					}
+					return layout.E.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{Right: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return widgets.SquareBtnSized(gtx, &s.BodySearchBtn, widgets.IconSearch, s.host.Theme, 22, 15)
+						})
+					})
+				}))
+				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, children...)
 			})
 		}),
 	)
@@ -167,15 +188,93 @@ func modeChip(gtx layout.Context, th *material.Theme, clk *widget.Clickable, lab
 
 // ---- panes ----
 
+// textPane renders one of the inspector's scrollable texts through the shared
+// viewer, which is what gives these panes selection, wrapping and Ctrl+F. build
+// only runs when key changes, so switching flows or tabs re-renders but a redraw
+// does not re-derive the text.
+func (s *UIState) textPane(gtx layout.Context, key paneTextKey, lang syntax.Lang, build func() string) layout.Dimensions {
+	if s.BodyViewer == nil {
+		s.BodyViewer = workspace.NewResponseViewer()
+	}
+	if s.BodyViewerKey != key {
+		s.BodyViewerKey = key
+		s.BodyViewer.SetText(build())
+		s.BodySearch.Invalidate()
+	}
+	if s.BodyViewer.Len() == 0 {
+		s.BodySearch.Close(s.BodyViewer)
+		return emptyLabel(s.host.Theme, gtx, "no body")
+	}
+	s.BodySearch.Process(gtx, s.BodyViewer)
+
+	vs := workspace.ResponseViewerStyle{
+		Viewer:         s.BodyViewer,
+		Shaper:         s.host.Theme.Shaper,
+		Font:           widgets.MonoFont,
+		TextSize:       unit.Sp(11),
+		Color:          theme.Fg,
+		Background:     theme.BgField,
+		SelectionColor: theme.Selection,
+		Wrap:           true,
+		Padding:        unit.Dp(6),
+		Lang:           lang,
+		Syntax:         theme.Syntax,
+		BracketCycle:   settings.BracketColorization,
+	}
+	return layout.Stack{}.Layout(gtx,
+		layout.Expanded(func(gtx layout.Context) layout.Dimensions { return vs.Layout(gtx) }),
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			dims, moved := widgets.ViewerScrollbar(gtx, s.BodyViewer, &s.BodyDrag, &s.BodyDragY)
+			if moved && s.host.Window != nil {
+				s.host.Window.Invalidate()
+			}
+			return dims
+		}),
+		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+			return workspace.SearchOverlay(gtx, s.host.Theme, &s.BodySearch)
+		}),
+	)
+}
+
+// HandleSearchShortcut opens Ctrl+F over whichever inspector text pane is on
+// screen. Panes built from key/value rows have nothing for it to search.
+func (s *UIState) HandleSearchShortcut(gtx layout.Context) {
+	if s.BodyViewer == nil || s.BodyViewer.Len() == 0 || !s.textPaneShowing() {
+		return
+	}
+	s.BodySearch.Toggle(gtx, s.BodyViewer)
+	if s.host.Window != nil {
+		s.host.Window.Invalidate()
+	}
+}
+
+func (s *UIState) textPaneShowing() bool {
+	if s.Store == nil {
+		return false
+	}
+	return s.showsTextPane(s.Store.FindByID(s.Selected))
+}
+
+func (s *UIState) showsTextPane(f *Flow) bool {
+	if f == nil || f.Kind == FlowTunnel || s.InspectorCollapsed {
+		return false
+	}
+	// pretty mode splits into Headers / Body / Params / Cookies; only Body is text
+	return s.RenderMode != 1 || s.SecTab == 1
+}
+
 func (s *UIState) rawPane(gtx layout.Context, f *Flow, resp bool) layout.Dimensions {
-	txt := flowAsText(f, resp)
 	return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return boxed(gtx, func(gtx layout.Context) layout.Dimensions {
-			return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return s.scrollText(gtx, &s.BodyList, txt)
+			return s.textPane(gtx, s.paneKey(f, paneRaw, resp), syntax.LangPlain, func() string {
+				return flowAsText(f, resp)
 			})
 		})
 	})
+}
+
+func (s *UIState) paneKey(f *Flow, kind paneKind, resp bool) paneTextKey {
+	return paneTextKey{id: f.ID, rev: s.Store.Rev(), kind: kind, resp: resp}
 }
 
 func (s *UIState) prettyPane(gtx layout.Context, f *Flow, resp bool) layout.Dimensions {
@@ -191,7 +290,7 @@ func (s *UIState) prettyPane(gtx layout.Context, f *Flow, resp bool) layout.Dime
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			switch s.SecTab {
 			case 1:
-				return s.bodyPane(gtx, body, f.Error)
+				return s.bodyPane(gtx, s.paneKey(f, paneBody, resp), body, contentType(headers), f.Error)
 			case 2:
 				return s.paramsPane(gtx, f, resp)
 			case 3:
@@ -258,10 +357,11 @@ func headerRow(gtx layout.Context, th *material.Theme, h [2]string) layout.Dimen
 	})
 }
 
-func (s *UIState) bodyPane(gtx layout.Context, body []byte, errMsg string) layout.Dimensions {
+func (s *UIState) bodyPane(gtx layout.Context, key paneTextKey, body []byte, mime, errMsg string) layout.Dimensions {
 	return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return boxed(gtx, func(gtx layout.Context) layout.Dimensions {
 			if errMsg != "" {
+				s.BodySearch.Close(s.BodyViewer)
 				return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(s.host.Theme, unit.Sp(11), "Error: "+errMsg)
 					lbl.Color = theme.Danger
@@ -269,15 +369,12 @@ func (s *UIState) bodyPane(gtx layout.Context, body []byte, errMsg string) layou
 					return lbl.Layout(gtx)
 				})
 			}
-			if len(body) == 0 {
-				return emptyLabel(s.host.Theme, gtx, "no body")
-			}
-			return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return s.textPane(gtx, key, syntax.Detect(mime, body), func() string {
 				preview := body
 				if len(preview) > 64*1024 {
 					preview = preview[:64*1024]
 				}
-				return s.scrollText(gtx, &s.BodyList, string(preview))
+				return string(preview)
 			})
 		})
 	})
@@ -314,11 +411,8 @@ func (s *UIState) hexPane(gtx layout.Context, f *Flow, resp bool) layout.Dimensi
 	}
 	return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return boxed(gtx, func(gtx layout.Context) layout.Dimensions {
-			if len(body) == 0 {
-				return emptyLabel(s.host.Theme, gtx, "no body")
-			}
-			return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return s.scrollText(gtx, &s.BodyList, hexDump(body))
+			return s.textPane(gtx, s.paneKey(f, paneHex, resp), syntax.LangPlain, func() string {
+				return hexDump(body)
 			})
 		})
 	})
@@ -335,8 +429,8 @@ func (s *UIState) renderPane(gtx layout.Context, f *Flow) layout.Dimensions {
 			layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				return boxed(gtx, func(gtx layout.Context) layout.Dimensions {
-					return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						return s.scrollText(gtx, &s.BodyList, stripHTML(string(f.RespBody)))
+					return s.textPane(gtx, s.paneKey(f, paneRender, true), syntax.LangPlain, func() string {
+						return stripHTML(string(f.RespBody))
 					})
 				})
 			}),
@@ -344,9 +438,75 @@ func (s *UIState) renderPane(gtx layout.Context, f *Flow) layout.Dimensions {
 	})
 }
 
-func (s *UIState) scrollText(gtx layout.Context, list *widget.List, txt string) layout.Dimensions {
+// paneKind distinguishes the derived texts the inspector caches, so switching
+// tabs rebuilds instead of reusing the previous pane's lines.
+type paneKind uint8
+
+const (
+	paneRaw paneKind = iota + 1
+	paneBody
+	paneHex
+	paneRender
+	paneWS
+)
+
+type paneTextKey struct {
+	id   uint64
+	rev  uint64
+	kind paneKind
+	resp bool
+}
+
+// paneLines returns the rendered text split into lines, rebuilding only when
+// the flow, its revision or the pane changes. Rebuilding per frame meant a
+// full copy (and for hex, a 4x expansion) of the selected body on every
+// redraw.
+func (s *UIState) paneLines(key paneTextKey, build func() string) []string {
+	if s.paneCache.lines == nil || s.paneCacheKey != key {
+		s.paneCacheKey = key
+		s.paneCache.txt = build()
+		s.paneCache.lines = splitPaneLines(s.paneCache.txt)
+	}
+	return s.paneCache.lines
+}
+
+// paneLineChunk bounds how much text one list row carries. Rows are laid out
+// with a wrapping label, so a minified body arriving as a single line would
+// otherwise be shaped in full on every frame.
+const paneLineChunk = 2000
+
+func splitPaneLines(txt string) []string {
+	raw := strings.Split(txt, "\n")
+	long := false
+	for _, ln := range raw {
+		if len(ln) > paneLineChunk {
+			long = true
+			break
+		}
+	}
+	if !long {
+		return raw
+	}
+	out := make([]string, 0, len(raw))
+	for _, ln := range raw {
+		for len(ln) > paneLineChunk {
+			cut := paneLineChunk
+			for cut > 0 && !utf8.RuneStart(ln[cut]) {
+				cut--
+			}
+			if cut == 0 {
+				cut = paneLineChunk
+			}
+			out = append(out, ln[:cut])
+			ln = ln[cut:]
+		}
+		out = append(out, ln)
+	}
+	return out
+}
+
+func (s *UIState) scrollLines(gtx layout.Context, list *widget.List, lines []string) layout.Dimensions {
 	list.Axis = layout.Vertical
-	lines := strings.Split(txt, "\n")
 	return material.List(s.host.Theme, list).Layout(gtx, len(lines), func(gtx layout.Context, i int) layout.Dimensions {
 		lbl := material.Label(s.host.Theme, unit.Sp(11), lines[i])
 		lbl.Font.Typeface = widgets.MonoTypeface
@@ -464,12 +624,7 @@ func parseParams(f *Flow) [][2]string {
 			}
 		}
 	}
-	ct := ""
-	for _, h := range f.ReqHeaders {
-		if strings.EqualFold(h[0], "content-type") {
-			ct = h[1]
-		}
-	}
+	ct := contentType(f.ReqHeaders)
 	if strings.Contains(ct, "application/x-www-form-urlencoded") && len(f.ReqBody) > 0 {
 		if vals, err := url.ParseQuery(string(f.ReqBody)); err == nil {
 			for k, vs := range vals {
@@ -480,6 +635,16 @@ func parseParams(f *Flow) [][2]string {
 		}
 	}
 	return out
+}
+
+func contentType(headers [][2]string) string {
+	ct := ""
+	for _, h := range headers {
+		if strings.EqualFold(h[0], "content-type") {
+			ct = h[1]
+		}
+	}
+	return ct
 }
 
 func parseCookies(headers [][2]string, resp bool) [][2]string {

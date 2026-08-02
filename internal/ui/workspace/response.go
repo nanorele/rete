@@ -93,6 +93,7 @@ func (v *ResponseViewer) SetText(s string) {
 	v.selStart = 0
 	v.selEnd = 0
 	v.dragActive = false
+	v.cancelReveal()
 }
 
 func (v *ResponseViewer) Append(s string) {
@@ -106,10 +107,8 @@ func (v *ResponseViewer) Append(s string) {
 	if last := len(v.chunkHeights) - 1; last >= 0 {
 		v.chunkHeights[last] = 0
 	}
-	lastLineBefore := len(v.lineStarts) - 1
 	v.appendLineStartsFrom(startIdx)
 	v.padChunkHeights()
-	v.invalidateWrapPlansFrom(lastLineBefore)
 	v.padWrapPlans()
 	v.lastTotalH = 0
 }
@@ -133,27 +132,7 @@ func (v *ResponseViewer) SetCaret(start, end int) {
 	v.highlightEnd = end
 	v.selStart = start
 	v.selEnd = end
-	v.scrollToByteOffset(start)
-}
-
-func (v *ResponseViewer) scrollToByteOffset(off int) {
-	if v.lastLineHeight == 0 {
-		return
-	}
-	line := v.lineForByteOffset(off)
-	target := 0
-	for i := 0; i < line; i++ {
-		if i < len(v.chunkHeights) && v.chunkHeights[i] > 0 {
-			target += v.chunkHeights[i]
-		} else {
-			target += v.lastLineHeight
-		}
-	}
-	if v.lastViewportH > 0 {
-		target -= v.lastViewportH / 2
-	}
-	v.scrollY = target
-	v.clampScroll()
+	v.requestReveal(start, end)
 }
 
 const (
@@ -167,21 +146,24 @@ type wrapPlan struct {
 	lineH    int
 	starts   []int
 	subLines []int
+	covered  int
+	subTotal int
+	scanned  int
 	height   int
 	valid    bool
+	mono     bool
 }
 
 type ResponseViewerStyle struct {
-	Viewer           *ResponseViewer
-	Shaper           *text.Shaper
-	Font             font.Font
-	TextSize         unit.Sp
-	Color            color.NRGBA
-	HighlightColor   color.NRGBA
-	SearchMatchColor color.NRGBA
-	SelectionColor   color.NRGBA
-	Wrap             bool
-	Padding          unit.Dp
+	Viewer         *ResponseViewer
+	Shaper         *text.Shaper
+	Font           font.Font
+	TextSize       unit.Sp
+	Color          color.NRGBA
+	Background     color.NRGBA
+	SelectionColor color.NRGBA
+	Wrap           bool
+	Padding        unit.Dp
 
 	Lang syntax.Lang
 
@@ -266,6 +248,7 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 	v.lastLineHeight = exactLineH
 	v.descOvershoot = measureDescentOvershoot(s.Shaper, s.Font, s.TextSize, gtx)
 	v.lineBox = measureLineBox(s.Shaper, s.Font, s.TextSize, gtx)
+	v.monoAdvance = measureMonoAdvance(s.Shaper, s.Font, s.TextSize, gtx)
 
 	if s.Wrap != v.chunkHeightsWrap || (s.Wrap && v.chunkHeightsWidth != innerW) {
 		anchorLine, anchorSub := v.scrollAnchor(exactLineH, charAdv, v.chunkHeightsWidth, v.chunkHeightsWrap)
@@ -283,11 +266,11 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 
 	totalH := 0
 	for i, h := range v.chunkHeights {
-		if h > 0 {
-			totalH += h
-		} else {
-			totalH += v.estimateChunkHeight(i, exactLineH, charAdv, innerW, s.Wrap)
+		if h <= 0 {
+			h = v.estimateChunkHeight(i, exactLineH, charAdv, innerW, s.Wrap)
+			v.chunkHeights[i] = h
 		}
+		totalH += h
 	}
 	if totalH < innerH {
 		totalH = innerH
@@ -550,6 +533,8 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		hasSel = v.selStart != v.selEnd
 	}
 
+	v.applyReveal(gtx, charAdv, exactLineH, innerW, innerH, s.Wrap)
+
 	firstLine, accumY = v.firstChunkAtFn(v.scrollY, exactLineH, charAdv, innerW, s.Wrap)
 	yOff := accumY - v.scrollY
 	for line := firstLine; line < len(v.lineStarts); line++ {
@@ -606,9 +591,13 @@ func (v *ResponseViewer) paintChunk(
 ) int {
 	var glyphs []widgets.WrapGlyph
 	if s.Wrap && absEnd > absStart && v.needsChunkGlyphs(absStart, absEnd, hasHL, hasSel) {
-		glyphs = widgets.ShapeChunkForWrap(s.Shaper, s.Font, s.TextSize, gtx, v.text[absStart:absEnd], innerW)
+		v.paintScratch = widgets.ShapeChunkForWrapInto(v.paintScratch, s.Shaper, s.Font, s.TextSize, gtx, v.text[absStart:absEnd], innerW)
+		glyphs = v.paintScratch
 	}
 
+	// The current match must end up under exactly one fill. It is a search
+	// span, it is the highlight, and SetCaret also makes it the selection —
+	// stacking all three turned the text into unreadable mud.
 	if len(v.searchSpans) > 0 {
 		i := sort.Search(len(v.searchSpans), func(i int) bool { return v.searchSpans[i].end > absStart })
 		for ; i < len(v.searchSpans); i++ {
@@ -616,18 +605,24 @@ func (v *ResponseViewer) paintChunk(
 			if m.start >= absEnd {
 				break
 			}
-			v.paintHighlight(gtx, absStart, absEnd, chunkH, yOff, charAdv, s.Wrap, innerW, s.SearchMatchColor, m.start, m.end, glyphs)
+			if hasHL && m.start == v.highlightStart && m.end == v.highlightEnd {
+				continue
+			}
+			col := theme.SearchFill(v.tokenColorAt(m.start, s.Syntax, s.BracketCycle, s.Color), s.Background, false)
+			v.paintHighlight(gtx, absStart, absEnd, chunkH, yOff, charAdv, s.Wrap, innerW, col, m.start, m.end, glyphs)
 		}
 	}
 	if hasHL && v.highlightEnd > absStart && v.highlightStart < absEnd {
-		v.paintHighlight(gtx, absStart, absEnd, chunkH, yOff, charAdv, s.Wrap, innerW, s.HighlightColor, v.highlightStart, v.highlightEnd, glyphs)
+		col := theme.SearchFill(v.tokenColorAt(v.highlightStart, s.Syntax, s.BracketCycle, s.Color), s.Background, true)
+		v.paintHighlight(gtx, absStart, absEnd, chunkH, yOff, charAdv, s.Wrap, innerW, col, v.highlightStart, v.highlightEnd, glyphs)
 	}
 	if hasSel {
 		selS, selE := v.selStart, v.selEnd
 		if selS > selE {
 			selS, selE = selE, selS
 		}
-		if selE > absStart && selS < absEnd {
+		isMatch := hasHL && selS == v.highlightStart && selE == v.highlightEnd
+		if !isMatch && selE > absStart && selS < absEnd {
 			v.paintHighlight(gtx, absStart, absEnd, chunkH, yOff, charAdv, s.Wrap, innerW, s.SelectionColor, selS, selE, glyphs)
 		}
 	}
@@ -647,13 +642,11 @@ func (v *ResponseViewer) paintChunk(
 	}
 	labelGtx.Constraints.Max.Y = 1 << 24
 	chunkText := string(v.text[paintStart:paintEnd])
-	var dims layout.Dimensions
+	var spans []widgets.ColoredSpan
 	if s.Lang != syntax.LangPlain && len(v.tokens) > 0 {
-		spans := v.spansForChunk(paintStart, paintEnd, s.Syntax, s.BracketCycle)
-		dims = widgets.PaintColoredText(labelGtx, s.Shaper, s.Font, s.TextSize, chunkText, spans, s.Color, s.Wrap, innerW)
-	} else {
-		dims = widgets.PaintColoredText(labelGtx, s.Shaper, s.Font, s.TextSize, chunkText, nil, s.Color, s.Wrap, innerW)
+		spans = v.spansForChunk(paintStart, paintEnd, s.Syntax, s.BracketCycle)
 	}
+	dims := widgets.PaintColoredText(labelGtx, s.Shaper, s.Font, s.TextSize, chunkText, spans, s.Color, s.Wrap, innerW)
 	tr.Pop()
 
 	if !s.Wrap {

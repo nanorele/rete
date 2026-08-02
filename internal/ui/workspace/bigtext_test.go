@@ -152,3 +152,81 @@ func fixedAdvance(px int) fixed.Int26_6 { return fixed.I(px) }
 func utf8Boundary(b []byte, i int) bool {
 	return i == len(b) || utf8.RuneStart(b[i])
 }
+
+func TestMonoWrapPlanMatchesShaper(t *testing.T) {
+	const innerW = 492
+	const lineH = 18
+	shaper := text.NewShaper(text.WithCollection(gofont.Collection()))
+	gtx := bigTextGtx()
+	mono := font.Font{Typeface: "Go Mono"}
+
+	cases := map[string]string{
+		"ascii-no-space": strings.Repeat(`{"id":1,"name":"item","tags":["a","b"]},`, 6000),
+		"with-spaces":    strings.Repeat("word alpha beta gamma delta ", 6000),
+		"non-ascii":      strings.Repeat("привет-мир-данные-строка-", 6000),
+	}
+	for name, line := range cases {
+		v := &textCore{lineStarts: []int{0}}
+		v.text = []byte(line)
+		v.padWrapPlans()
+		v.monoAdvance = measureMonoAdvance(shaper, mono, unit.Sp(13), gtx)
+		if v.monoAdvance <= 0 {
+			t.Fatal("Go Mono did not measure as monospaced")
+		}
+
+		want := widgets.WrapLineStartsFor(shaper, mono, unit.Sp(13), gtx, v.text, innerW, nil)
+		p := v.ensureWrapPlan(0, 0, len(v.text), shaper, mono, unit.Sp(13), gtx, innerW, lineH)
+
+		if got := planTotalSubLines(p); got != len(want) {
+			t.Errorf("%s: sub-lines = %d, want %d (mono=%v)", name, got, len(want), p.mono)
+		}
+		for i, start := range p.starts {
+			idx := i * subLinesPerWrapChunk
+			if idx < len(want) && start != want[idx] {
+				t.Errorf("%s: chunk %d starts at %d, want %d (mono=%v)", name, i, start, want[idx], p.mono)
+				break
+			}
+		}
+	}
+}
+
+func TestMonoWrapPlanRejectsProportionalFont(t *testing.T) {
+	shaper := text.NewShaper(text.WithCollection(gofont.Collection()))
+	if adv := measureMonoAdvance(shaper, font.Font{}, unit.Sp(13), bigTextGtx()); adv != 0 {
+		t.Errorf("proportional face measured as monospaced (advance %v)", adv)
+	}
+}
+
+func TestWrapPlanExtendsOnAppend(t *testing.T) {
+	const innerW = 492
+	const lineH = 18
+	shaper := text.NewShaper(text.WithCollection(gofont.Collection()))
+	gtx := bigTextGtx()
+
+	full := strings.Repeat("abcdefghij0123456789", 30000)
+	grown := &textCore{lineStarts: []int{0}}
+	grown.padWrapPlans()
+	for _, cut := range []int{len(full) / 3, 2 * len(full) / 3, len(full)} {
+		grown.text = []byte(full[:cut])
+		grown.ensureWrapPlan(0, 0, cut, shaper, font.Font{}, unit.Sp(13), gtx, innerW, lineH)
+	}
+
+	fresh := &textCore{lineStarts: []int{0}}
+	fresh.text = []byte(full)
+	fresh.padWrapPlans()
+	want := fresh.ensureWrapPlan(0, 0, len(full), shaper, font.Font{}, unit.Sp(13), gtx, innerW, lineH)
+	got := grown.wrapPlans[0]
+
+	if got.subTotal != want.subTotal || got.height != want.height {
+		t.Fatalf("grown plan = %d sub-lines/%dpx, rebuilt = %d/%dpx",
+			got.subTotal, got.height, want.subTotal, want.height)
+	}
+	if len(got.starts) != len(want.starts) {
+		t.Fatalf("grown plan has %d chunks, rebuilt has %d", len(got.starts), len(want.starts))
+	}
+	for i := range got.starts {
+		if got.starts[i] != want.starts[i] {
+			t.Fatalf("chunk %d: grown start %d, rebuilt %d", i, got.starts[i], want.starts[i])
+		}
+	}
+}

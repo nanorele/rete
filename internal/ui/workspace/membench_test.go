@@ -7,7 +7,6 @@ import (
 	"os"
 	"runtime"
 	"runtime/pprof"
-	"strings"
 	"testing"
 	"time"
 
@@ -24,36 +23,6 @@ import (
 )
 
 const benchTarget = 10 << 20
-
-func genPrettyJSON(n int) string {
-	var b strings.Builder
-	b.Grow(n + 1024)
-	b.WriteString("{\n  \"items\": [\n")
-	i := 0
-	for b.Len() < n {
-		fmt.Fprintf(&b,
-			"    {\"id\": %d, \"name\": \"item-%d\", \"email\": \"user%d@example.com\", \"active\": true, \"score\": %d.%02d, \"tags\": [\"alpha\", \"beta\", \"gamma\"], \"note\": null},\n",
-			i, i, i, i%1000, i%100)
-		i++
-	}
-	b.WriteString("    {\"id\": -1}\n  ]\n}\n")
-	return b.String()
-}
-
-func genMinifiedJSON(n int) string {
-	var b strings.Builder
-	b.Grow(n + 1024)
-	b.WriteString(`{"items":[`)
-	i := 0
-	for b.Len() < n {
-		fmt.Fprintf(&b,
-			`{"id":%d,"name":"item-%d","email":"user%d@example.com","active":true,"score":%d.%02d,"tags":["alpha","beta","gamma"],"note":null},`,
-			i, i, i, i%1000, i%100)
-		i++
-	}
-	b.WriteString(`{"id":-1}]}`)
-	return b.String()
-}
 
 type memSample struct {
 	heapAlloc  uint64

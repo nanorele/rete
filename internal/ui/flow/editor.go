@@ -136,7 +136,7 @@ type Editor struct {
 
 	addBtns     [6]widget.Clickable
 	palDragTags [6]bool
-	methodBtn   [7]widget.Clickable
+	methodBtn   [8]widget.Clickable
 	condBtn     [7]widget.Clickable
 	opBtn       [6]widget.Clickable
 	valOpBtn    [7]widget.Clickable

@@ -41,6 +41,8 @@ func abbrevMethod(m string) string {
 		return "OPT"
 	case "PATCH":
 		return "PAT"
+	case "QUERY":
+		return "QRY"
 	case "TRACE":
 		return "TRC"
 	case "CONNECT":
@@ -561,7 +563,14 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 		listFirst := host.ColList.Position.First
 		trackY := -host.ColList.Position.Offset
-		(*host.ColRowYs) = make(map[int]int, len(colsSnapshot))
+		// Only laid-out rows write here, so the map is reused rather than
+		// sized to the whole tree every frame: a large collection allocated
+		// hundreds of kilobytes per redraw for entries it never filled.
+		if *host.ColRowYs == nil {
+			*host.ColRowYs = make(map[int]int, 64)
+		} else {
+			clear(*host.ColRowYs)
+		}
 		*host.ColAfterLastY = trackY
 
 		colBarW := sidebarBarWidth(gtx, host.Theme, host.ColList)

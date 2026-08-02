@@ -105,6 +105,7 @@ func (t *RequestTab) layoutWSBody(gtx layout.Context, th *material.Theme, win *a
 
 	for s.ComposeCollapseBtn.Clicked(gtx) {
 		s.ComposeCollapsed = !s.ComposeCollapsed
+		t.layoutSaveNeeded = true
 		if stacked && flexExtent > 0 {
 			if s.ComposeCollapsed {
 				s.composeSavedRatio = *ratio
@@ -123,6 +124,7 @@ func (t *RequestTab) layoutWSBody(gtx layout.Context, th *material.Theme, win *a
 	}
 	for s.MessagesCollapseBtn.Clicked(gtx) {
 		s.MessagesCollapsed = !s.MessagesCollapsed
+		t.layoutSaveNeeded = true
 		if stacked && flexExtent > 0 {
 			if s.MessagesCollapsed {
 				s.msgsSavedRatio = *ratio
@@ -235,6 +237,7 @@ func (t *RequestTab) layoutWSBody(gtx layout.Context, th *material.Theme, win *a
 		win.Invalidate()
 	}
 	if released {
+		t.layoutSaveNeeded = true
 		win.Invalidate()
 	}
 
@@ -320,6 +323,7 @@ func (t *RequestTab) layoutWSBody(gtx layout.Context, th *material.Theme, win *a
 		win.Invalidate()
 	}
 	if hcReleased {
+		t.layoutSaveNeeded = true
 		win.Invalidate()
 	}
 
@@ -406,6 +410,7 @@ func (t *RequestTab) handleWSButtons(gtx layout.Context) {
 	}
 	for s.OptionsBtn.Clicked(gtx) {
 		s.OptionsExpanded = !s.OptionsExpanded
+		t.layoutSaveNeeded = true
 	}
 	for s.AddSubprotoBtn.Clicked(gtx) {
 		s.OptionsExpanded = true
@@ -418,6 +423,7 @@ func (t *RequestTab) handleWSButtons(gtx layout.Context) {
 	}
 	for s.HeadersCollapseBtn.Clicked(gtx) {
 		s.HeadersCollapsed = !s.HeadersCollapsed
+		t.layoutSaveNeeded = true
 	}
 	for s.OfferDeflateBtn.Clicked(gtx) {
 		s.OfferDeflate = !s.OfferDeflate
@@ -572,7 +578,7 @@ func (t *RequestTab) layoutWSComposerPane(gtx layout.Context, th *material.Theme
 				return lbl.Layout(gtx)
 			})
 		}
-		minKey := widgets.KVKeysMinWidth(gtx, th, len(t.Headers), func(i int) *widget.Editor { return &t.Headers[i].Key })
+		minKey := widgets.KVKeysMinWidth(gtx, th, &t.KeyWidths, len(t.Headers), func(i int) *widget.Editor { return &t.Headers[i].Key })
 		return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return widgets.VScrollList(gtx, th, &t.HeadersList, len(t.Headers), func(gtx layout.Context, i int) layout.Dimensions {
 				hd := t.Headers[i]

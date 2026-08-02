@@ -21,7 +21,7 @@ func runNoHang(t *testing.T, name string, fn func()) {
 func validateTokens(t *testing.T, src []byte, toks []Token) {
 	t.Helper()
 	for i, tok := range toks {
-		if tok.Start < 0 || int(tok.End) > len(src) || tok.Start > tok.End {
+		if tok.Start < 0 || int(tok.End()) > len(src) || tok.Start > tok.End() {
 			t.Errorf("invalid range tokens[%d]=%+v len(src)=%d", i, tok, len(src))
 		}
 	}
@@ -109,7 +109,7 @@ func TestTokenizeJSON_UnknownByteEmitsTokPlain(t *testing.T) {
 	toks := TokenizeJSON(src)
 	found := false
 	for _, tok := range toks {
-		if tok.Kind == TokPlain && tok.Start >= 0 && int(tok.End) <= len(src) && tok.End > tok.Start {
+		if tok.Kind == TokPlain && tok.Start >= 0 && int(tok.End()) <= len(src) && tok.End() > tok.Start {
 			found = true
 		}
 	}
@@ -156,7 +156,7 @@ func TestTokenizeXML_CDATA(t *testing.T) {
 	toks := TokenizeXML(src)
 	var hasCdata bool
 	for _, tok := range toks {
-		if tok.Kind == TokString && tok.End-tok.Start > 5 {
+		if tok.Kind == TokString && tok.End()-tok.Start > 5 {
 			hasCdata = true
 		}
 	}
@@ -187,7 +187,7 @@ func TestTokenizeXML_ProcessingInstruction(t *testing.T) {
 	var hasPI bool
 	for _, tok := range toks {
 		if tok.Kind == TokKeyword && tok.Start == 0 {
-			text := string(src[tok.Start:tok.End])
+			text := string(src[tok.Start:tok.End()])
 			if len(text) > 4 && text[0] == '<' && text[1] == '?' {
 				hasPI = true
 			}
@@ -209,7 +209,7 @@ func TestTokenizeXML_Namespaces(t *testing.T) {
 	toks := TokenizeXML(src)
 	var foundNamespaceTag bool
 	for _, tok := range toks {
-		if tok.Kind == TokKeyword && string(src[tok.Start:tok.End]) == "ns:root" {
+		if tok.Kind == TokKeyword && string(src[tok.Start:tok.End()]) == "ns:root" {
 			foundNamespaceTag = true
 		}
 	}
@@ -243,7 +243,7 @@ func TestTokenizeXML_SingleQuoteAttr(t *testing.T) {
 	toks := TokenizeXML(src)
 	var foundSingleQuoted bool
 	for _, tok := range toks {
-		if tok.Kind == TokString && tok.End > tok.Start && src[tok.Start] == '\'' {
+		if tok.Kind == TokString && tok.End() > tok.Start && src[tok.Start] == '\'' {
 			foundSingleQuoted = true
 		}
 	}
@@ -295,7 +295,7 @@ func TestTokenizeYAML_AnchorsAliases(t *testing.T) {
 	var anchors, aliases int
 	for _, tok := range toks {
 		if tok.Kind == TokOperator {
-			if tok.End > tok.Start {
+			if tok.End() > tok.Start {
 				switch src[tok.Start] {
 				case '&':
 					anchors++
@@ -332,7 +332,7 @@ func TestTokenizeYAML_MultiDoc(t *testing.T) {
 	toks := TokenizeYAML(src)
 	var seps int
 	for _, tok := range toks {
-		if tok.Kind == TokKeyword && tok.End-tok.Start == 3 {
+		if tok.Kind == TokKeyword && tok.End()-tok.Start == 3 {
 			seps++
 		}
 	}
@@ -439,7 +439,7 @@ func TestTokenizeYAML_DashWithoutSpace(t *testing.T) {
 	src := []byte("-foo\n")
 	toks := TokenizeYAML(src)
 	for _, tok := range toks {
-		if tok.Kind == TokPunctuation && tok.End-tok.Start == 1 && src[tok.Start] == '-' {
+		if tok.Kind == TokPunctuation && tok.End()-tok.Start == 1 && src[tok.Start] == '-' {
 			t.Errorf("'-foo' incorrectly treated as list marker: %+v", tok)
 		}
 	}
@@ -459,24 +459,24 @@ func TestTokenizeYAML_BlockScalarLiteral(t *testing.T) {
 	var indicator, body *Token
 	for i := range toks {
 		tk := &toks[i]
-		if tk.Kind == TokKeyword && tk.End-tk.Start >= 1 && src[tk.Start] == '|' {
+		if tk.Kind == TokKeyword && tk.End()-tk.Start >= 1 && src[tk.Start] == '|' {
 			indicator = tk
 		}
-		if tk.Kind == TokString && tk.End-tk.Start > 4 && src[tk.Start] == ' ' {
+		if tk.Kind == TokString && tk.End()-tk.Start > 4 && src[tk.Start] == ' ' {
 			body = tk
 		}
 	}
 	if indicator == nil {
 		t.Fatal("expected TokKeyword for '|' indicator")
 	}
-	if string(src[indicator.Start:indicator.End]) != "|" {
-		t.Errorf("indicator = %q, want %q", src[indicator.Start:indicator.End], "|")
+	if string(src[indicator.Start:indicator.End()]) != "|" {
+		t.Errorf("indicator = %q, want %q", src[indicator.Start:indicator.End()], "|")
 	}
 	if body == nil {
 		t.Fatal("expected TokString covering indented body")
 	}
-	if !bytesContain(src[body.Start:body.End], "line1") || !bytesContain(src[body.Start:body.End], "line2") {
-		t.Errorf("body did not cover both lines: %q", src[body.Start:body.End])
+	if !bytesContain(src[body.Start:body.End()], "line1") || !bytesContain(src[body.Start:body.End()], "line2") {
+		t.Errorf("body did not cover both lines: %q", src[body.Start:body.End()])
 	}
 }
 
@@ -487,15 +487,15 @@ func TestTokenizeYAML_BlockScalarFolded(t *testing.T) {
 	var indicator *Token
 	for i := range toks {
 		tk := &toks[i]
-		if tk.Kind == TokKeyword && tk.End-tk.Start >= 1 && src[tk.Start] == '>' {
+		if tk.Kind == TokKeyword && tk.End()-tk.Start >= 1 && src[tk.Start] == '>' {
 			indicator = tk
 		}
 	}
 	if indicator == nil {
 		t.Fatal("expected TokKeyword for '>' indicator")
 	}
-	if string(src[indicator.Start:indicator.End]) != ">" {
-		t.Errorf("indicator = %q, want %q", src[indicator.Start:indicator.End], ">")
+	if string(src[indicator.Start:indicator.End()]) != ">" {
+		t.Errorf("indicator = %q, want %q", src[indicator.Start:indicator.End()], ">")
 	}
 }
 
@@ -515,7 +515,7 @@ func TestTokenizeYAML_BlockScalarChomping(t *testing.T) {
 		validateTokens(t, src, toks)
 		var found bool
 		for _, tk := range toks {
-			if tk.Kind == TokKeyword && string(src[tk.Start:tk.End]) == c.want {
+			if tk.Kind == TokKeyword && string(src[tk.Start:tk.End()]) == c.want {
 				found = true
 			}
 		}
@@ -531,7 +531,7 @@ func TestTokenizeYAML_BlockScalarIndentDigit(t *testing.T) {
 	validateTokens(t, src, toks)
 	var found bool
 	for _, tk := range toks {
-		if tk.Kind == TokKeyword && string(src[tk.Start:tk.End]) == "|2" {
+		if tk.Kind == TokKeyword && string(src[tk.Start:tk.End()]) == "|2" {
 			found = true
 		}
 	}
@@ -556,13 +556,13 @@ func TestTokenizeYAML_RegularScalarUnchanged(t *testing.T) {
 			val = tk
 		}
 	}
-	if key == nil || string(src[key.Start:key.End]) != "key" {
+	if key == nil || string(src[key.Start:key.End()]) != "key" {
 		t.Errorf("want TokKey 'key', got %+v", key)
 	}
-	if punct == nil || string(src[punct.Start:punct.End]) != ":" {
+	if punct == nil || string(src[punct.Start:punct.End()]) != ":" {
 		t.Errorf("want TokPunctuation ':', got %+v", punct)
 	}
-	if val == nil || string(src[val.Start:val.End]) != "value" {
+	if val == nil || string(src[val.Start:val.End()]) != "value" {
 		t.Errorf("want TokString 'value', got %+v", val)
 	}
 }
@@ -589,7 +589,7 @@ func TestTokenizeYAML_BlockScalarTerminatedByDedent(t *testing.T) {
 	validateTokens(t, src, toks)
 	var sawB bool
 	for _, tk := range toks {
-		if tk.Kind == TokKey && string(src[tk.Start:tk.End]) == "b" {
+		if tk.Kind == TokKey && string(src[tk.Start:tk.End()]) == "b" {
 			sawB = true
 		}
 	}

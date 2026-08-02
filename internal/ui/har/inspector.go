@@ -8,10 +8,10 @@ import (
 
 	"tracto/internal/har"
 	"tracto/internal/ui/settings"
-	"tracto/pkg/syntax"
 	"tracto/internal/ui/theme"
 	"tracto/internal/ui/widgets"
 	"tracto/internal/ui/workspace"
+	"tracto/pkg/syntax"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"
@@ -289,9 +289,11 @@ func (s *Section) toggleBtn(gtx layout.Context, clk *widget.Clickable, label str
 func (s *Section) bodyViewer(gtx layout.Context, viewer *workspace.ResponseViewer, key *string, search *workspace.SearchBox, scrollDrag *gesture.Drag, scrollDragY *float32, identity string, body []byte, mime string, pretty bool) layout.Dimensions {
 	th := s.host.Theme
 	if len(body) == 0 {
+		search.Close(viewer)
 		return centered(th, gtx, "no body")
 	}
 	if !isProbablyText(body) {
+		search.Close(viewer)
 		return centered(th, gtx, "[binary data — "+humanSize(int64(len(body)))+"]")
 	}
 	k := identity + "|pretty=" + boolStr(pretty)
@@ -308,19 +310,18 @@ func (s *Section) bodyViewer(gtx layout.Context, viewer *workspace.ResponseViewe
 	}
 	search.Process(gtx, viewer)
 	vs := workspace.ResponseViewerStyle{
-		Viewer:           viewer,
-		Shaper:           th.Shaper,
-		Font:             widgets.MonoFont,
-		TextSize:         settings.BodyTextSize,
-		Color:            theme.Fg,
-		HighlightColor:   theme.WithAlpha(theme.Accent, 150),
-		SearchMatchColor: theme.WithAlpha(theme.Accent, 60),
-		SelectionColor:   theme.Selection,
-		Wrap:             true,
-		Padding:          unit.Dp(8),
-		Lang:             syntax.Detect(mime, body),
-		Syntax:           theme.Syntax,
-		BracketCycle:     settings.BracketColorization,
+		Viewer:         viewer,
+		Shaper:         th.Shaper,
+		Font:           widgets.MonoFont,
+		TextSize:       settings.BodyTextSize,
+		Color:          theme.Fg,
+		Background:     widgets.KVSurface(),
+		SelectionColor: theme.Selection,
+		Wrap:           true,
+		Padding:        unit.Dp(8),
+		Lang:           syntax.Detect(mime, body),
+		Syntax:         theme.Syntax,
+		BracketCycle:   settings.BracketColorization,
 	}
 	return layout.Stack{}.Layout(gtx,
 		layout.Expanded(func(gtx layout.Context) layout.Dimensions { return vs.Layout(gtx) }),
@@ -334,70 +335,11 @@ func (s *Section) bodyViewer(gtx layout.Context, viewer *workspace.ResponseViewe
 }
 
 func (s *Section) bodyScrollbar(gtx layout.Context, viewer *workspace.ResponseViewer, scrollDrag *gesture.Drag, scrollDragY *float32) layout.Dimensions {
-	bounds := viewer.GetScrollBounds()
-	totalH := float32(bounds.Max.Y)
-	viewH := float32(gtx.Constraints.Max.Y)
-	if totalH <= viewH || totalH == 0 {
-		return layout.Dimensions{Size: gtx.Constraints.Max}
+	dims, moved := widgets.ViewerScrollbar(gtx, viewer, scrollDrag, scrollDragY)
+	if moved && s.host.Window != nil {
+		s.host.Window.Invalidate()
 	}
-	scrollY := float32(viewer.GetScrollY())
-	maxScroll := totalH - viewH
-	if maxScroll <= 0 {
-		maxScroll = 1
-	}
-	frac := scrollY / maxScroll
-	if frac < 0 {
-		frac = 0
-	}
-	if frac > 1 {
-		frac = 1
-	}
-	thumbH := viewH * (viewH / totalH)
-	if thumbH < 20 {
-		thumbH = 20
-	}
-	thumbY := frac * (viewH - thumbH)
-	trackW := gtx.Dp(unit.Dp(10))
-	thumbW := gtx.Dp(unit.Dp(6))
-
-	trackRect := image.Rect(gtx.Constraints.Max.X-trackW, 0, gtx.Constraints.Max.X, gtx.Constraints.Max.Y)
-	stack := clip.Rect(trackRect).Push(gtx.Ops)
-	for {
-		e, ok := scrollDrag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
-		if !ok {
-			break
-		}
-		switch e.Kind {
-		case pointer.Press:
-			*scrollDragY = e.Position.Y
-		case pointer.Drag:
-			delta := e.Position.Y - *scrollDragY
-			*scrollDragY = e.Position.Y
-			if viewH > thumbH {
-				scrollY += delta / (viewH - thumbH) * maxScroll
-			}
-			ny := int(scrollY)
-			if ny < 0 {
-				ny = 0
-			}
-			viewer.SetScrollY(ny)
-			if s.host.Window != nil {
-				s.host.Window.Invalidate()
-			}
-		}
-	}
-	pointer.CursorDefault.Add(gtx.Ops)
-	scrollDrag.Add(gtx.Ops)
-	stack.Pop()
-
-	rect := image.Rect(
-		gtx.Constraints.Max.X-thumbW-gtx.Dp(unit.Dp(2)),
-		int(thumbY),
-		gtx.Constraints.Max.X-gtx.Dp(unit.Dp(2)),
-		int(thumbY+thumbH),
-	)
-	paint.FillShape(gtx.Ops, theme.ScrollThumb, clip.UniformRRect(rect, gtx.Dp(unit.Dp(3))).Op(gtx.Ops))
-	return layout.Dimensions{Size: gtx.Constraints.Max}
+	return dims
 }
 
 func headerRow(th *material.Theme, gtx layout.Context, h har.Header) layout.Dimensions {
@@ -430,7 +372,7 @@ func (s *Section) copySelectedFile(gtx layout.Context) {
 		clipboardWrite(gtx, []byte(sel))
 		return
 	}
-	clipboardWrite(gtx, s.Resources[s.SelFile].Body)
+	clipboardWrite(gtx, s.Resources[s.SelFile].Bytes())
 }
 
 func (s *Section) copySelectedReqBody(gtx layout.Context) {

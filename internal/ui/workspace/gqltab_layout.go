@@ -172,7 +172,7 @@ func (t *RequestTab) layoutGraphQLHeadersList(gtx layout.Context, th *material.T
 				return lbl.Layout(gtx)
 			})
 		}
-		minKey := widgets.KVKeysMinWidth(gtx, th, len(t.Headers), func(i int) *widget.Editor { return &t.Headers[i].Key })
+		minKey := widgets.KVKeysMinWidth(gtx, th, &t.KeyWidths, len(t.Headers), func(i int) *widget.Editor { return &t.Headers[i].Key })
 		return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return t.HeadersList.Layout(gtx, len(t.Headers), func(gtx layout.Context, i int) layout.Dimensions {
 				hd := t.Headers[i]

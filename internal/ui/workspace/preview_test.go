@@ -37,23 +37,13 @@ func TestLooksLikeJSON(t *testing.T) {
 }
 
 func TestIndentWrite(t *testing.T) {
-	var sb strings.Builder
-
-	sb.Reset()
-	indentWrite(&sb, 1)
-	if !strings.Contains(sb.String(), "  ") {
+	if got := string(appendIndent(nil, 1)); !strings.Contains(got, "  ") {
 		t.Errorf("expected indentation")
 	}
-
-	sb.Reset()
-	indentWrite(&sb, 100)
-	if !strings.Contains(sb.String(), "  ") {
+	if got := string(appendIndent(nil, 100)); !strings.Contains(got, "  ") {
 		t.Errorf("expected indentation even at max depth (capped)")
 	}
-
-	sb.Reset()
-	indentWrite(&sb, -1)
-	if sb.Len() != 0 {
+	if got := appendIndent(nil, -1); len(got) != 0 {
 		t.Errorf("expected no indentation for negative")
 	}
 }

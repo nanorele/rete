@@ -44,7 +44,7 @@ func (p *Proxy) handleReverseHTTP(c net.Conn, br *bufio.Reader, req *http.Reques
 	upstreamAddr, err := p.resolveUpstream(tg, host, port)
 	if err != nil {
 		p.Targets.markError(tg.Domain, err.Error())
-		p.Store.Update(func() {
+		p.Store.Update(flow, func() {
 			flow.Error = err.Error()
 			flow.StatusCode = 502
 			flow.Status = "502 Bad Gateway"
@@ -59,7 +59,7 @@ func (p *Proxy) handleReverseHTTP(c net.Conn, br *bufio.Reader, req *http.Reques
 	method, requestURI, reqPairs, newBody, drop := p.processRequest(
 		flow, req.Method, req.URL.RequestURI(), req.Proto, collectHeaders(req.Header), body, inScope)
 	if drop {
-		p.Store.Update(func() { flow.Error = "dropped"; flow.Status = "dropped"; flow.Ended = time.Now() })
+		p.Store.Update(flow, func() { flow.Error = "dropped"; flow.Status = "dropped"; flow.Ended = time.Now() })
 		writeStatus(c, 403, "Dropped by interceptor")
 		return
 	}
@@ -72,7 +72,7 @@ func (p *Proxy) handleReverseHTTP(c net.Conn, br *bufio.Reader, req *http.Reques
 	outURL := "http://" + upstreamAddr + requestURI
 	out, err := http.NewRequest(method, outURL, bytes.NewReader(body))
 	if err != nil {
-		p.Store.Update(func() { flow.Error = err.Error(); flow.StatusCode = 500; flow.Ended = time.Now() })
+		p.Store.Update(flow, func() { flow.Error = err.Error(); flow.StatusCode = 500; flow.Ended = time.Now() })
 		writeStatus(c, 500, "bad reverse request: "+err.Error())
 		return
 	}
@@ -96,7 +96,7 @@ func (p *Proxy) handleReverseHTTP(c net.Conn, br *bufio.Reader, req *http.Reques
 	resp, err := cl.Do(out)
 	if err != nil {
 		p.Targets.markError(tg.Domain, err.Error())
-		p.Store.Update(func() {
+		p.Store.Update(flow, func() {
 			flow.Error = err.Error()
 			flow.StatusCode = 502
 			flow.Status = "502 Bad Gateway"
@@ -112,7 +112,7 @@ func (p *Proxy) handleReverseHTTP(c net.Conn, br *bufio.Reader, req *http.Reques
 	status := resp.Status
 	status, respPairs, fullBody, rdrop := p.processResponse(flow, status, resp.Proto, respPairs, fullBody, inScope)
 	if rdrop {
-		p.Store.Update(func() { flow.Error = "response dropped"; flow.Ended = time.Now() })
+		p.Store.Update(flow, func() { flow.Error = "response dropped"; flow.Ended = time.Now() })
 		return
 	}
 
@@ -120,7 +120,7 @@ func (p *Proxy) handleReverseHTTP(c net.Conn, br *bufio.Reader, req *http.Reques
 	if int64(len(captured)) > maxCaptureBody {
 		captured = captured[:maxCaptureBody]
 	}
-	p.Store.Update(func() {
+	p.Store.Update(flow, func() {
 		flow.Status = status
 		flow.StatusCode = resp.StatusCode
 		flow.RespHeaders = respPairs

@@ -26,13 +26,13 @@ func setTokens(v *RequestEditor, toks []syntax.Token) {
 func TestShiftTokens_InsertBeforeAllTokens(t *testing.T) {
 	v := NewRequestEditor()
 	v.SetText(`"hello"`)
-	setTokens(v, []syntax.Token{{Start: 0, End: 7, Kind: syntax.TokString}})
+	setTokens(v, []syntax.Token{{Start: 0, Len: uint16(7 - (0)), Kind: syntax.TokString}})
 
 	v.Insert(0, "X")
 	if v.Text() != `X"hello"` {
 		t.Fatalf("text: %q", v.Text())
 	}
-	want := []syntax.Token{{Start: 1, End: 8, Kind: syntax.TokString}}
+	want := []syntax.Token{{Start: 1, Len: uint16(8 - (1)), Kind: syntax.TokString}}
 	if got := tokensSnapshot(v); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tokens after insert at 0:\n  got  %+v\n  want %+v", got, want)
 	}
@@ -41,13 +41,13 @@ func TestShiftTokens_InsertBeforeAllTokens(t *testing.T) {
 func TestShiftTokens_InsertAtTokenEndDoesNotExtend(t *testing.T) {
 	v := NewRequestEditor()
 	v.SetText("abc")
-	setTokens(v, []syntax.Token{{Start: 0, End: 3, Kind: syntax.TokString}})
+	setTokens(v, []syntax.Token{{Start: 0, Len: uint16(3 - (0)), Kind: syntax.TokString}})
 
 	v.Insert(3, "X")
 	if v.Text() != "abcX" {
 		t.Fatalf("text: %q", v.Text())
 	}
-	want := []syntax.Token{{Start: 0, End: 3, Kind: syntax.TokString}}
+	want := []syntax.Token{{Start: 0, Len: uint16(3 - (0)), Kind: syntax.TokString}}
 	if got := tokensSnapshot(v); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tokens after insert at End boundary:\n  got  %+v\n  want %+v", got, want)
 	}
@@ -56,13 +56,13 @@ func TestShiftTokens_InsertAtTokenEndDoesNotExtend(t *testing.T) {
 func TestShiftTokens_InsertAtTokenStartPushesToken(t *testing.T) {
 	v := NewRequestEditor()
 	v.SetText("abc")
-	setTokens(v, []syntax.Token{{Start: 0, End: 3, Kind: syntax.TokString}})
+	setTokens(v, []syntax.Token{{Start: 0, Len: uint16(3 - (0)), Kind: syntax.TokString}})
 
 	v.Insert(0, " ")
 	if v.Text() != " abc" {
 		t.Fatalf("text: %q", v.Text())
 	}
-	want := []syntax.Token{{Start: 1, End: 4, Kind: syntax.TokString}}
+	want := []syntax.Token{{Start: 1, Len: uint16(4 - (1)), Kind: syntax.TokString}}
 	if got := tokensSnapshot(v); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tokens after insert at Start:\n  got  %+v\n  want %+v", got, want)
 	}
@@ -71,13 +71,13 @@ func TestShiftTokens_InsertAtTokenStartPushesToken(t *testing.T) {
 func TestShiftTokens_InsertInsideTokenExtends(t *testing.T) {
 	v := NewRequestEditor()
 	v.SetText("hello")
-	setTokens(v, []syntax.Token{{Start: 0, End: 5, Kind: syntax.TokKeyword}})
+	setTokens(v, []syntax.Token{{Start: 0, Len: uint16(5 - (0)), Kind: syntax.TokKeyword}})
 
 	v.Insert(2, "XY")
 	if v.Text() != "heXYllo" {
 		t.Fatalf("text: %q", v.Text())
 	}
-	want := []syntax.Token{{Start: 0, End: 7, Kind: syntax.TokKeyword}}
+	want := []syntax.Token{{Start: 0, Len: uint16(7 - (0)), Kind: syntax.TokKeyword}}
 	if got := tokensSnapshot(v); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tokens after insert inside token:\n  got  %+v\n  want %+v", got, want)
 	}
@@ -87,8 +87,8 @@ func TestShiftTokens_InsertBetweenTwoTokens(t *testing.T) {
 	v := NewRequestEditor()
 	v.SetText("AA BB")
 	setTokens(v, []syntax.Token{
-		{Start: 0, End: 2, Kind: syntax.TokKeyword},
-		{Start: 3, End: 5, Kind: syntax.TokKeyword},
+		{Start: 0, Len: uint16(2 - (0)), Kind: syntax.TokKeyword},
+		{Start: 3, Len: uint16(5 - (3)), Kind: syntax.TokKeyword},
 	})
 
 	v.Insert(2, "X")
@@ -96,8 +96,8 @@ func TestShiftTokens_InsertBetweenTwoTokens(t *testing.T) {
 		t.Fatalf("text: %q", v.Text())
 	}
 	want := []syntax.Token{
-		{Start: 0, End: 2, Kind: syntax.TokKeyword},
-		{Start: 4, End: 6, Kind: syntax.TokKeyword},
+		{Start: 0, Len: uint16(2 - (0)), Kind: syntax.TokKeyword},
+		{Start: 4, Len: uint16(6 - (4)), Kind: syntax.TokKeyword},
 	}
 	if got := tokensSnapshot(v); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tokens after between-tokens insert:\n  got  %+v\n  want %+v", got, want)
@@ -107,13 +107,13 @@ func TestShiftTokens_InsertBetweenTwoTokens(t *testing.T) {
 func TestShiftTokens_DeleteEntirelyAfterToken(t *testing.T) {
 	v := NewRequestEditor()
 	v.SetText("abc def")
-	setTokens(v, []syntax.Token{{Start: 0, End: 3, Kind: syntax.TokString}})
+	setTokens(v, []syntax.Token{{Start: 0, Len: uint16(3 - (0)), Kind: syntax.TokString}})
 
 	v.DeleteRange(4, 7)
 	if v.Text() != "abc " {
 		t.Fatalf("text: %q", v.Text())
 	}
-	want := []syntax.Token{{Start: 0, End: 3, Kind: syntax.TokString}}
+	want := []syntax.Token{{Start: 0, Len: uint16(3 - (0)), Kind: syntax.TokString}}
 	if got := tokensSnapshot(v); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tokens after delete-after-token:\n  got  %+v\n  want %+v", got, want)
 	}
@@ -122,13 +122,13 @@ func TestShiftTokens_DeleteEntirelyAfterToken(t *testing.T) {
 func TestShiftTokens_DeleteEntirelyBeforeToken(t *testing.T) {
 	v := NewRequestEditor()
 	v.SetText("abc def")
-	setTokens(v, []syntax.Token{{Start: 4, End: 7, Kind: syntax.TokString}})
+	setTokens(v, []syntax.Token{{Start: 4, Len: uint16(7 - (4)), Kind: syntax.TokString}})
 
 	v.DeleteRange(0, 4)
 	if v.Text() != "def" {
 		t.Fatalf("text: %q", v.Text())
 	}
-	want := []syntax.Token{{Start: 0, End: 3, Kind: syntax.TokString}}
+	want := []syntax.Token{{Start: 0, Len: uint16(3 - (0)), Kind: syntax.TokString}}
 	if got := tokensSnapshot(v); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tokens after delete-before-token:\n  got  %+v\n  want %+v", got, want)
 	}
@@ -137,13 +137,13 @@ func TestShiftTokens_DeleteEntirelyBeforeToken(t *testing.T) {
 func TestShiftTokens_DeleteInsideTokenShrinks(t *testing.T) {
 	v := NewRequestEditor()
 	v.SetText("abcdef")
-	setTokens(v, []syntax.Token{{Start: 0, End: 6, Kind: syntax.TokString}})
+	setTokens(v, []syntax.Token{{Start: 0, Len: uint16(6 - (0)), Kind: syntax.TokString}})
 
 	v.DeleteRange(2, 4)
 	if v.Text() != "abef" {
 		t.Fatalf("text: %q", v.Text())
 	}
-	want := []syntax.Token{{Start: 0, End: 4, Kind: syntax.TokString}}
+	want := []syntax.Token{{Start: 0, Len: uint16(4 - (0)), Kind: syntax.TokString}}
 	if got := tokensSnapshot(v); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tokens after inside-token delete:\n  got  %+v\n  want %+v", got, want)
 	}
@@ -153,9 +153,9 @@ func TestShiftTokens_DeleteFullyContainsToken(t *testing.T) {
 	v := NewRequestEditor()
 	v.SetText("aaXXbb")
 	setTokens(v, []syntax.Token{
-		{Start: 0, End: 2, Kind: syntax.TokKeyword},
-		{Start: 2, End: 4, Kind: syntax.TokString},
-		{Start: 4, End: 6, Kind: syntax.TokKeyword},
+		{Start: 0, Len: uint16(2 - (0)), Kind: syntax.TokKeyword},
+		{Start: 2, Len: uint16(4 - (2)), Kind: syntax.TokString},
+		{Start: 4, Len: uint16(6 - (4)), Kind: syntax.TokKeyword},
 	})
 
 	v.DeleteRange(2, 4)
@@ -163,8 +163,8 @@ func TestShiftTokens_DeleteFullyContainsToken(t *testing.T) {
 		t.Fatalf("text: %q", v.Text())
 	}
 	want := []syntax.Token{
-		{Start: 0, End: 2, Kind: syntax.TokKeyword},
-		{Start: 2, End: 4, Kind: syntax.TokKeyword},
+		{Start: 0, Len: uint16(2 - (0)), Kind: syntax.TokKeyword},
+		{Start: 2, Len: uint16(4 - (2)), Kind: syntax.TokKeyword},
 	}
 	if got := tokensSnapshot(v); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tokens after delete that contains token:\n  got  %+v\n  want %+v", got, want)
@@ -174,13 +174,13 @@ func TestShiftTokens_DeleteFullyContainsToken(t *testing.T) {
 func TestShiftTokens_DeleteSpanningPartialToken(t *testing.T) {
 	v := NewRequestEditor()
 	v.SetText("abcDEFGHIjkl")
-	setTokens(v, []syntax.Token{{Start: 3, End: 9, Kind: syntax.TokString}})
+	setTokens(v, []syntax.Token{{Start: 3, Len: uint16(9 - (3)), Kind: syntax.TokString}})
 
 	v.DeleteRange(5, 12)
 	if v.Text() != "abcDE" {
 		t.Fatalf("text: %q", v.Text())
 	}
-	want := []syntax.Token{{Start: 3, End: 5, Kind: syntax.TokString}}
+	want := []syntax.Token{{Start: 3, Len: uint16(5 - (3)), Kind: syntax.TokString}}
 	if got := tokensSnapshot(v); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tokens after partial-tail delete:\n  got  %+v\n  want %+v", got, want)
 	}
@@ -189,13 +189,13 @@ func TestShiftTokens_DeleteSpanningPartialToken(t *testing.T) {
 func TestShiftTokens_DeleteSpanningTokenLeftEdge(t *testing.T) {
 	v := NewRequestEditor()
 	v.SetText("abcDEFGHIjkl")
-	setTokens(v, []syntax.Token{{Start: 3, End: 9, Kind: syntax.TokString}})
+	setTokens(v, []syntax.Token{{Start: 3, Len: uint16(9 - (3)), Kind: syntax.TokString}})
 
 	v.DeleteRange(0, 5)
 	if v.Text() != "FGHIjkl" {
 		t.Fatalf("text: %q", v.Text())
 	}
-	want := []syntax.Token{{Start: 0, End: 4, Kind: syntax.TokString}}
+	want := []syntax.Token{{Start: 0, Len: uint16(4 - (0)), Kind: syntax.TokString}}
 	if got := tokensSnapshot(v); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tokens after partial-head delete:\n  got  %+v\n  want %+v", got, want)
 	}
@@ -218,9 +218,9 @@ func TestShiftTokens_ReplaceShiftsCorrectly(t *testing.T) {
 	v := NewRequestEditor()
 	v.SetText("aa bb cc")
 	setTokens(v, []syntax.Token{
-		{Start: 0, End: 2, Kind: syntax.TokKeyword},
-		{Start: 3, End: 5, Kind: syntax.TokKeyword},
-		{Start: 6, End: 8, Kind: syntax.TokKeyword},
+		{Start: 0, Len: uint16(2 - (0)), Kind: syntax.TokKeyword},
+		{Start: 3, Len: uint16(5 - (3)), Kind: syntax.TokKeyword},
+		{Start: 6, Len: uint16(8 - (6)), Kind: syntax.TokKeyword},
 	})
 
 	v.Replace(2, 6, "X")
@@ -228,8 +228,8 @@ func TestShiftTokens_ReplaceShiftsCorrectly(t *testing.T) {
 		t.Fatalf("text: %q", v.Text())
 	}
 	want := []syntax.Token{
-		{Start: 0, End: 2, Kind: syntax.TokKeyword},
-		{Start: 3, End: 5, Kind: syntax.TokKeyword},
+		{Start: 0, Len: uint16(2 - (0)), Kind: syntax.TokKeyword},
+		{Start: 3, Len: uint16(5 - (3)), Kind: syntax.TokKeyword},
 	}
 	if got := tokensSnapshot(v); !reflect.DeepEqual(got, want) {
 		t.Fatalf("tokens after Replace:\n  got  %+v\n  want %+v", got, want)
@@ -251,7 +251,7 @@ func TestSpansAfterInsert_PreservesTrailingColor(t *testing.T) {
 			break
 		}
 	}
-	if helloTok == nil || helloTok.End != 15 {
+	if helloTok == nil || helloTok.End() != 15 {
 		t.Fatalf("setup tokenization changed: tokens=%+v", v.tokens)
 	}
 
@@ -270,12 +270,12 @@ func TestSpansAfterInsert_PreservesTrailingColor(t *testing.T) {
 	if got == nil {
 		t.Fatalf("could not find shifted hello token; tokens=%+v", v.tokens)
 	}
-	if got.End != 16 {
-		t.Fatalf("hello token End should be 16 (covers \"hello\" in new text), got %d", got.End)
+	if got.End() != 16 {
+		t.Fatalf("hello token End should be 16 (covers \"hello\" in new text), got %d", got.End())
 	}
-	if v.text[got.End-1] != '"' {
+	if v.text[got.End()-1] != '"' {
 		t.Fatalf("expected closing quote at byte End-1, got %q (text=%q)",
-			v.text[got.End-1], v.Text())
+			v.text[got.End()-1], v.Text())
 	}
 }
 

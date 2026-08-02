@@ -153,6 +153,36 @@ func easyjsonBd887cf1DecodeTractoInternalPersist(in *jlexer.Lexer, out *WSTabSta
 			} else {
 				out.ComposerRatio = float32(in.Float32())
 			}
+		case "headers_collapsed":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.HeadersCollapsed = bool(in.Bool())
+			}
+		case "compose_collapsed":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.ComposeCollapsed = bool(in.Bool())
+			}
+		case "messages_collapsed":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.MessagesCollapsed = bool(in.Bool())
+			}
+		case "compose_saved_ratio":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.ComposeSavedRatio = float32(in.Float32())
+			}
+		case "msgs_saved_ratio":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.MsgsSavedRatio = float32(in.Float32())
+			}
 		default:
 			switch strings.ToLower(key) {
 			case "subprotocols":
@@ -274,6 +304,36 @@ func easyjsonBd887cf1DecodeTractoInternalPersist(in *jlexer.Lexer, out *WSTabSta
 					in.Skip()
 				} else {
 					out.ComposerRatio = float32(in.Float32())
+				}
+			case "headers_collapsed":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.HeadersCollapsed = bool(in.Bool())
+				}
+			case "compose_collapsed":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.ComposeCollapsed = bool(in.Bool())
+				}
+			case "messages_collapsed":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.MessagesCollapsed = bool(in.Bool())
+				}
+			case "compose_saved_ratio":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.ComposeSavedRatio = float32(in.Float32())
+				}
+			case "msgs_saved_ratio":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.MsgsSavedRatio = float32(in.Float32())
 				}
 			default:
 				in.SkipRecursive()
@@ -433,6 +493,56 @@ func easyjsonBd887cf1EncodeTractoInternalPersist(out *jwriter.Writer, in WSTabSt
 			out.RawString(prefix)
 		}
 		out.Float32(float32(in.ComposerRatio))
+	}
+	if in.HeadersCollapsed {
+		const prefix string = ",\"headers_collapsed\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Bool(bool(in.HeadersCollapsed))
+	}
+	if in.ComposeCollapsed {
+		const prefix string = ",\"compose_collapsed\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Bool(bool(in.ComposeCollapsed))
+	}
+	if in.MessagesCollapsed {
+		const prefix string = ",\"messages_collapsed\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Bool(bool(in.MessagesCollapsed))
+	}
+	if in.ComposeSavedRatio != 0 {
+		const prefix string = ",\"compose_saved_ratio\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Float32(float32(in.ComposeSavedRatio))
+	}
+	if in.MsgsSavedRatio != 0 {
+		const prefix string = ",\"msgs_saved_ratio\":"
+		if first {
+			first = false
+			out.RawString(prefix[1:])
+		} else {
+			out.RawString(prefix)
+		}
+		out.Float32(float32(in.MsgsSavedRatio))
 	}
 	out.RawByte('}')
 }
@@ -685,6 +795,30 @@ func easyjsonBd887cf1DecodeTractoInternalPersist2(in *jlexer.Lexer, out *TabStat
 				in.Skip()
 			} else {
 				out.HeaderSplitRatio = float32(in.Float32())
+			}
+		case "req_collapsed":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.ReqCollapsed = bool(in.Bool())
+			}
+		case "resp_collapsed":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RespCollapsed = bool(in.Bool())
+			}
+		case "req_ratio_saved":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.ReqRatioSaved = float32(in.Float32())
+			}
+		case "resp_ratio_saved":
+			if in.IsNull() {
+				in.Skip()
+			} else {
+				out.RespRatioSaved = float32(in.Float32())
 			}
 		case "req_wrap_enabled":
 			if in.IsNull() {
@@ -963,6 +1097,30 @@ func easyjsonBd887cf1DecodeTractoInternalPersist2(in *jlexer.Lexer, out *TabStat
 				} else {
 					out.HeaderSplitRatio = float32(in.Float32())
 				}
+			case "req_collapsed":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.ReqCollapsed = bool(in.Bool())
+				}
+			case "resp_collapsed":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.RespCollapsed = bool(in.Bool())
+				}
+			case "req_ratio_saved":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.ReqRatioSaved = float32(in.Float32())
+				}
+			case "resp_ratio_saved":
+				if in.IsNull() {
+					in.Skip()
+				} else {
+					out.RespRatioSaved = float32(in.Float32())
+				}
 			case "req_wrap_enabled":
 				if in.IsNull() {
 					in.Skip()
@@ -1236,6 +1394,26 @@ func easyjsonBd887cf1EncodeTractoInternalPersist2(out *jwriter.Writer, in TabSta
 		const prefix string = ",\"header_split_ratio\":"
 		out.RawString(prefix)
 		out.Float32(float32(in.HeaderSplitRatio))
+	}
+	if in.ReqCollapsed {
+		const prefix string = ",\"req_collapsed\":"
+		out.RawString(prefix)
+		out.Bool(bool(in.ReqCollapsed))
+	}
+	if in.RespCollapsed {
+		const prefix string = ",\"resp_collapsed\":"
+		out.RawString(prefix)
+		out.Bool(bool(in.RespCollapsed))
+	}
+	if in.ReqRatioSaved != 0 {
+		const prefix string = ",\"req_ratio_saved\":"
+		out.RawString(prefix)
+		out.Float32(float32(in.ReqRatioSaved))
+	}
+	if in.RespRatioSaved != 0 {
+		const prefix string = ",\"resp_ratio_saved\":"
+		out.RawString(prefix)
+		out.Float32(float32(in.RespRatioSaved))
 	}
 	if in.ReqWrapEnabled != nil {
 		const prefix string = ",\"req_wrap_enabled\":"

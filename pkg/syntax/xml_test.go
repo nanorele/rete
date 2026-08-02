@@ -22,11 +22,11 @@ func TestTokenizeXML_Simple(t *testing.T) {
 	for _, tok := range tokens {
 		switch tok.Kind {
 		case TokKeyword:
-			gotKeyword = append(gotKeyword, string(src[tok.Start:tok.End]))
+			gotKeyword = append(gotKeyword, string(src[tok.Start:tok.End()]))
 		case TokKey:
-			gotKey = append(gotKey, string(src[tok.Start:tok.End]))
+			gotKey = append(gotKey, string(src[tok.Start:tok.End()]))
 		case TokString:
-			gotString = append(gotString, string(src[tok.Start:tok.End]))
+			gotString = append(gotString, string(src[tok.Start:tok.End()]))
 		case TokBracket:
 			brackets++
 		}
@@ -57,8 +57,8 @@ func TestTokenizeXML_Comment(t *testing.T) {
 	var hasComment bool
 	for _, tok := range tokens {
 		if tok.Kind == TokComment {
-			if string(src[tok.Start:tok.End]) != `<!-- hello world -->` {
-				t.Errorf("comment text mismatch: %q", src[tok.Start:tok.End])
+			if string(src[tok.Start:tok.End()]) != `<!-- hello world -->` {
+				t.Errorf("comment text mismatch: %q", src[tok.Start:tok.End()])
 			}
 			hasComment = true
 		}
@@ -73,7 +73,7 @@ func TestTokenizeYAML_CRLF_List(t *testing.T) {
 	tokens := TokenizeYAML(src)
 	var dashes int
 	for _, tok := range tokens {
-		if tok.Kind == TokPunctuation && tok.End-tok.Start == 1 && src[tok.Start] == '-' {
+		if tok.Kind == TokPunctuation && tok.End()-tok.Start == 1 && src[tok.Start] == '-' {
 			dashes++
 		}
 	}
@@ -186,8 +186,8 @@ func TestTokenizeForm_Basic(t *testing.T) {
 	}
 	for i, w := range wantSeq {
 		got := tokens[i]
-		if got.Kind != w.kind || string(src[got.Start:got.End]) != w.text {
-			t.Errorf("[%d] = %+v %q, want %+v %q", i, got.Kind, src[got.Start:got.End], w.kind, w.text)
+		if got.Kind != w.kind || string(src[got.Start:got.End()]) != w.text {
+			t.Errorf("[%d] = %+v %q, want %+v %q", i, got.Kind, src[got.Start:got.End()], w.kind, w.text)
 		}
 	}
 }

@@ -8,8 +8,10 @@ import (
 	"tracto/internal/ui/workspace"
 
 	"github.com/nanorele/gio/f32"
+	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/io/event"
 	"github.com/nanorele/gio/layout"
+	"github.com/nanorele/gio/text"
 )
 
 func (ui *AppUI) LayoutApp(gtx layout.Context) layout.Dimensions {
@@ -92,6 +94,12 @@ func (ui *AppUI) FlushSaveState() {
 	ui.flushSaveState()
 }
 
+func (ui *AppUI) WaitBackgroundSaves() {
+	ui.stateSaveWG.Wait()
+	ui.collectionSaveWG.Wait()
+	ui.envSaveWG.Wait()
+}
+
 func (ui *AppUI) BuildStateSnapshot() persist.AppState {
 	return ui.buildStateSnapshot()
 }
@@ -152,6 +160,10 @@ func (ui *AppUI) ContentKeyFilters() []event.Filter {
 	return ui.contentKeyFilters()
 }
 
+func (ui *AppUI) FindShortcut(gtx layout.Context) {
+	ui.findShortcut(gtx)
+}
+
 func (ui *AppUI) ActiveEnvSnapshot() map[string]string {
 	return ui.activeEnvSnapshot()
 }
@@ -197,11 +209,23 @@ func SetProbeRegion(f func(name string, dims layout.Dimensions)) {
 }
 
 func FallbackFontFiles() []string {
-	return fallbackFontFiles
+	out := make([]string, 0, len(fallbackFontSpecs))
+	for _, spec := range fallbackFontSpecs {
+		out = append(out, spec.file)
+	}
+	return out
 }
 
 func LoadEmbeddedTTF(name string) ([]byte, error) {
 	return loadEmbeddedTTF(name)
+}
+
+func AppFontCollection() []font.FontFace {
+	return appFontCollection()
+}
+
+func AppLazyFontFaces() []text.LazyFace {
+	return buildLazyFontFaces()
 }
 
 func HarSkipHeader(name string) bool {

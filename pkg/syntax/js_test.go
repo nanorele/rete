@@ -10,7 +10,7 @@ func kindOf(t *testing.T, src, sub string) TokenKind {
 	}
 	toks := TokenizeJS([]byte(src))
 	for _, tk := range toks {
-		if int(tk.Start) <= idx && idx < int(tk.End) {
+		if int(tk.Start) <= idx && idx < int(tk.End()) {
 			return tk.Kind
 		}
 	}
@@ -129,7 +129,7 @@ func TestJS_Operators(t *testing.T) {
 	want := map[string]bool{"===": false, "&&": false, "=>": false}
 	for _, tk := range toks {
 		if tk.Kind == TokOperator {
-			s := src[tk.Start:tk.End]
+			s := src[tk.Start:tk.End()]
 			if _, ok := want[s]; ok {
 				want[s] = true
 			}
@@ -169,10 +169,10 @@ func TestJS_NoOverlapAndOrdered(t *testing.T) {
 		if int(tk.Start) < prev {
 			t.Fatalf("tokens overlap/out of order at %d (prev end %d): %+v", tk.Start, prev, tk)
 		}
-		if tk.End < tk.Start || int(tk.End) > len(src) {
+		if tk.End() < tk.Start || int(tk.End()) > len(src) {
 			t.Fatalf("token out of bounds: %+v (len %d)", tk, len(src))
 		}
-		prev = int(tk.End)
+		prev = int(tk.End())
 	}
 }
 
@@ -185,7 +185,7 @@ func TestJS_PunctuationTerminates(t *testing.T) {
 		}
 	}
 	for _, tk := range toks {
-		if tk.End <= tk.Start {
+		if tk.End() <= tk.Start {
 			t.Fatalf("zero-width token: %+v", tk)
 		}
 	}

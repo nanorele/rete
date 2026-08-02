@@ -5,7 +5,7 @@ import (
 	"tracto/internal/ui/theme"
 )
 
-var Methods = []string{"GET", "POST", "PUT", "DELETE", "HEAD", "PATCH", "OPTIONS"}
+var Methods = []string{"GET", "POST", "PUT", "DELETE", "HEAD", "PATCH", "OPTIONS", "QUERY"}
 
 func Sanitize(s model.AppSettings) model.AppSettings {
 	if !theme.IsValidID(s.Theme, s.CustomThemes) {

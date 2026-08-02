@@ -2,6 +2,7 @@ package workspace
 
 import (
 	"image"
+	"strings"
 	"testing"
 	"time"
 
@@ -442,71 +443,110 @@ func TestEnsureCaretVisible_UsesPerChunkHeightWhenAvailable(t *testing.T) {
 	}
 }
 
-func TestScrollToByteOffset_NoopWithoutLayout(t *testing.T) {
+func revealNoWrap(v *ResponseViewer, lineH, innerW, innerH int) {
+	v.applyReveal(layout.Context{}, fixed.I(8), lineH, innerW, innerH, false)
+}
+
+func TestReveal_StaysPendingWithoutLayout(t *testing.T) {
 	v := NewResponseViewer()
 	v.SetText("hello")
 	v.scrollY = 42
-	v.scrollToByteOffset(2)
+	v.SetCaret(2, 3)
+	v.applyReveal(layout.Context{}, fixed.I(8), 0, 200, 100, false)
 	if v.scrollY != 42 {
-		t.Errorf("without lastLineHeight, scrollToByteOffset must be no-op; got %d", v.scrollY)
+		t.Errorf("without a line height the reveal must not scroll; got %d", v.scrollY)
+	}
+	if !v.revealPending {
+		t.Errorf("reveal must stay pending until metrics are known")
 	}
 }
 
-func TestScrollToByteOffset_CentersTargetLine(t *testing.T) {
+func TestReveal_CentersOffscreenLine(t *testing.T) {
 	v := NewResponseViewer()
 	v.SetText("L0\nL1\nL2\nL3\nL4\nL5\nL6")
-	v.lastLineHeight = 10
 	v.lastViewportH = 40
 	v.lastTotalH = 70
 	v.padChunkHeights()
 
-	v.scrollToByteOffset(12)
-	if v.scrollY != 20 {
-		t.Errorf("expected centered scrollY=20, got %d", v.scrollY)
+	v.SetCaret(12, 14)
+	revealNoWrap(v, 10, 200, 40)
+	if v.scrollY != 25 {
+		t.Errorf("expected line 4 (y=40) centred at scrollY=25, got %d", v.scrollY)
 	}
 }
 
-func TestScrollToByteOffset_ClampsToMax(t *testing.T) {
+func TestReveal_KeepsScrollWhenAlreadyVisible(t *testing.T) {
+	v := NewResponseViewer()
+	v.SetText("L0\nL1\nL2\nL3\nL4\nL5\nL6")
+	v.lastViewportH = 40
+	v.lastTotalH = 70
+	v.padChunkHeights()
+	v.scrollY = 20
+
+	v.SetCaret(21, 23) // line 7 is out of range; line 7*3=21 -> last line
+	v.SetCaret(9, 11)  // line 3, y=30, inside 20..60
+	revealNoWrap(v, 10, 200, 40)
+	if v.scrollY != 20 {
+		t.Errorf("a match already on screen must not move the viewport, got %d", v.scrollY)
+	}
+}
+
+func TestReveal_ClampsToMax(t *testing.T) {
 	v := NewResponseViewer()
 	v.SetText("L0\nL1\nL2\nL3")
-	v.lastLineHeight = 10
 	v.lastViewportH = 5
 	v.lastTotalH = 40
 	v.padChunkHeights()
 
-	v.scrollToByteOffset(len(v.text))
-	if v.scrollY != 28 {
-		t.Errorf("expected scrollY=28, got %d", v.scrollY)
+	v.SetCaret(len(v.text), len(v.text))
+	revealNoWrap(v, 10, 200, 5)
+	if v.scrollY < 0 || v.scrollY > 35 {
+		t.Errorf("scrollY %d outside the clamped range [0,35]", v.scrollY)
 	}
 }
 
-func TestScrollToByteOffset_NegativeTargetClampsToZero(t *testing.T) {
+func TestReveal_NegativeTargetClampsToZero(t *testing.T) {
 	v := NewResponseViewer()
 	v.SetText("abc")
-	v.lastLineHeight = 10
 	v.lastViewportH = 100
 	v.lastTotalH = 10
 	v.padChunkHeights()
 
-	v.scrollToByteOffset(0)
+	v.SetCaret(0, 1)
+	revealNoWrap(v, 10, 200, 100)
 	if v.scrollY != 0 {
 		t.Errorf("expected clamp to 0, got %d", v.scrollY)
 	}
 }
 
-func TestScrollToByteOffset_UsesPerChunkHeight(t *testing.T) {
+func TestReveal_UsesPerChunkHeight(t *testing.T) {
 	v := NewResponseViewer()
 	v.SetText("L0\nL1\nL2")
-	v.lastLineHeight = 10
 	v.lastViewportH = 0
-	v.lastTotalH = 100
+	v.lastTotalH = 200
 	v.padChunkHeights()
 	v.chunkHeights[0] = 100
 	v.chunkHeights[1] = 5
 
-	v.scrollToByteOffset(6)
+	v.SetCaret(6, 8)
+	revealNoWrap(v, 10, 200, 0)
 	if v.scrollY != 105 {
-		t.Errorf("expected scrollY=105, got %d", v.scrollY)
+		t.Errorf("expected scrollY=105 from the measured chunk heights, got %d", v.scrollY)
+	}
+}
+
+func TestReveal_ScrollsHorizontallyWhenNotWrapped(t *testing.T) {
+	v := NewResponseViewer()
+	v.SetText("x" + strings.Repeat("y", 600) + "MATCH" + strings.Repeat("z", 600))
+	v.lastViewportH = 100
+	v.lastTotalH = 100
+	v.padChunkHeights()
+
+	v.SetCaret(601, 606)
+	revealNoWrap(v, 10, 200, 100)
+	x1 := colPx(fixed.I(8), 601)
+	if v.scrollX > x1 || x1 > v.scrollX+200 {
+		t.Errorf("match column %d not inside the horizontal window [%d,%d]", x1, v.scrollX, v.scrollX+200)
 	}
 }
 

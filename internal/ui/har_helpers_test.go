@@ -96,9 +96,10 @@ func TestEmbeddedFontsDecompress(t *testing.T) {
 }
 
 func TestFallbackFontFilesAreEmbedded(t *testing.T) {
-	for _, name := range fallbackFontFiles {
-		if _, ok := embeddedFonts[name]; !ok {
-			t.Errorf("fallback font %q has no embedded entry", name)
+	specs := append([]lazyFontSpec{emojiFontSpec}, fallbackFontSpecs...)
+	for _, spec := range specs {
+		if _, ok := embeddedFonts[spec.file]; !ok {
+			t.Errorf("fallback font %q has no embedded entry", spec.file)
 		}
 	}
 }

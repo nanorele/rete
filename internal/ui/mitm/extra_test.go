@@ -927,7 +927,7 @@ func TestStoreConcurrentAddUpdate(t *testing.T) {
 			defer wg.Done()
 			for j := 0; j < 100; j++ {
 				f := s.Add(&Flow{Method: "GET"})
-				s.Update(func() {
+				s.Update(f, func() {
 					f.Status = "200 OK"
 					f.StatusCode = 200
 				})

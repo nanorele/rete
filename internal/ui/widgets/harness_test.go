@@ -518,7 +518,8 @@ func TestKVKeysMinWidth(t *testing.T) {
 	th := newTestTheme()
 	gtx := makeGtx(600, 60)
 
-	if got := KVKeysMinWidth(gtx, th, 0, func(int) *widget.Editor { return nil }); got < gtx.Dp(unit.Dp(kvKeyFloorDp)) {
+	var cache KeyWidthCache
+	if got := KVKeysMinWidth(gtx, th, &cache, 0, func(int) *widget.Editor { return nil }); got < gtx.Dp(unit.Dp(kvKeyFloorDp)) {
 		t.Errorf("empty table min width = %d, want >= the floor", got)
 	}
 
@@ -527,8 +528,8 @@ func TestKVKeysMinWidth(t *testing.T) {
 	long := &widget.Editor{}
 	long.SetText("a-considerably-longer-header-name")
 	eds := []*widget.Editor{short, long}
-	got := KVKeysMinWidth(gtx, th, len(eds), func(i int) *widget.Editor { return eds[i] })
-	onlyShort := KVKeysMinWidth(gtx, th, 1, func(int) *widget.Editor { return short })
+	got := KVKeysMinWidth(gtx, th, &cache, len(eds), func(i int) *widget.Editor { return eds[i] })
+	onlyShort := KVKeysMinWidth(gtx, th, &cache, 1, func(int) *widget.Editor { return short })
 	if got <= onlyShort {
 		t.Errorf("the longest key must drive the width: %d vs %d", got, onlyShort)
 	}

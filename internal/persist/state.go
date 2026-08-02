@@ -29,6 +29,10 @@ type TabState struct {
 	VStackRatio      float32         `json:"vstack_ratio,omitempty"`
 	LayoutMode       int             `json:"layout_mode,omitempty"`
 	HeaderSplitRatio float32         `json:"header_split_ratio,omitempty"`
+	ReqCollapsed     bool            `json:"req_collapsed,omitempty"`
+	RespCollapsed    bool            `json:"resp_collapsed,omitempty"`
+	ReqRatioSaved    float32         `json:"req_ratio_saved,omitempty"`
+	RespRatioSaved   float32         `json:"resp_ratio_saved,omitempty"`
 	ReqWrapEnabled   *bool           `json:"req_wrap_enabled,omitempty"`
 	CollectionID     string          `json:"collection_id,omitempty"`
 	NodePath         []int           `json:"node_path,omitempty"`
@@ -69,6 +73,11 @@ type WSTabState struct {
 	SavedSends         []WSSavedSend `json:"saved_sends,omitempty"`
 	SplitRatio         float32       `json:"split_ratio,omitempty"`
 	ComposerRatio      float32       `json:"composer_ratio,omitempty"`
+	HeadersCollapsed   bool          `json:"headers_collapsed,omitempty"`
+	ComposeCollapsed   bool          `json:"compose_collapsed,omitempty"`
+	MessagesCollapsed  bool          `json:"messages_collapsed,omitempty"`
+	ComposeSavedRatio  float32       `json:"compose_saved_ratio,omitempty"`
+	MsgsSavedRatio     float32       `json:"msgs_saved_ratio,omitempty"`
 }
 
 type WSSavedSend struct {

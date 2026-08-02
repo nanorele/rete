@@ -222,7 +222,7 @@ func TestSearch(t *testing.T) {
 	}
 }
 
-func TestAsciiToLowerUnicode(t *testing.T) {
+func TestFoldForSearchUnicode(t *testing.T) {
 	cases := []struct {
 		in   string
 		want string
@@ -242,9 +242,9 @@ func TestAsciiToLowerUnicode(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.in, func(t *testing.T) {
-			got := asciiToLower(tc.in)
+			got := foldForSearch(tc.in)
 			if got != tc.want {
-				t.Errorf("asciiToLower(%q) = %q, want %q", tc.in, got, tc.want)
+				t.Errorf("foldForSearch(%q) = %q, want %q", tc.in, got, tc.want)
 			}
 			if len(got) != len(tc.want) {
 				t.Errorf("length changed: %d vs %d", len(got), len(tc.want))

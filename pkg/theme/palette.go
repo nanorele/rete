@@ -48,6 +48,7 @@ type MethodPalette struct {
 	Head     color.NRGBA
 	Patch    color.NRGBA
 	Options  color.NRGBA
+	Query    color.NRGBA
 	Fallback color.NRGBA
 }
 

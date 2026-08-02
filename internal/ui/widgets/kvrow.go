@@ -24,13 +24,42 @@ const (
 	kvValueMinDp   = 40
 )
 
-func KVKeysMinWidth(gtx layout.Context, th *material.Theme, n int, keyAt func(i int) *widget.Editor) int {
+type keyWidthEntry struct {
+	rev   uint64
+	size  int
+	width int
+}
+
+// KeyWidthCache memoises each key editor's rendered width. KVKeysMinWidth
+// runs over every row of a KV table on every frame, and Editor.Text allocates
+// a copy of the row's content, so an environment with a few thousand
+// variables churned megabytes per frame just to find the widest key. The
+// cache lives on the table's owner so it dies with the editors it keys.
+type KeyWidthCache struct {
+	m map[*widget.Editor]keyWidthEntry
+}
+
+func KVKeysMinWidth(gtx layout.Context, th *material.Theme, cache *KeyWidthCache, n int, keyAt func(i int) *widget.Editor) int {
 	pad := gtx.Dp(unit.Dp(4))*2 + gtx.Dp(unit.Dp(2))
+	size := gtx.Sp(unit.Sp(11))
 	maxW := 0
 	for i := 0; i < n; i++ {
-		w := MeasureTextWidthCached(gtx, th, unit.Sp(11), MonoFont, keyAt(i).Text())
-		if w > maxW {
-			maxW = w
+		ed := keyAt(i)
+		rev := ed.Revision()
+		got, ok := cache.m[ed]
+		if !ok || got.rev != rev || got.size != size {
+			got = keyWidthEntry{
+				rev:   rev,
+				size:  size,
+				width: MeasureTextWidthCached(gtx, th, unit.Sp(11), MonoFont, ed.Text()),
+			}
+			if cache.m == nil {
+				cache.m = make(map[*widget.Editor]keyWidthEntry, n)
+			}
+			cache.m[ed] = got
+		}
+		if got.width > maxW {
+			maxW = got.width
 		}
 	}
 	minW := maxW + pad
