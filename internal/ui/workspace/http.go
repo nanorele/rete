@@ -22,6 +22,7 @@ import (
 	"tracto/internal/model"
 	"tracto/internal/ui/settings"
 	"tracto/internal/utils"
+	"tracto/pkg/syntax"
 	"unicode/utf8"
 
 	"github.com/andybalholm/brotli"
@@ -547,6 +548,25 @@ func (t *RequestTab) streamResponse(ctx context.Context, reqID uint64, body io.R
 	sniffPending := decoder == nil && utils.CharsetFromContentType(contentType) == ""
 	var sniffBuf []byte
 
+	var liveFmtState *JSONFormatterState
+	liveFmtChecked := false
+	formatLive := func(chunk string) string {
+		if !liveFmtChecked {
+			if chunk == "" {
+				return chunk
+			}
+			liveFmtChecked = true
+			if settings.AutoFormatJSON &&
+				(looksLikeJSON([]byte(chunk)) || syntax.Detect(contentType, nil) == syntax.LangJSON) {
+				liveFmtState = &JSONFormatterState{}
+			}
+		}
+		if liveFmtState == nil || chunk == "" {
+			return chunk
+		}
+		return formatJSON([]byte(chunk), liveFmtState)
+	}
+
 	flushUTF8 := func(data []byte, isLast bool) {
 		if len(previewTail) > 0 {
 			merged := make([]byte, 0, len(previewTail)+len(data))
@@ -571,7 +591,7 @@ func (t *RequestTab) streamResponse(ctx context.Context, reqID uint64, body io.R
 				previewTail = append(previewTail[:0], data[end:]...)
 			}
 		}
-		chunk := utils.SanitizeBytes(data[:end])
+		chunk := formatLive(utils.SanitizeBytes(data[:end]))
 		select {
 		case t.appendChan <- appendChunk{requestID: reqID, text: chunk}:
 		default:
@@ -651,7 +671,7 @@ func (t *RequestTab) streamResponse(ctx context.Context, reqID uint64, body io.R
 
 	if decoder != nil && len(decodeBuf) > 0 {
 		decoded, _ := decoder.Bytes(decodeBuf)
-		chunk := utils.SanitizeBytes(decoded)
+		chunk := formatLive(utils.SanitizeBytes(decoded))
 		select {
 		case t.appendChan <- appendChunk{requestID: reqID, text: chunk}:
 		default:

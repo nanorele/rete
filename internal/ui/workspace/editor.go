@@ -867,15 +867,8 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 	if !s.Wrap {
 		v.ScrollerH.Add(gtx.Ops)
 	}
-	v.Drag.Add(gtx.Ops)
 	v.Click.Add(gtx.Ops)
 	event.Op(gtx.Ops, v)
-	for {
-		_, ok := gtx.Event(pointer.Filter{Target: v, Kinds: pointer.Move | pointer.Enter | pointer.Leave})
-		if !ok {
-			break
-		}
-	}
 	key.InputHintOp{Tag: v, Hint: key.HintText}.Add(gtx.Ops)
 
 	if pad > 0 {
@@ -907,33 +900,25 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		case ev.Modifiers&key.ModShift != 0:
 			v.selEnd = off
 			v.dragActive = true
+			v.dragPos = ev.Position
+			v.dragPosValid = true
 		default:
 			v.selStart = off
 			v.selEnd = off
 			v.dragActive = true
+			v.dragPos = ev.Position
+			v.dragPosValid = true
 		}
 		hasSel = v.selStart != v.selEnd
 		v.blinkStart = gtx.Now
 		v.pushIMEState(gtx)
 	}
 
-	for {
-		ev, ok := v.Drag.Update(gtx.Metric, gtx.Source, gesture.Both)
-		if !ok {
-			break
-		}
-		switch ev.Kind {
-		case pointer.Drag:
-			if v.dragActive {
-				off := v.coordToByteOffset(gtx, int(ev.Position.X)-pad, int(ev.Position.Y)-pad, charAdv, exactLineH, innerW, s.Wrap)
-				v.selEnd = off
-				hasSel = v.selStart != v.selEnd
-			}
-		case pointer.Release, pointer.Cancel:
-			v.dragActive = false
-			hasSel = v.selStart != v.selEnd
-			v.pushIMEState(gtx)
-		}
+	if _, released := v.pumpSelectionDrag(gtx, v); released {
+		v.pushIMEState(gtx)
+	}
+	if v.applyDragScroll(gtx, size, pad, charAdv, exactLineH, innerW, s.Wrap) {
+		hasSel = v.selStart != v.selEnd
 	}
 
 	for {

@@ -3,8 +3,10 @@ package workspace
 import (
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"
+	"github.com/nanorele/gio/io/event"
 	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
+	"github.com/nanorele/gio/op"
 	"github.com/nanorele/gio/op/clip"
 	"github.com/nanorele/gio/op/paint"
 	"github.com/nanorele/gio/text"
@@ -54,6 +56,9 @@ type textCore struct {
 	selEnd     int
 	dragActive bool
 
+	dragPos      image.Point
+	dragPosValid bool
+
 	lastClickTime   time.Time
 	lastClickEvTime time.Duration
 	lastClickPos    image.Point
@@ -61,7 +66,6 @@ type textCore struct {
 
 	Scroller  gesture.Scroll
 	ScrollerH gesture.Scroll
-	Drag      gesture.Drag
 	Click     gesture.Click
 
 	scrollbarHover widgets.Hover
@@ -1012,6 +1016,85 @@ func (v *textCore) SelectAll() {
 	v.selStart = 0
 	v.selEnd = len(v.text)
 	v.dragActive = false
+	v.dragPosValid = false
+}
+
+// pumpSelectionDrag replaces gesture.Drag for text selection: the drag gesture
+// grabs the pointer past the slop, and a grabbed pointer stops delivering
+// Scroll to the wheel handler until release.
+func (v *textCore) pumpSelectionDrag(gtx layout.Context, tag event.Tag) (dragged, released bool) {
+	for {
+		ev, ok := gtx.Event(pointer.Filter{
+			Target: tag,
+			Kinds:  pointer.Move | pointer.Enter | pointer.Leave | pointer.Drag | pointer.Release | pointer.Cancel,
+		})
+		if !ok {
+			break
+		}
+		pe, ok := ev.(pointer.Event)
+		if !ok {
+			continue
+		}
+		switch pe.Kind {
+		case pointer.Drag:
+			if v.dragActive {
+				v.dragPos = image.Pt(int(pe.Position.X), int(pe.Position.Y))
+				v.dragPosValid = true
+				dragged = true
+			}
+		case pointer.Release, pointer.Cancel:
+			released = true
+			v.dragActive = false
+			v.dragPosValid = false
+		}
+	}
+	return dragged, released
+}
+
+func autoScrollStep(over int) int {
+	if over == 0 {
+		return 0
+	}
+	step := over / 2
+	if step == 0 {
+		if over > 0 {
+			return 1
+		}
+		return -1
+	}
+	return step
+}
+
+func (v *textCore) applyDragScroll(gtx layout.Context, size image.Point, pad int, advance fixed.Int26_6, exactLineH, innerW int, wrap bool) bool {
+	if v.dragActive && !v.Click.Pressed() {
+		v.dragActive = false
+		v.dragPosValid = false
+	}
+	if !v.dragActive || !v.dragPosValid {
+		return false
+	}
+	overY := 0
+	if v.dragPos.Y < 0 {
+		overY = v.dragPos.Y
+	} else if v.dragPos.Y > size.Y {
+		overY = v.dragPos.Y - size.Y
+	}
+	overX := 0
+	if !wrap {
+		if v.dragPos.X < 0 {
+			overX = v.dragPos.X
+		} else if v.dragPos.X > size.X {
+			overX = v.dragPos.X - size.X
+		}
+	}
+	if overY != 0 || overX != 0 {
+		v.scrollY += autoScrollStep(overY)
+		v.scrollX += autoScrollStep(overX)
+		v.clampScroll()
+		gtx.Execute(op.InvalidateCmd{})
+	}
+	v.selEnd = v.coordToByteOffset(gtx, v.dragPos.X-pad, v.dragPos.Y-pad, advance, exactLineH, innerW, wrap)
+	return true
 }
 
 func (v *textCore) moveCaret(newPos int, extend bool) {
@@ -1028,6 +1111,7 @@ func (v *textCore) moveCaret(newPos int, extend bool) {
 		v.selEnd = newPos
 	}
 	v.dragActive = false
+	v.dragPosValid = false
 }
 
 func (v *textCore) charLeft(off int) int {
