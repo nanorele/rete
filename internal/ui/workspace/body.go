@@ -353,6 +353,7 @@ func addRowButton(th *material.Theme, btn *widget.Clickable, label string) layou
 }
 
 func bodyEditorEvents(gtx layout.Context, ed *widget.Editor, dirty *bool) {
+	widgets.HandleEditorShortcuts(gtx, ed)
 	for {
 		ev, ok := ed.Update(gtx)
 		if !ok {

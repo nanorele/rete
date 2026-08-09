@@ -271,6 +271,7 @@ func (s *SearchBox) Process(gtx layout.Context, ed SearchableEditor) {
 	}
 
 	queryChanged := false
+	widgets.HandleEditorShortcuts(gtx, &box.Editor)
 	for {
 		ev, ok := box.Editor.Update(gtx)
 		if !ok {

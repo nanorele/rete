@@ -88,6 +88,35 @@ func TestLayoutEditor_CtrlArrowMovesByWord(t *testing.T) {
 	}
 }
 
+func TestLayoutEditor_CtrlArrowStopsAtURLPunctuation(t *testing.T) {
+	rg := newWordJumpRig(t)
+	rg.frame(nil)
+	ed := &rg.ui.Rows[0].ValEditor
+	ed.SetText("https://3400.api.green-api.com/")
+	rg.frame(func(gtx layout.Context) {
+		gtx.Execute(key.FocusCmd{Tag: ed})
+	})
+	ed.SetCaret(31, 31)
+	rg.frame(nil)
+
+	rg.keyPress(key.NameLeftArrow, key.ModShortcut)
+	if s, _ := ed.Selection(); s != 27 {
+		t.Errorf("Ctrl+Left from end: caret = %d, want 27 (start of \"com/\")", s)
+	}
+
+	rg.keyPress(key.NameLeftArrow, key.ModShortcut)
+	if s, _ := ed.Selection(); s != 17 {
+		t.Errorf("Ctrl+Left again: caret = %d, want 17 (start of \"green-api\")", s)
+	}
+
+	ed.SetCaret(0, 0)
+	rg.frame(nil)
+	rg.keyPress(key.NameRightArrow, key.ModShortcut)
+	if s, _ := ed.Selection(); s != 5 {
+		t.Errorf("Ctrl+Right from start: caret = %d, want 5 (end of \"https\")", s)
+	}
+}
+
 func TestLayoutEditor_CtrlShiftArrowExtendsByWord(t *testing.T) {
 	rg := newWordJumpRig(t)
 	rg.frame(nil)

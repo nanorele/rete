@@ -1597,6 +1597,8 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 
 	visibleHeaders := t.visibleHeadersBuf[:0]
 	for _, h := range t.Headers {
+		widgets.HandleEditorShortcuts(gtx, &h.Key)
+		widgets.HandleEditorShortcuts(gtx, &h.Value)
 		for {
 			ev, ok := h.Key.Update(gtx)
 			if !ok {

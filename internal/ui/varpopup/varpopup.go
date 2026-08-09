@@ -98,6 +98,7 @@ func (s *State) Layout(gtx layout.Context, host *Host) {
 	if s == nil || !s.Open {
 		return
 	}
+	widgets.HandleEditorShortcuts(gtx, &s.Editor)
 	for {
 		ev, ok := s.Editor.Update(gtx)
 		if !ok {

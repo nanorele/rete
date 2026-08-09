@@ -643,6 +643,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			}
 
 			if node.IsRenaming {
+				widgets.HandleEditorShortcuts(gtx, &node.NameEditor)
 				for {
 					ev, ok := node.NameEditor.Update(gtx)
 					if !ok {
@@ -1948,6 +1949,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				}
 
 				if env.IsRenaming {
+					widgets.HandleEditorShortcuts(gtx, &env.InlineNameEd)
 					for {
 						ev, ok := env.InlineNameEd.Update(gtx)
 						if !ok {

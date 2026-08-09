@@ -906,6 +906,7 @@ func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	}
 
 	for _, ed := range []*widget.Editor{&e.UserAgentEditor, &e.ProxyEditor, &e.DefaultHdrEdit} {
+		widgets.HandleEditorShortcuts(gtx, ed)
 		for {
 			ev, ok := ed.Update(gtx)
 			if !ok {
@@ -922,6 +923,7 @@ func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 	for i := range e.SyntaxOverrideEditors {
 		ed := &e.SyntaxOverrideEditors[i]
+		widgets.HandleEditorShortcuts(gtx, ed)
 		for {
 			ev, ok := ed.Update(gtx)
 			if !ok {
@@ -989,6 +991,7 @@ func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	e.syncThemeEditors()
 	for i := range e.ThemeColorEditors {
 		ed := &e.ThemeColorEditors[i]
+		widgets.HandleEditorShortcuts(gtx, ed)
 		for {
 			ev, ok := ed.Update(gtx)
 			if !ok {
@@ -2013,6 +2016,7 @@ func intStepperUpdate(gtx layout.Context, ed *widget.Editor, current, lo, hi int
 			ed.SetText(txt)
 		}
 	}
+	widgets.HandleEditorShortcuts(gtx, ed)
 	for {
 		ev, ok := ed.Update(gtx)
 		if !ok {
@@ -2069,6 +2073,7 @@ func floatStepperUpdate(gtx layout.Context, ed *widget.Editor, current, lo, hi f
 			ed.SetText(txt)
 		}
 	}
+	widgets.HandleEditorShortcuts(gtx, ed)
 	for {
 		ev, ok := ed.Update(gtx)
 		if !ok {

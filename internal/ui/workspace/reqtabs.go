@@ -213,6 +213,8 @@ func (t *RequestTab) cookieHeaderValue(env map[string]string) string {
 
 func pumpKVEvents(gtx layout.Context, items []*HeaderItem, onChange func()) {
 	for _, it := range items {
+		widgets.HandleEditorShortcuts(gtx, &it.Key)
+		widgets.HandleEditorShortcuts(gtx, &it.Value)
 		for {
 			ev, ok := it.Key.Update(gtx)
 			if !ok {
@@ -298,6 +300,7 @@ func (t *RequestTab) updateReqSubTabs(gtx layout.Context) {
 		}
 	}
 	for _, ed := range []*widget.Editor{&t.AuthToken, &t.AuthUser, &t.AuthPass} {
+		widgets.HandleEditorShortcuts(gtx, ed)
 		for {
 			ev, ok := ed.Update(gtx)
 			if !ok {

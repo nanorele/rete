@@ -255,6 +255,7 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 		}
 
 		if row.IsRenaming {
+			widgets.HandleEditorShortcuts(gtx, &row.NameEd)
 			for {
 				ev, ok := row.NameEd.Update(gtx)
 				if !ok {

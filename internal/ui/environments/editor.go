@@ -144,22 +144,26 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 	// read Text(), which only reflects this frame's keystrokes once Update has
 	// processed them. Handling Save first would compare stale text and drop the
 	// edit when a keystroke and the click land in the same frame.
+	widgets.HandleEditorShortcuts(gtx, &env.NameEditor)
 	for {
 		if _, ok := env.NameEditor.Update(gtx); !ok {
 			break
 		}
 	}
+	widgets.HandleEditorShortcuts(gtx, &env.ColorEditor)
 	for {
 		if _, ok := env.ColorEditor.Update(gtx); !ok {
 			break
 		}
 	}
 	for _, r := range env.Rows {
+		widgets.HandleEditorShortcuts(gtx, &r.KeyEditor)
 		for {
 			if _, ok := r.KeyEditor.Update(gtx); !ok {
 				break
 			}
 		}
+		widgets.HandleEditorShortcuts(gtx, &r.ValEditor)
 		for {
 			if _, ok := r.ValEditor.Update(gtx); !ok {
 				break
