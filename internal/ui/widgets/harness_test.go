@@ -14,6 +14,7 @@ import (
 	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
+	"github.com/nanorele/gio/op/clip"
 	"github.com/nanorele/gio/unit"
 	"github.com/nanorele/gio/widget"
 	"github.com/nanorele/gio/widget/material"
@@ -940,4 +941,32 @@ func TestAddFieldHoverIgnoresEmptySize(t *testing.T) {
 	AddFieldHover(gtx, ed, image.Pt(10, 0))
 	AddFieldHover(gtx, ed, image.Pt(-1, -1))
 	AddFieldHover(gtx, ed, image.Pt(10, 10))
+}
+
+func TestScrollLabelPassesPressToRowBelow(t *testing.T) {
+	var sl ScrollLabel
+	var drag gesture.Drag
+	pressed := false
+	var rg *rig
+	rg = newRig(t, image.Pt(60, 30), func(gtx layout.Context) layout.Dimensions {
+		for {
+			e, ok := drag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
+			if !ok {
+				break
+			}
+			if e.Kind == pointer.Press {
+				pressed = true
+			}
+		}
+		st := clip.Rect{Max: image.Pt(60, 30)}.Push(gtx.Ops)
+		drag.Add(gtx.Ops)
+		st.Pop()
+		return sl.Layout(gtx, rg.th, MonoLabel(rg.th, 12, "a long label that will not fit inside sixty pixels"))
+	})
+	rg.frames(2)
+	rg.press(30, 15)
+	rg.frame()
+	if !pressed {
+		t.Error("an overflowing ScrollLabel must not swallow presses aimed at the row below it")
+	}
 }

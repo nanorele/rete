@@ -20,6 +20,8 @@ coverage*.txt
 .claw
 *.log
 bin
+build
+*.syso
 *.exe
 *.JPG
 *.jpg

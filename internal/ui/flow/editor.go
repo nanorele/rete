@@ -85,21 +85,26 @@ type Editor struct {
 	mode      panelMode
 	histRun   *RunRecord
 
-	dragNodeID    string
-	dragMembers   []string
-	dragOff       f32.Point
-	dragMoved     bool
-	resizeNodeID  string
-	resizeMoved   bool
-	panning       bool
-	panStart      f32.Point
-	panOrigin     f32.Point
-	marquee       bool
-	marqueeStart  f32.Point
-	marqueeCur    f32.Point
-	connectFromID string
-	connectPos    f32.Point
-	reconnectEdge *Edge
+	dragNodeID      string
+	dragMembers     []string
+	dragOff         f32.Point
+	dragMoved       bool
+	resizeNodeID    string
+	resizeMoved     bool
+	panning         bool
+	panStart        f32.Point
+	panOrigin       f32.Point
+	marquee         bool
+	marqueeStart    f32.Point
+	marqueeCur      f32.Point
+	connectFromID   string
+	connectFromSide string
+	connectPos      f32.Point
+	reconnectEdge   *Edge
+
+	hoverPos    f32.Point
+	hoverOn     bool
+	hoverNodeID string
 
 	envOpts []EnvOption
 
@@ -121,6 +126,22 @@ type Editor struct {
 	extDragPos    f32.Point
 	extDragLabel  string
 
+	blockNameEd     widget.Editor
+	blockSaveBtn    widget.Clickable
+	blockBtns       []widget.Clickable
+	blockDelBtns    []widget.Clickable
+	blockDragTags   []bool
+	blockDragIdx    int
+	blockDragName   string
+	blockDragOn     bool
+	blockDragActive bool
+	blocksCache     []BlockInfo
+	blocksSeq       int64
+	blocksLoaded    bool
+
+	wsKeepBtn  widget.Clickable
+	wsCloseBtn widget.Clickable
+
 	note string
 
 	BtnWidgets widget.Clickable
@@ -134,9 +155,13 @@ type Editor struct {
 	BtnStep     widget.Clickable
 	BtnStepMode widget.Clickable
 
-	addBtns     [6]widget.Clickable
-	palDragTags [6]bool
+	addBtns     [9]widget.Clickable
+	palDragTags [9]bool
 	methodBtn   [8]widget.Clickable
+	bodyTypeBtn [4]widget.Clickable
+	authKindBtn [3]widget.Clickable
+	wsOpBtn     [2]widget.Clickable
+	wsInsecBtn  [1]widget.Clickable
 	condBtn     [7]widget.Clickable
 	opBtn       [6]widget.Clickable
 	valOpBtn    [7]widget.Clickable
@@ -175,7 +200,103 @@ func NewEditor() *Editor {
 		pendingFit: true,
 	}
 	ed.panelList.Axis = layout.Vertical
+	ed.blockNameEd.SingleLine = true
 	return ed
+}
+
+func (ed *Editor) blocks() []BlockInfo {
+	if seq := BlockSeq(); !ed.blocksLoaded || seq != ed.blocksSeq {
+		ed.blocksCache = ListBlocks()
+		ed.blocksSeq = seq
+		ed.blocksLoaded = true
+	}
+	return ed.blocksCache
+}
+
+func (ed *Editor) saveSelectionAsBlock(name string) bool {
+	var dto scenarioDTO
+	inBlock := make(map[string]bool)
+	for _, n := range ed.Scenario.Nodes {
+		if ed.selected[n.ID] && n.Kind != KindStart {
+			dto.Nodes = append(dto.Nodes, nodeToDTO(n))
+			inBlock[n.ID] = true
+		}
+	}
+	if len(dto.Nodes) == 0 {
+		ed.note = "Nothing to save as a block"
+		return false
+	}
+	for _, e := range ed.Scenario.Edges {
+		if inBlock[e.From] && inBlock[e.To] {
+			dto.Edges = append(dto.Edges, edgeToDTO(e))
+		}
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		name = "Block"
+	}
+	dto.Name = name
+	if err := SaveBlock(dto); err != nil {
+		ed.note = "Block save failed: " + err.Error()
+		return false
+	}
+	ed.note = "Block saved: " + name
+	return true
+}
+
+func (ed *Editor) insertBlockAt(dto scenarioDTO, at f32.Point) {
+	if len(dto.Nodes) == 0 {
+		return
+	}
+	ed.pushHistory()
+	minX, minY := dto.Nodes[0].X, dto.Nodes[0].Y
+	maxX, maxY := dto.Nodes[0].X, dto.Nodes[0].Y
+	for _, nd := range dto.Nodes {
+		if nd.X < minX {
+			minX = nd.X
+		}
+		if nd.Y < minY {
+			minY = nd.Y
+		}
+		if nd.X > maxX {
+			maxX = nd.X
+		}
+		if nd.Y > maxY {
+			maxY = nd.Y
+		}
+	}
+	offX := at.X - (minX+maxX+ed.nodeW)/2
+	offY := at.Y - (minY+maxY+ed.nodeH)/2
+	idMap := make(map[string]string, len(dto.Nodes))
+	ed.selected = make(map[string]bool)
+	ed.selEdgeID = ""
+	for _, nd := range dto.Nodes {
+		if NodeKind(nd.Kind) == KindStart {
+			continue
+		}
+		n := nodeFromDTO(nd)
+		old := n.ID
+		n.ID = persist.NewRandomID()
+		n.X += offX
+		n.Y += offY
+		idMap[old] = n.ID
+		ed.Scenario.Nodes = append(ed.Scenario.Nodes, n)
+		ed.selected[n.ID] = true
+		ed.selNodeID = n.ID
+	}
+	for _, edto := range dto.Edges {
+		from, okF := idMap[edto.From]
+		to, okT := idMap[edto.To]
+		if !okF || !okT {
+			continue
+		}
+		e := edgeFromDTO(edto)
+		e.ID = persist.NewRandomID()
+		e.From = from
+		e.To = to
+		ed.Scenario.Edges = append(ed.Scenario.Edges, e)
+	}
+	ed.mode = modeProps
 }
 
 func (ed *Editor) SaveScenario() {
@@ -310,9 +431,21 @@ func (ed *Editor) validateScenario() []string {
 		if !reach[n.ID] {
 			unreach++
 		}
-		if n.Kind == KindRequest && strings.TrimSpace(n.URLEd.Text()) == "" {
+		if n.Kind.IsRequest() && n.Kind != KindWSSend && strings.TrimSpace(n.URLEd.Text()) == "" {
 			warns = append(warns, "empty URL: "+n.DisplayName())
 		}
+	}
+	hasWSSend, hasKeepOpen := false, false
+	for _, n := range ed.Scenario.Nodes {
+		if n.Kind == KindWSSend {
+			hasWSSend = true
+		}
+		if n.Kind == KindWSRequest && n.KeepOpen {
+			hasKeepOpen = true
+		}
+	}
+	if hasWSSend && !hasKeepOpen {
+		warns = append(warns, "WS Message needs a WebSocket node with 'keep socket open'")
 	}
 	dw, dh := ed.defSizes()
 	for _, n := range ed.Scenario.Nodes {
@@ -526,6 +659,7 @@ func (ed *Editor) cancelInteraction() {
 		ed.reconnectEdge = nil
 	}
 	ed.connectFromID = ""
+	ed.connectFromSide = ""
 	if ed.envMenuNodeID != "" || ed.envDropOpen {
 		ed.envMenuNodeID = ""
 		ed.envDropOpen = false
@@ -708,6 +842,12 @@ func kindColor(k NodeKind) color.NRGBA {
 		return color.NRGBA{R: 70, G: 190, B: 100, A: 255}
 	case KindRequest:
 		return theme.Accent
+	case KindWSRequest:
+		return color.NRGBA{R: 255, G: 145, B: 80, A: 255}
+	case KindWSSend:
+		return color.NRGBA{R: 255, G: 190, B: 130, A: 255}
+	case KindGQLRequest:
+		return color.NRGBA{R: 225, G: 70, B: 155, A: 255}
 	case KindCondition:
 		return color.NRGBA{R: 186, G: 85, B: 211, A: 255}
 	case KindLoop:
@@ -724,6 +864,53 @@ func kindColor(k NodeKind) color.NRGBA {
 
 func (ed *Editor) inPort(n *Node) f32.Point {
 	return f32.Pt(n.X, n.Y+ed.nodeH/2)
+}
+
+func (ed *Editor) inPortSide(n *Node, side string) f32.Point {
+	if side == SideTop {
+		w, _ := ed.nodeWH(n)
+		return f32.Pt(n.X+w/2, n.Y)
+	}
+	return ed.inPort(n)
+}
+
+func (ed *Editor) outPortBottom(n *Node) f32.Point {
+	w, h := ed.nodeWH(n)
+	return f32.Pt(n.X+w/2, n.Y+h)
+}
+
+func (ed *Editor) outPortSide(n *Node, side string) f32.Point {
+	if side == SideBottom && n.Kind != KindCondition {
+		return ed.outPortBottom(n)
+	}
+	return ed.outPort(n)
+}
+
+func sideVecOut(side string) f32.Point {
+	if side == SideBottom {
+		return f32.Pt(0, 1)
+	}
+	return f32.Pt(1, 0)
+}
+
+func sideVecIn(side string) f32.Point {
+	if side == SideTop {
+		return f32.Pt(0, -1)
+	}
+	return f32.Pt(-1, 0)
+}
+
+func (ed *Editor) edgeGeom(e *Edge, from, to *Node) (p0, p1, o0, o1 f32.Point) {
+	if from.Kind == KindCondition {
+		p0 = ed.edgeOutPos(e, from)
+		o0 = f32.Pt(1, 0)
+	} else {
+		p0 = ed.outPortSide(from, e.FromSide)
+		o0 = sideVecOut(e.FromSide)
+	}
+	p1 = ed.inPortSide(to, e.ToSide)
+	o1 = sideVecIn(e.ToSide)
+	return
 }
 
 func (ed *Editor) outEdges(n *Node) []*Edge {
@@ -790,10 +977,15 @@ func collectPlaceholders(s string, out map[string]bool) {
 func (ed *Editor) missingVars(n *Node) []string {
 	used := map[string]bool{}
 	switch n.Kind {
-	case KindRequest:
+	case KindRequest, KindWSRequest, KindGQLRequest, KindWSSend:
 		collectPlaceholders(n.URLEd.Text(), used)
 		collectPlaceholders(n.HeadersEd.Text(), used)
 		collectPlaceholders(n.BodyEd.Text(), used)
+		collectPlaceholders(n.CookiesEd.Text(), used)
+		collectPlaceholders(n.AuthTokenEd.Text(), used)
+		collectPlaceholders(n.AuthUserEd.Text(), used)
+		collectPlaceholders(n.AuthPassEd.Text(), used)
+		collectPlaceholders(n.VarsEd.Text(), used)
 	case KindSetVar:
 		collectPlaceholders(n.VarValueEd.Text(), used)
 	default:
@@ -844,6 +1036,24 @@ func (ed *Editor) edgeControls(p0, p1 f32.Point) (f32.Point, f32.Point) {
 		dx = min
 	}
 	return f32.Pt(p0.X+dx, p0.Y), f32.Pt(p1.X-dx, p1.Y)
+}
+
+func (ed *Editor) edgeControlsDir(p0, p1, o0, o1 f32.Point) (f32.Point, f32.Point) {
+	min := 48 * ed.zoom
+	k := func(o f32.Point) float32 {
+		var d float32
+		if o.X != 0 {
+			d = float32(math.Abs(float64(p1.X-p0.X))) / 2
+		} else {
+			d = float32(math.Abs(float64(p1.Y-p0.Y))) / 2
+		}
+		if d < min {
+			d = min
+		}
+		return d
+	}
+	k0, k1 := k(o0), k(o1)
+	return f32.Pt(p0.X+o0.X*k0, p0.Y+o0.Y*k0), f32.Pt(p1.X+o1.X*k1, p1.Y+o1.Y*k1)
 }
 
 func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Host) layout.Dimensions {
@@ -897,7 +1107,7 @@ func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Hos
 	for {
 		ev, ok := gtx.Event(pointer.Filter{
 			Target:  ed,
-			Kinds:   pointer.Press | pointer.Drag | pointer.Release | pointer.Cancel | pointer.Scroll,
+			Kinds:   pointer.Press | pointer.Drag | pointer.Release | pointer.Cancel | pointer.Scroll | pointer.Move | pointer.Enter | pointer.Leave,
 			ScrollX: pointer.ScrollRange{Min: -1 << 20, Max: 1 << 20},
 			ScrollY: pointer.ScrollRange{Min: -1 << 20, Max: 1 << 20},
 		})
@@ -909,6 +1119,10 @@ func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Hos
 			continue
 		}
 		switch e.Kind {
+		case pointer.Move, pointer.Enter:
+			ed.setHover(e.Position)
+		case pointer.Leave:
+			ed.hoverOn = false
 		case pointer.Press:
 			ed.onPress(e)
 		case pointer.Drag:
@@ -931,6 +1145,8 @@ func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Hos
 		}
 	}
 
+	ed.refreshHoverNode()
+
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 	paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: size}.Op())
 	ed.drawGrid(gtx, size)
@@ -945,9 +1161,16 @@ func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Hos
 		ed.drawEdge(gtx, th, e)
 	}
 	if from := ed.connectingNode(); from != nil {
-		p0 := ed.toScreen(ed.outPort(from))
+		var p0, o0 f32.Point
+		if from.Kind == KindCondition {
+			p0 = ed.toScreen(ed.outPort(from))
+			o0 = f32.Pt(1, 0)
+		} else {
+			p0 = ed.toScreen(ed.outPortSide(from, ed.connectFromSide))
+			o0 = sideVecOut(ed.connectFromSide)
+		}
 		p1 := ed.toScreen(ed.connectPos)
-		c0, c1 := ed.edgeControls(p0, p1)
+		c0, c1 := ed.edgeControlsDir(p0, p1, o0, f32.Pt(-o0.X, -o0.Y))
 		ed.strokeBezier(gtx, p0, c0, c1, p1, theme.Accent, float32(gtx.Dp(unit.Dp(2)))*ed.zoom)
 	}
 	for _, n := range ed.Scenario.Nodes {
@@ -1016,6 +1239,10 @@ func (ed *Editor) drawDropGhost(gtx layout.Context, th *material.Theme) {
 		gp := widgets.GlobalPointerPos
 		pos = f32.Pt(gp.X-float32(ed.canvasOrig.X), gp.Y-float32(ed.canvasOrig.Y))
 		label = ed.palDragKind.Title()
+	case ed.blockDragActive:
+		gp := widgets.GlobalPointerPos
+		pos = f32.Pt(gp.X-float32(ed.canvasOrig.X), gp.Y-float32(ed.canvasOrig.Y))
+		label = ed.blockDragName
 	case ed.extDrag:
 		pos = f32.Pt(ed.extDragPos.X-float32(ed.canvasOrig.X), ed.extDragPos.Y-float32(ed.canvasOrig.Y))
 		label = ed.extDragLabel
@@ -1065,6 +1292,86 @@ func (ed *Editor) zoomByNotches(pt f32.Point, notches int) {
 	ratio := nz / ed.zoom
 	ed.pan = f32.Pt(pt.X-(pt.X-ed.pan.X)*ratio, pt.Y-(pt.Y-ed.pan.Y)*ratio)
 	ed.zoom = nz
+}
+
+func (ed *Editor) setHover(pt f32.Point) {
+	ed.hoverPos = pt
+	ed.hoverOn = true
+}
+
+func (ed *Editor) nodeHoverHit(n *Node, pt f32.Point) bool {
+	sp, nw, nh := ed.nodeScreenRect(n)
+	if n.Kind == KindLoop {
+		nh = ed.nodeH * ed.zoom
+	}
+	m := ed.portHit
+	if pt.X >= sp.X-m && pt.X <= sp.X+nw+m && pt.Y >= sp.Y-m && pt.Y <= sp.Y+nh+m {
+		return true
+	}
+	if n.Kind == KindLoop {
+		return dist(pt, ed.toScreen(ed.outPortBottom(n))) <= m
+	}
+	return false
+}
+
+func (ed *Editor) hoverNodeAt(pt f32.Point) string {
+	nodes := ed.Scenario.Nodes
+	for i := len(nodes) - 1; i >= 0; i-- {
+		n := nodes[i]
+		if n.Kind == KindLoop || !n.HasPorts() {
+			continue
+		}
+		if ed.nodeHoverHit(n, pt) {
+			return n.ID
+		}
+	}
+	for i := len(nodes) - 1; i >= 0; i-- {
+		n := nodes[i]
+		if n.Kind != KindLoop {
+			continue
+		}
+		if ed.nodeHoverHit(n, pt) {
+			return n.ID
+		}
+	}
+	return ""
+}
+
+func (ed *Editor) refreshHoverNode() {
+	if !ed.hoverOn {
+		ed.hoverNodeID = ""
+		return
+	}
+	ed.hoverNodeID = ed.hoverNodeAt(ed.hoverPos)
+}
+
+func (ed *Editor) portVisibility(n *Node) (showIn, showOut bool) {
+	hovered := ed.hoverNodeID == n.ID
+	connecting := ed.connectFromID != ""
+	return hovered || (connecting && ed.connectFromID != n.ID), hovered || ed.connectFromID == n.ID
+}
+
+func (ed *Editor) firstOutEdge(n *Node) *Edge {
+	for _, e := range ed.Scenario.Edges {
+		if e.From == n.ID {
+			return e
+		}
+	}
+	return nil
+}
+
+func (ed *Editor) outPortSidesShown(n *Node) (right, bottom bool) {
+	if n.Kind == KindCondition {
+		return false, false
+	}
+	e := ed.firstOutEdge(n)
+	if e == nil {
+		return true, true
+	}
+	if e.FromSide == SideBottom {
+		return false, true
+	}
+	return true, false
 }
 
 func (ed *Editor) connectingNode() *Node {
@@ -1168,6 +1475,7 @@ func (ed *Editor) pressOutPorts(n *Node, pt f32.Point, w f32.Point) bool {
 		hit := ed.condSlotHit(n)
 		if dist(pt, ed.toScreen(ed.outPortAt(n, len(outs)))) <= hit {
 			ed.connectFromID = n.ID
+			ed.connectFromSide = SideRight
 			ed.connectPos = w
 			ed.reconnectEdge = nil
 			return true
@@ -1178,6 +1486,7 @@ func (ed *Editor) pressOutPorts(n *Node, pt f32.Point, w f32.Point) bool {
 				ed.Scenario.RemoveEdge(oe.ID)
 				ed.reconnectEdge = oe
 				ed.connectFromID = n.ID
+				ed.connectFromSide = SideRight
 				ed.connectPos = w
 				if ed.selEdgeID == oe.ID {
 					ed.selEdgeID = ""
@@ -1187,18 +1496,29 @@ func (ed *Editor) pressOutPorts(n *Node, pt f32.Point, w f32.Point) bool {
 		}
 		return false
 	}
-	if dist(pt, ed.toScreen(ed.outPort(n))) <= ed.portHit {
-		ed.connectFromID = n.ID
-		ed.connectPos = w
-		ed.reconnectEdge = nil
-		return true
+	if ed.firstOutEdge(n) != nil {
+		return false
 	}
-	return false
+	side := ""
+	switch {
+	case dist(pt, ed.toScreen(ed.outPort(n))) <= ed.portHit:
+		side = SideRight
+	case dist(pt, ed.toScreen(ed.outPortBottom(n))) <= ed.portHit:
+		side = SideBottom
+	default:
+		return false
+	}
+	ed.connectFromID = n.ID
+	ed.connectFromSide = side
+	ed.connectPos = w
+	ed.reconnectEdge = nil
+	return true
 }
 
 func (ed *Editor) onPress(e pointer.Event) {
 	pt := e.Position
 	w := ed.toWorld(pt)
+	ed.setHover(pt)
 
 	if e.Buttons.Contain(pointer.ButtonSecondary) || e.Buttons.Contain(pointer.ButtonTertiary) {
 		ed.panning = true
@@ -1223,15 +1543,24 @@ func (ed *Editor) onPress(e pointer.Event) {
 		if n.Kind == KindLoop {
 			continue
 		}
+		if n.Kind.IsRequest() {
+			c0, c1 := ed.envChipRect(n)
+			if pt.X >= c0.X && pt.X <= c1.X && pt.Y >= c0.Y && pt.Y <= c1.Y {
+				ed.envMenuNodeID = n.ID
+				return
+			}
+		}
 		if ed.pressOutPorts(n, pt, w) {
 			return
 		}
-		if n.HasPorts() && n.Kind != KindStart && dist(pt, ed.toScreen(ed.inPort(n))) <= ed.portHit {
+		if n.HasPorts() && n.Kind != KindStart &&
+			(dist(pt, ed.toScreen(ed.inPort(n))) <= ed.portHit || dist(pt, ed.toScreen(ed.inPortSide(n, SideTop))) <= ed.portHit) {
 			if e2 := ed.lastEdgeTo(n.ID); e2 != nil {
 				ed.pushHistory()
 				ed.Scenario.RemoveEdge(e2.ID)
 				ed.reconnectEdge = e2
 				ed.connectFromID = e2.From
+				ed.connectFromSide = e2.FromSide
 				ed.connectPos = w
 				if ed.selEdgeID == e2.ID {
 					ed.selEdgeID = ""
@@ -1243,13 +1572,6 @@ func (ed *Editor) onPress(e pointer.Event) {
 		if pt.X >= sp.X && pt.X <= sp.X+nw && pt.Y >= sp.Y && pt.Y <= sp.Y+nh {
 			ed.trySelectNode(n, e, w, i)
 			return
-		}
-		if n.Kind == KindRequest {
-			c0, c1 := ed.envChipRect(n)
-			if pt.X >= c0.X && pt.X <= c1.X && pt.Y >= c0.Y && pt.Y <= c1.Y {
-				ed.envMenuNodeID = n.ID
-				return
-			}
 		}
 	}
 
@@ -1276,18 +1598,29 @@ func (ed *Editor) onPress(e pointer.Event) {
 			ed.mode = modeProps
 			return
 		}
-		if dist(pt, ed.toScreen(ed.outPort(n))) <= ed.portHit {
-			ed.connectFromID = n.ID
-			ed.connectPos = w
-			ed.reconnectEdge = nil
-			return
+		if ed.firstOutEdge(n) == nil {
+			if dist(pt, ed.toScreen(ed.outPort(n))) <= ed.portHit {
+				ed.connectFromID = n.ID
+				ed.connectFromSide = SideRight
+				ed.connectPos = w
+				ed.reconnectEdge = nil
+				return
+			}
+			if dist(pt, ed.toScreen(ed.outPortBottom(n))) <= ed.portHit {
+				ed.connectFromID = n.ID
+				ed.connectFromSide = SideBottom
+				ed.connectPos = w
+				ed.reconnectEdge = nil
+				return
+			}
 		}
-		if dist(pt, ed.toScreen(ed.inPort(n))) <= ed.portHit {
+		if dist(pt, ed.toScreen(ed.inPort(n))) <= ed.portHit || dist(pt, ed.toScreen(ed.inPortSide(n, SideTop))) <= ed.portHit {
 			if e2 := ed.lastEdgeTo(n.ID); e2 != nil {
 				ed.pushHistory()
 				ed.Scenario.RemoveEdge(e2.ID)
 				ed.reconnectEdge = e2
 				ed.connectFromID = e2.From
+				ed.connectFromSide = e2.FromSide
 				ed.connectPos = w
 				if ed.selEdgeID == e2.ID {
 					ed.selEdgeID = ""
@@ -1317,6 +1650,7 @@ func (ed *Editor) lastEdgeTo(nodeID string) *Edge {
 }
 
 func (ed *Editor) onDrag(pt f32.Point) {
+	ed.setHover(pt)
 	switch {
 	case ed.connectFromID != "":
 		ed.connectPos = ed.toWorld(pt)
@@ -1389,9 +1723,16 @@ func (ed *Editor) onRelease(pt f32.Point) {
 			if n.Kind == KindLoop {
 				rectH = ed.nodeH * ed.zoom
 			}
-			inHit := dist(pt, ed.toScreen(ed.inPort(n))) <= ed.portHit*1.5
+			distL := dist(pt, ed.toScreen(ed.inPort(n)))
+			distT := dist(pt, ed.toScreen(ed.inPortSide(n, SideTop)))
+			inHit := distL <= ed.portHit*1.5 || distT <= ed.portHit*1.5
 			rectHit := pt.X >= sp.X && pt.X <= sp.X+nw && pt.Y >= sp.Y && pt.Y <= sp.Y+rectH
-			if (inHit || rectHit) && !ed.Scenario.HasEdge(from.ID, n.ID) {
+			capped := ed.reconnectEdge == nil && from.Kind != KindCondition && ed.firstOutEdge(from) != nil
+			if (inHit || rectHit) && !capped && !ed.Scenario.HasEdge(from.ID, n.ID) {
+				toSide := SideLeft
+				if distT < distL {
+					toSide = SideTop
+				}
 				var e *Edge
 				if ed.reconnectEdge != nil {
 					e = ed.reconnectEdge
@@ -1400,6 +1741,8 @@ func (ed *Editor) onRelease(pt f32.Point) {
 					ed.pushHistory()
 					e = NewEdge(from.ID, n.ID)
 				}
+				e.FromSide = ed.connectFromSide
+				e.ToSide = toSide
 				ed.Scenario.Edges = append(ed.Scenario.Edges, e)
 				ed.selEdgeID = e.ID
 				ed.selNodeID = ""
@@ -1413,6 +1756,7 @@ func (ed *Editor) onRelease(pt f32.Point) {
 		ed.applyMarquee(pt)
 	}
 	ed.connectFromID = ""
+	ed.connectFromSide = ""
 	ed.reconnectEdge = nil
 	ed.dragNodeID = ""
 	ed.dragMembers = ed.dragMembers[:0]
@@ -1465,9 +1809,10 @@ func (ed *Editor) edgeAt(pt f32.Point) *Edge {
 		if from == nil || to == nil {
 			continue
 		}
-		p0 := ed.toScreen(ed.edgeOutPos(e, from))
-		p1 := ed.toScreen(ed.inPort(to))
-		c0, c1 := ed.edgeControls(p0, p1)
+		w0, w1, o0, o1 := ed.edgeGeom(e, from, to)
+		p0 := ed.toScreen(w0)
+		p1 := ed.toScreen(w1)
+		c0, c1 := ed.edgeControlsDir(p0, p1, o0, o1)
 		for s := 0; s <= samples; s++ {
 			t := float32(s) / samples
 			if dist(pt, bezierAt(p0, c0, c1, p1, t)) <= hit {
@@ -1617,26 +1962,35 @@ func (ed *Editor) drawEdge(gtx layout.Context, th *material.Theme, e *Edge) {
 	if from == nil || to == nil {
 		return
 	}
-	p0 := ed.toScreen(ed.edgeOutPos(e, from))
-	p1 := ed.toScreen(ed.inPort(to))
-	c0, c1 := ed.edgeControls(p0, p1)
+	w0, w1, o0, o1 := ed.edgeGeom(e, from, to)
+	p0 := ed.toScreen(w0)
+	p1 := ed.toScreen(w1)
+	c0, c1 := ed.edgeControlsDir(p0, p1, o0, o1)
 
-	col := stateColor(ed.Runner.EdgeState(e.ID), theme.BorderLight)
-	if e.ID == ed.selEdgeID && ed.Runner.EdgeState(e.ID) == StIdle {
+	st := ed.Runner.EdgeState(e.ID)
+	col := stateColor(st, theme.BorderLight)
+	if e.ID == ed.selEdgeID && st == StIdle {
 		col = theme.Accent
 	}
 	width := float32(gtx.Dp(unit.Dp(2))) * ed.zoom
 	if e.ID == ed.selEdgeID {
 		width = float32(gtx.Dp(unit.Dp(3))) * ed.zoom
+		if st != StIdle {
+			glow := theme.Accent
+			glow.A = 110
+			ed.strokeBezier(gtx, p0, c0, c1, p1, glow, width+float32(gtx.Dp(unit.Dp(3)))*ed.zoom)
+		}
 	}
 	ed.strokeBezier(gtx, p0, c0, c1, p1, col, width)
 
 	ah := float32(gtx.Dp(unit.Dp(7))) * ed.zoom
+	base := f32.Pt(p1.X+o1.X*ah, p1.Y+o1.Y*ah)
+	perp := f32.Pt(-o1.Y, o1.X)
 	var arr clip.Path
 	arr.Begin(gtx.Ops)
 	arr.MoveTo(p1)
-	arr.LineTo(f32.Pt(p1.X-ah, p1.Y-ah*0.6))
-	arr.LineTo(f32.Pt(p1.X-ah, p1.Y+ah*0.6))
+	arr.LineTo(f32.Pt(base.X+perp.X*ah*0.6, base.Y+perp.Y*ah*0.6))
+	arr.LineTo(f32.Pt(base.X-perp.X*ah*0.6, base.Y-perp.Y*ah*0.6))
 	arr.Close()
 	paint.FillShape(gtx.Ops, col, clip.Outline{Path: arr.End()}.Op())
 
@@ -1705,7 +2059,8 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 	if st != StIdle {
 		bw = float32(gtx.Dp(unit.Dp(2))) * ed.zoom
 	}
-	if ed.selected[n.ID] || n.ID == ed.selNodeID {
+	sel := ed.selected[n.ID] || n.ID == ed.selNodeID
+	if sel {
 		if st == StIdle {
 			border = theme.Accent
 		}
@@ -1715,6 +2070,24 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 		bw = 1
 	}
 	paint.FillShape(gtx.Ops, border, clip.Stroke{Path: clip.UniformRRect(rect, r).Path(gtx.Ops), Width: bw}.Op())
+	if sel {
+		gap := int(float32(gtx.Dp(unit.Dp(3)))*ed.zoom + 0.5)
+		if gap < 2 {
+			gap = 2
+		}
+		outer := rect.Inset(-gap)
+		ow := float32(gtx.Dp(unit.Dp(1))) * ed.zoom
+		if ow < 1 {
+			ow = 1
+		}
+		ring := theme.Accent
+		if st != StIdle {
+			ow *= 1.6
+		} else {
+			ring.A = 170
+		}
+		paint.FillShape(gtx.Ops, ring, clip.Stroke{Path: clip.UniformRRect(outer, r+gap).Path(gtx.Ops), Width: ow}.Op())
+	}
 
 	padX := int(float32(gtx.Dp(unit.Dp(10))) * ed.zoom)
 	ed.drawText(gtx, th, image.Pt(x+padX, y+int(float32(gtx.Dp(unit.Dp(8)))*ed.zoom)), w-padX*2, unit.Sp(12*ed.zoom), n.DisplayName(), theme.Fg)
@@ -1792,7 +2165,7 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 		ed.drawText(gtx, th, image.Pt(x, y-gtx.Sp(unit.Sp(11*ed.zoom))-int(4*ed.zoom)), w, unit.Sp(10*ed.zoom), info, infoCol)
 	}
 
-	if n.Kind == KindRequest {
+	if n.Kind.IsRequest() {
 		c0, c1 := ed.envChipRect(n)
 		label := "env: " + ed.envName(n.EnvID)
 		lblSp := unit.Sp(9 * ed.zoom)
@@ -1814,15 +2187,29 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 		if portR < 2 {
 			portR = 2
 		}
-		if n.Kind != KindStart {
+		showIn, showOut := ed.portVisibility(n)
+		if n.Kind != KindStart && showIn {
 			ip := ed.toScreen(ed.inPort(n))
-			drawPort(gtx, ip, portR, theme.FgMuted)
+			drawPort(gtx, ip, portR, theme.FgMuted, false)
+			tp := ed.toScreen(ed.inPortSide(n, SideTop))
+			drawPort(gtx, tp, portR, theme.FgMuted, false)
 		}
 		portCol := theme.FgMuted
-		if ed.connectFromID == n.ID {
+		if ed.connectFromID == n.ID && ed.connectFromSide != SideBottom {
 			portCol = theme.Accent
 		}
-		if n.Kind == KindCondition {
+		outUsed := n.Kind != KindCondition && ed.firstOutEdge(n) != nil
+		showRight, showBottom := ed.outPortSidesShown(n)
+		if n.Kind != KindCondition && showOut && showBottom {
+			bcol := theme.FgMuted
+			if ed.connectFromID == n.ID && ed.connectFromSide == SideBottom {
+				bcol = theme.Accent
+			}
+			drawPort(gtx, ed.toScreen(ed.outPortBottom(n)), portR, bcol, outUsed)
+		}
+		switch {
+		case !showOut:
+		case n.Kind == KindCondition:
 			total := ed.outSlots(n)
 			for s := 0; s < total; s++ {
 				p := ed.toScreen(ed.outPortAt(n, s))
@@ -1831,7 +2218,7 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 					if ed.connectFromID == n.ID {
 						col = theme.Accent
 					}
-					drawPort(gtx, p, portR, col)
+					drawPort(gtx, p, portR, col, false)
 					arm := float32(portR) * 0.55
 					lw := float32(gtx.Dp(unit.Dp(1)))
 					if lw < 1 {
@@ -1848,11 +2235,11 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 					pv.LineTo(f32.Pt(p.X, p.Y+arm))
 					paint.FillShape(gtx.Ops, col, clip.Stroke{Path: pv.End(), Width: lw}.Op())
 				} else {
-					drawPort(gtx, p, portR, theme.FgMuted)
+					drawPort(gtx, p, portR, theme.FgMuted, true)
 				}
 			}
-		} else {
-			drawPort(gtx, ed.toScreen(ed.outPort(n)), portR, portCol)
+		case showRight:
+			drawPort(gtx, ed.toScreen(ed.outPort(n)), portR, portCol, outUsed)
 		}
 	}
 
@@ -1861,7 +2248,7 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 		warnCol := color.NRGBA{R: 235, G: 180, B: 60, A: 255}
 		warnY := y + h + int(4*ed.zoom)
 		warnX := x
-		if n.Kind == KindRequest {
+		if n.Kind.IsRequest() {
 			_, c1 := ed.envChipRect(n)
 			warnY = int(c1.Y) + int(3*ed.zoom)
 		}
@@ -1869,9 +2256,13 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 	}
 }
 
-func drawPort(gtx layout.Context, c f32.Point, r int, col color.NRGBA) {
+func drawPort(gtx layout.Context, c f32.Point, r int, col color.NRGBA, filled bool) {
 	rect := image.Rect(int(c.X)-r, int(c.Y)-r, int(c.X)+r, int(c.Y)+r)
-	paint.FillShape(gtx.Ops, theme.BgDark, clip.Ellipse(rect).Op(gtx.Ops))
+	fill := theme.BgDark
+	if filled {
+		fill = col
+	}
+	paint.FillShape(gtx.Ops, fill, clip.Ellipse(rect).Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, col, clip.Stroke{Path: clip.Ellipse(rect).Path(gtx.Ops), Width: float32(gtx.Dp(unit.Dp(2)))}.Op())
 }
 
@@ -1918,6 +2309,29 @@ func (ed *Editor) dropKindAtWindow(kind NodeKind, winPos f32.Point) bool {
 	ed.Scenario.Nodes = append(ed.Scenario.Nodes, n)
 	ed.selectOnly(n.ID)
 	ed.mode = modeProps
+	return true
+}
+
+func (ed *Editor) addBlock(id string) {
+	dto, err := LoadBlock(id)
+	if err != nil {
+		ed.note = "Block load failed: " + err.Error()
+		return
+	}
+	ed.insertBlockAt(dto, ed.viewCenterWorld())
+}
+
+func (ed *Editor) dropBlockAtWindow(id string, winPos f32.Point) bool {
+	local, ok := ed.windowToCanvas(winPos)
+	if !ok {
+		return false
+	}
+	dto, err := LoadBlock(id)
+	if err != nil {
+		ed.note = "Block load failed: " + err.Error()
+		return false
+	}
+	ed.insertBlockAt(dto, ed.toWorld(local))
 	return true
 }
 
@@ -2007,12 +2421,19 @@ func (ed *Editor) DropCollectionNode(src *collections.CollectionNode, winPos f32
 }
 
 func (ed *Editor) nodeFromRequest(name string, req *model.ParsedRequest, x, y float32) *Node {
-	n := NewNode(KindRequest, x, y)
+	kind := KindRequest
+	switch req.Method {
+	case "WS":
+		kind = KindWSRequest
+	case "GRAPHQL":
+		kind = KindGQLRequest
+	}
+	n := NewNode(kind, x, y)
 	if name == "" {
 		name = "Request"
 	}
 	n.NameEd.SetText(name)
-	if req.Method != "" {
+	if kind == KindRequest && req.Method != "" {
 		n.Method = req.Method
 	}
 	n.URLEd.SetText(req.URL)
@@ -2034,5 +2455,63 @@ func (ed *Editor) nodeFromRequest(name string, req *model.ParsedRequest, x, y fl
 		}
 		n.HeadersEd.SetText(string(b))
 	}
+	if kind == KindRequest {
+		n.BodyType = flowBodyType(req.BodyType)
+		switch req.BodyType {
+		case model.BodyURLEncoded:
+			var lines []string
+			for _, kv := range req.URLEncoded {
+				if kv.Key == "" || kv.Disabled {
+					continue
+				}
+				lines = append(lines, kv.Key+"="+kv.Value)
+			}
+			n.BodyEd.SetText(strings.Join(lines, "\n"))
+		case model.BodyFormData:
+			var lines []string
+			for _, fp := range req.FormParts {
+				if fp.Key == "" || fp.Disabled {
+					continue
+				}
+				if fp.Kind == model.FormPartFile {
+					lines = append(lines, fp.Key+"=@"+fp.FilePath)
+				} else {
+					lines = append(lines, fp.Key+"="+fp.Value)
+				}
+			}
+			n.BodyEd.SetText(strings.Join(lines, "\n"))
+		case model.BodyBinary:
+			n.BinPathEd.SetText(req.BinaryPath)
+		}
+	}
+	if req.Auth.Type == "bearer" || req.Auth.Type == "basic" {
+		n.AuthType = req.Auth.Type
+		n.AuthTokenEd.SetText(req.Auth.Token)
+		n.AuthUserEd.SetText(req.Auth.Username)
+		n.AuthPassEd.SetText(req.Auth.Password)
+	}
+	if len(req.Cookies) > 0 {
+		var lines []string
+		for _, c := range req.Cookies {
+			if c.Key == "" {
+				continue
+			}
+			lines = append(lines, c.Key+"="+c.Value)
+		}
+		n.CookiesEd.SetText(strings.Join(lines, "\n"))
+	}
 	return n
+}
+
+func flowBodyType(bt model.BodyType) string {
+	switch bt {
+	case model.BodyURLEncoded:
+		return "urlencoded"
+	case model.BodyFormData:
+		return "form"
+	case model.BodyBinary:
+		return "binary"
+	default:
+		return "raw"
+	}
 }

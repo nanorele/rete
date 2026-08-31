@@ -119,7 +119,15 @@ func duplicateEnvironment(host *Host, src *environments.EnvironmentUI) {
 	dup.Vars = append(dup.Vars, src.Data.Vars...)
 	envUI := &environments.EnvironmentUI{Data: dup}
 	_ = persist.SaveEnvironment(dup)
-	*host.Environments = append(*host.Environments, envUI)
+	envs := *host.Environments
+	at := len(envs)
+	for i, e := range envs {
+		if e == src {
+			at = i + 1
+			break
+		}
+	}
+	*host.Environments = append(envs[:at:at], append([]*environments.EnvironmentUI{envUI}, envs[at:]...)...)
 	*host.EnvsExpanded = true
 	host.SaveState()
 	host.Window.Invalidate()

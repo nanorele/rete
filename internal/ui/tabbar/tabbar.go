@@ -206,7 +206,7 @@ func (s *Strip) Layout(
 		tabHeight := gtx.Dp(unit.Dp(36))
 		closeBtnWidth := gtx.Dp(unit.Dp(28))
 		addBtnW := gtx.Dp(unit.Dp(36))
-		maxWidth := max(gtx.Constraints.Max.X-2, 0)
+		maxWidth := max(gtx.Constraints.Max.X, 0)
 
 		infos := s.infoBuf[:0]
 		for i, tab := range *tabs {

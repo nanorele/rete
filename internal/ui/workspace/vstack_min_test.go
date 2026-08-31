@@ -53,9 +53,8 @@ func TestVStackRequestPaneShrinksToHeader(t *testing.T) {
 			render()
 
 			gtx := vstackGtx(image.Pt(800, 600))
-			extent := tab.stackedSplitExtent(gtx)
 			minPx := tab.stackedReqPaneMinPx(gtx)
-			gotPx := tab.VStackRatio * extent
+			gotPx := float32(tab.splitPaneRec)
 
 			if diff := gotPx - float32(minPx); diff < -2 || diff > 2 {
 				t.Errorf("clamped request pane height = %.1fpx, want ~%dpx (min without editor)", gotPx, minPx)

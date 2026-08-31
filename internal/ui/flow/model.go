@@ -26,6 +26,9 @@ const (
 	KindDelay
 	KindSetVar
 	KindNote
+	KindWSRequest
+	KindGQLRequest
+	KindWSSend
 )
 
 func (k NodeKind) Title() string {
@@ -34,6 +37,12 @@ func (k NodeKind) Title() string {
 		return "Start"
 	case KindRequest:
 		return "HTTP Request"
+	case KindWSRequest:
+		return "WebSocket"
+	case KindGQLRequest:
+		return "GraphQL"
+	case KindWSSend:
+		return "WS Message"
 	case KindCondition:
 		return "Condition"
 	case KindLoop:
@@ -46,6 +55,10 @@ func (k NodeKind) Title() string {
 		return "Note"
 	}
 	return "Node"
+}
+
+func (k NodeKind) IsRequest() bool {
+	return k == KindRequest || k == KindWSRequest || k == KindGQLRequest || k == KindWSSend
 }
 
 type CondKind int
@@ -99,6 +112,21 @@ type Node struct {
 	VarNameEd  widget.Editor
 	VarValueEd widget.Editor
 	LoopSrcEd  widget.Editor
+
+	BodyType    string
+	AuthType    string
+	WSOpcode    string
+	InsecureTLS bool
+	KeepOpen    bool
+	WSClose     bool
+	CookiesEd   widget.Editor
+	AuthTokenEd widget.Editor
+	AuthUserEd  widget.Editor
+	AuthPassEd  widget.Editor
+	VarsEd      widget.Editor
+	SubprotosEd widget.Editor
+	WaitMsEd    widget.Editor
+	BinPathEd   widget.Editor
 }
 
 func NewNode(kind NodeKind, x, y float32) *Node {
@@ -115,10 +143,24 @@ func NewNode(kind NodeKind, x, y float32) *Node {
 	n.VarNameEd.SingleLine = true
 	n.VarValueEd.SingleLine = true
 	n.LoopSrcEd.SingleLine = true
+	n.AuthTokenEd.SingleLine = true
+	n.AuthUserEd.SingleLine = true
+	n.AuthPassEd.SingleLine = true
+	n.SubprotosEd.SingleLine = true
+	n.WaitMsEd.SingleLine = true
+	n.BinPathEd.SingleLine = true
 	n.NameEd.SetText(kind.Title())
 	switch kind {
 	case KindRequest:
 		n.Method = "GET"
+		n.BodyType = "raw"
+	case KindWSRequest:
+		n.WSOpcode = "TEXT"
+		n.WaitMsEd.SetText("1000")
+	case KindWSSend:
+		n.WSOpcode = "TEXT"
+		n.WaitMsEd.SetText("1000")
+	case KindGQLRequest:
 	case KindLoop:
 		n.CountEd.SetText("3")
 		n.DelayEd.SetText("0")
@@ -148,6 +190,27 @@ func (n *Node) Summary() string {
 			u = "no url"
 		}
 		return n.Method + " " + u
+	case KindWSRequest:
+		u := strings.TrimSpace(n.URLEd.Text())
+		if u == "" {
+			u = "no url"
+		}
+		return "WS " + u
+	case KindGQLRequest:
+		u := strings.TrimSpace(n.URLEd.Text())
+		if u == "" {
+			u = "no url"
+		}
+		return "GraphQL " + u
+	case KindWSSend:
+		line := strings.TrimSpace(n.BodyEd.Text())
+		if i := strings.IndexByte(line, '\n'); i >= 0 {
+			line = line[:i]
+		}
+		if line == "" {
+			return "send into open socket"
+		}
+		return "→ " + line
 	case KindCondition:
 		return "routes by arrow rules"
 	case KindLoop:
@@ -217,10 +280,20 @@ func loopContains(loop, n *Node, defW, defH float32) bool {
 	return cx >= loop.X && cx <= loop.X+lw && cy >= loop.Y+defH && cy <= loop.Y+lh
 }
 
+const (
+	SideRight  = ""
+	SideBottom = "b"
+	SideLeft   = ""
+	SideTop    = "t"
+)
+
 type Edge struct {
 	ID   string
 	From string
 	To   string
+
+	FromSide string
+	ToSide   string
 
 	Cond    CondKind
 	ValueEd widget.Editor
@@ -372,17 +445,34 @@ type nodeDTO struct {
 	VarName  string  `json:"var_name,omitempty"`
 	VarValue string  `json:"var_value,omitempty"`
 	LoopSrc  string  `json:"loop_src,omitempty"`
+
+	BodyType    string `json:"body_type,omitempty"`
+	AuthType    string `json:"auth_type,omitempty"`
+	AuthToken   string `json:"auth_token,omitempty"`
+	AuthUser    string `json:"auth_user,omitempty"`
+	AuthPass    string `json:"auth_pass,omitempty"`
+	Cookies     string `json:"cookies,omitempty"`
+	Vars        string `json:"vars,omitempty"`
+	Subprotos   string `json:"subprotos,omitempty"`
+	WSOpcode    string `json:"ws_opcode,omitempty"`
+	WaitMs      string `json:"wait_ms,omitempty"`
+	BinPath     string `json:"bin_path,omitempty"`
+	InsecureTLS bool   `json:"insecure_tls,omitempty"`
+	KeepOpen    bool   `json:"ws_keep_open,omitempty"`
+	WSClose     bool   `json:"ws_close,omitempty"`
 }
 
 type edgeDTO struct {
-	ID     string `json:"id"`
-	From   string `json:"from"`
-	To     string `json:"to"`
-	Cond   int    `json:"cond"`
-	Value  string `json:"value,omitempty"`
-	Op     string `json:"op,omitempty"`
-	Count  string `json:"count,omitempty"`
-	Value2 string `json:"value2,omitempty"`
+	ID       string `json:"id"`
+	From     string `json:"from"`
+	To       string `json:"to"`
+	FromSide string `json:"from_side,omitempty"`
+	ToSide   string `json:"to_side,omitempty"`
+	Cond     int    `json:"cond"`
+	Value    string `json:"value,omitempty"`
+	Op       string `json:"op,omitempty"`
+	Count    string `json:"count,omitempty"`
+	Value2   string `json:"value2,omitempty"`
 }
 
 type scenarioDTO struct {
@@ -411,6 +501,21 @@ func nodeToDTO(n *Node) nodeDTO {
 		VarName:  n.VarNameEd.Text(),
 		VarValue: n.VarValueEd.Text(),
 		LoopSrc:  n.LoopSrcEd.Text(),
+
+		BodyType:    n.BodyType,
+		AuthType:    n.AuthType,
+		AuthToken:   n.AuthTokenEd.Text(),
+		AuthUser:    n.AuthUserEd.Text(),
+		AuthPass:    n.AuthPassEd.Text(),
+		Cookies:     n.CookiesEd.Text(),
+		Vars:        n.VarsEd.Text(),
+		Subprotos:   n.SubprotosEd.Text(),
+		WSOpcode:    n.WSOpcode,
+		WaitMs:      n.WaitMsEd.Text(),
+		BinPath:     n.BinPathEd.Text(),
+		InsecureTLS: n.InsecureTLS,
+		KeepOpen:    n.KeepOpen,
+		WSClose:     n.WSClose,
 	}
 }
 
@@ -434,19 +539,41 @@ func nodeFromDTO(nd nodeDTO) *Node {
 	n.VarNameEd.SetText(nd.VarName)
 	n.VarValueEd.SetText(nd.VarValue)
 	n.LoopSrcEd.SetText(nd.LoopSrc)
+	if nd.BodyType != "" {
+		n.BodyType = nd.BodyType
+	}
+	n.AuthType = nd.AuthType
+	n.AuthTokenEd.SetText(nd.AuthToken)
+	n.AuthUserEd.SetText(nd.AuthUser)
+	n.AuthPassEd.SetText(nd.AuthPass)
+	n.CookiesEd.SetText(nd.Cookies)
+	n.VarsEd.SetText(nd.Vars)
+	n.SubprotosEd.SetText(nd.Subprotos)
+	if nd.WSOpcode != "" {
+		n.WSOpcode = nd.WSOpcode
+	}
+	if nd.WaitMs != "" {
+		n.WaitMsEd.SetText(nd.WaitMs)
+	}
+	n.BinPathEd.SetText(nd.BinPath)
+	n.InsecureTLS = nd.InsecureTLS
+	n.KeepOpen = nd.KeepOpen
+	n.WSClose = nd.WSClose
 	return n
 }
 
 func edgeToDTO(e *Edge) edgeDTO {
 	return edgeDTO{
-		ID:     e.ID,
-		From:   e.From,
-		To:     e.To,
-		Cond:   int(e.Cond),
-		Value:  e.ValueEd.Text(),
-		Op:     e.Op,
-		Count:  e.CountEd.Text(),
-		Value2: e.Val2Ed.Text(),
+		ID:       e.ID,
+		From:     e.From,
+		To:       e.To,
+		FromSide: e.FromSide,
+		ToSide:   e.ToSide,
+		Cond:     int(e.Cond),
+		Value:    e.ValueEd.Text(),
+		Op:       e.Op,
+		Count:    e.CountEd.Text(),
+		Value2:   e.Val2Ed.Text(),
 	}
 }
 
@@ -455,6 +582,8 @@ func edgeFromDTO(ed edgeDTO) *Edge {
 	if ed.ID != "" {
 		e.ID = ed.ID
 	}
+	e.FromSide = ed.FromSide
+	e.ToSide = ed.ToSide
 	e.Cond = CondKind(ed.Cond)
 	e.ValueEd.SetText(ed.Value)
 	if ed.Op != "" {
@@ -659,6 +788,85 @@ func DeleteScenario(id string) error {
 		return err
 	}
 	changeSeq.Add(1)
+	return nil
+}
+
+var blockSeq atomic.Int64
+
+func BlockSeq() int64 {
+	return blockSeq.Load()
+}
+
+func blocksDir() string {
+	dir := filepath.Join(persist.FlowsDir(), "blocks")
+	_ = os.MkdirAll(dir, 0755)
+	return dir
+}
+
+type BlockInfo struct {
+	ID   string
+	Name string
+	mod  int64
+}
+
+func ListBlocks() []BlockInfo {
+	entries, err := os.ReadDir(blocksDir())
+	if err != nil {
+		return nil
+	}
+	var out []BlockInfo
+	for _, ent := range entries {
+		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".json") {
+			continue
+		}
+		data, err := os.ReadFile(filepath.Join(blocksDir(), ent.Name()))
+		if err != nil {
+			continue
+		}
+		var dto scenarioDTO
+		if err := json.Unmarshal(data, &dto); err != nil || dto.ID == "" {
+			continue
+		}
+		var mod int64
+		if info, err := ent.Info(); err == nil {
+			mod = info.ModTime().UnixNano()
+		}
+		out = append(out, BlockInfo{ID: dto.ID, Name: dto.Name, mod: mod})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].mod > out[j].mod })
+	return out
+}
+
+func LoadBlock(id string) (scenarioDTO, error) {
+	var dto scenarioDTO
+	data, err := os.ReadFile(filepath.Join(blocksDir(), id+".json"))
+	if err != nil {
+		return dto, err
+	}
+	err = json.Unmarshal(data, &dto)
+	return dto, err
+}
+
+func SaveBlock(dto scenarioDTO) error {
+	if dto.ID == "" {
+		dto.ID = persist.NewRandomID()
+	}
+	data, err := json.MarshalIndent(dto, "", "  ")
+	if err != nil {
+		return err
+	}
+	if err := persist.AtomicWriteFile(filepath.Join(blocksDir(), dto.ID+".json"), data); err != nil {
+		return err
+	}
+	blockSeq.Add(1)
+	return nil
+}
+
+func DeleteBlock(id string) error {
+	if err := os.Remove(filepath.Join(blocksDir(), id+".json")); err != nil {
+		return err
+	}
+	blockSeq.Add(1)
 	return nil
 }
 

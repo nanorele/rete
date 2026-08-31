@@ -1,13 +1,20 @@
 package flow
 
 import (
+	"bytes"
 	"context"
+	"crypto/tls"
+	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
+	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -15,6 +22,7 @@ import (
 
 	"tracto/internal/ui/settings"
 	"tracto/internal/utils"
+	"tracto/internal/ws"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/widget"
@@ -60,6 +68,21 @@ type execNode struct {
 	loopSrc  string
 	entries  []string
 	outs     []execEdge
+
+	bodyType  string
+	authType  string
+	authToken string
+	authUser  string
+	authPass  string
+	cookies   [][2]string
+	gqlVars   string
+	subprotos []string
+	wsOpcode  string
+	waitMs    int
+	binPath   string
+	insecure  bool
+	keepOpen  bool
+	wsClose   bool
 }
 
 type stepResult struct {
@@ -274,16 +297,28 @@ func buildPlan(s *Scenario, activeEnv map[string]string, envVars func(id string)
 			}
 		}
 		en := &execNode{
-			id:       n.ID,
-			kind:     n.Kind,
-			name:     n.DisplayName(),
-			method:   n.Method,
-			url:      strings.TrimSpace(n.URLEd.Text()),
-			body:     n.BodyEd.Text(),
-			env:      env,
-			varName:  strings.TrimSpace(n.VarNameEd.Text()),
-			varValue: strings.TrimSpace(n.VarValueEd.Text()),
-			loopSrc:  strings.TrimSpace(n.LoopSrcEd.Text()),
+			id:        n.ID,
+			kind:      n.Kind,
+			name:      n.DisplayName(),
+			method:    n.Method,
+			url:       strings.TrimSpace(n.URLEd.Text()),
+			body:      n.BodyEd.Text(),
+			env:       env,
+			varName:   strings.TrimSpace(n.VarNameEd.Text()),
+			varValue:  strings.TrimSpace(n.VarValueEd.Text()),
+			loopSrc:   strings.TrimSpace(n.LoopSrcEd.Text()),
+			bodyType:  n.BodyType,
+			authType:  n.AuthType,
+			authToken: strings.TrimSpace(n.AuthTokenEd.Text()),
+			authUser:  n.AuthUserEd.Text(),
+			authPass:  n.AuthPassEd.Text(),
+			gqlVars:   strings.TrimSpace(n.VarsEd.Text()),
+			wsOpcode:  n.WSOpcode,
+			waitMs:    parseEditorInt(n.WaitMsEd.Text(), 1000),
+			binPath:   strings.TrimSpace(n.BinPathEd.Text()),
+			insecure:  n.InsecureTLS,
+			keepOpen:  n.KeepOpen,
+			wsClose:   n.WSClose,
 		}
 		for _, line := range strings.Split(n.HeadersEd.Text(), "\n") {
 			k, v, ok := strings.Cut(line, ":")
@@ -292,6 +327,19 @@ func buildPlan(s *Scenario, activeEnv map[string]string, envVars func(id string)
 				continue
 			}
 			en.headers = append(en.headers, [2]string{k, strings.TrimSpace(v)})
+		}
+		for _, line := range strings.Split(n.CookiesEd.Text(), "\n") {
+			k, v, _ := strings.Cut(line, "=")
+			k = strings.TrimSpace(k)
+			if k == "" {
+				continue
+			}
+			en.cookies = append(en.cookies, [2]string{k, strings.TrimSpace(v)})
+		}
+		for _, sp := range strings.Split(n.SubprotosEd.Text(), ",") {
+			if sp = strings.TrimSpace(sp); sp != "" {
+				en.subprotos = append(en.subprotos, sp)
+			}
 		}
 		if c := parseEditorInt(n.CountEd.Text(), 1); c > 0 {
 			en.count = c
@@ -449,6 +497,20 @@ func (r *Runner) Start(parent context.Context, win *app.Window, s *Scenario, act
 
 	go func() {
 		defer cancel()
+		var wsSocks []*liveWS
+		defer func() {
+			for _, s := range wsSocks {
+				s.close()
+			}
+		}()
+		curSock := func() *liveWS {
+			for i := len(wsSocks) - 1; i >= 0; i-- {
+				if !wsSocks[i].closed {
+					return wsSocks[i]
+				}
+			}
+			return nil
+		}
 		steps := 0
 		anyFail := false
 		limitHit := false
@@ -524,9 +586,28 @@ func (r *Runner) Start(parent context.Context, win *app.Window, s *Scenario, act
 
 			res := in
 			switch n.kind {
-			case KindRequest:
+			case KindRequest, KindWSRequest, KindGQLRequest, KindWSSend:
 				reqStart := time.Now()
-				rr := runHTTP(ctx, n, vars)
+				var rr stepResult
+				var detail string
+				switch n.kind {
+				case KindWSRequest:
+					var sock *liveWS
+					rr, sock = runWSOpen(ctx, n, vars)
+					if sock != nil {
+						wsSocks = append(wsSocks, sock)
+					}
+					detail = "WS " + expandVars(n.url, n.env, vars)
+				case KindWSSend:
+					rr = runWSSend(ctx, n, vars, curSock())
+					detail = "WS send"
+				case KindGQLRequest:
+					rr = runGQL(ctx, n, vars)
+					detail = "GraphQL " + expandVars(n.url, n.env, vars)
+				default:
+					rr = runHTTP(ctx, n, vars)
+					detail = n.method + " " + expandVars(n.url, n.env, vars)
+				}
 				res = &rr
 				info := "ERR"
 				if rr.hasResp {
@@ -537,7 +618,7 @@ func (r *Runner) Start(parent context.Context, win *app.Window, s *Scenario, act
 				r.setNodeInfo(id, info)
 				ent := &RunEntry{
 					Node:    n.name,
-					Detail:  n.method + " " + expandVars(n.url, n.env, vars),
+					Detail:  detail,
 					Code:    rr.status,
 					OK:      !rr.failed,
 					Dur:     time.Since(reqStart),
@@ -604,11 +685,11 @@ func (r *Runner) Start(parent context.Context, win *app.Window, s *Scenario, act
 				}
 			}
 
-			ok := ctx.Err() == nil && (res == nil || !res.failed || n.kind != KindRequest)
+			ok := ctx.Err() == nil && (res == nil || !res.failed || !n.kind.IsRequest())
 			if !ok {
 				anyFail = true
 			}
-			if n.kind == KindRequest {
+			if n.kind.IsRequest() {
 				if ok {
 					okReq++
 				} else {
@@ -746,33 +827,134 @@ func describeNetErr(ctx context.Context, err error) string {
 	return err.Error()
 }
 
-func runHTTP(ctx context.Context, n *execNode, vars map[string]string) stepResult {
+func resolveURL(n *execNode, vars map[string]string) (string, string) {
 	rawURL := strings.TrimSpace(expandVars(n.url, n.env, vars))
 	if rawURL == "" {
-		return stepResult{failed: true, errMsg: "empty URL"}
+		return "", "empty URL"
 	}
 	if strings.Contains(rawURL, "{{") {
-		return stepResult{failed: true, errMsg: "unresolved variable in URL: " + rawURL}
+		return "", "unresolved variable in URL: " + rawURL
 	}
-	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
-		rawURL = "http://" + rawURL
-	}
-	rawURL = strings.ReplaceAll(rawURL, " ", "%20")
+	return strings.ReplaceAll(rawURL, " ", "%20"), ""
+}
 
-	var bodyReader io.Reader
-	if body := expandVars(n.body, n.env, vars); body != "" {
-		bodyReader = strings.NewReader(body)
+func (n *execNode) authHeader(vars map[string]string) string {
+	switch n.authType {
+	case "bearer":
+		tok := strings.TrimSpace(expandVars(n.authToken, n.env, vars))
+		if tok == "" {
+			return ""
+		}
+		return "Bearer " + tok
+	case "basic":
+		u := expandVars(n.authUser, n.env, vars)
+		p := expandVars(n.authPass, n.env, vars)
+		if u == "" && p == "" {
+			return ""
+		}
+		return "Basic " + base64.StdEncoding.EncodeToString([]byte(u+":"+p))
 	}
-	req, err := http.NewRequestWithContext(ctx, n.method, rawURL, bodyReader)
-	if err != nil {
-		return stepResult{failed: true, errMsg: "invalid request: " + err.Error()}
-	}
-	for _, h := range n.headers {
-		k := strings.TrimSpace(expandVars(h[0], n.env, vars))
+	return ""
+}
+
+func (n *execNode) cookieHeader(vars map[string]string) string {
+	var parts []string
+	for _, c := range n.cookies {
+		k := strings.TrimSpace(expandVars(c[0], n.env, vars))
 		if k == "" {
 			continue
 		}
-		req.Header.Add(k, strings.TrimSpace(expandVars(h[1], n.env, vars)))
+		parts = append(parts, k+"="+strings.TrimSpace(expandVars(c[1], n.env, vars)))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func (n *execNode) applyHeaders(h http.Header, vars map[string]string) {
+	for _, hd := range n.headers {
+		k := strings.TrimSpace(expandVars(hd[0], n.env, vars))
+		if k == "" {
+			continue
+		}
+		h.Add(k, strings.TrimSpace(expandVars(hd[1], n.env, vars)))
+	}
+	if a := n.authHeader(vars); a != "" && h.Get("Authorization") == "" {
+		h.Set("Authorization", a)
+	}
+	if c := n.cookieHeader(vars); c != "" && h.Get("Cookie") == "" {
+		h.Set("Cookie", c)
+	}
+}
+
+func (n *execNode) buildBody(vars map[string]string) (io.Reader, string, string) {
+	switch n.bodyType {
+	case "urlencoded":
+		form := url.Values{}
+		for _, line := range strings.Split(expandVars(n.body, n.env, vars), "\n") {
+			k, v, _ := strings.Cut(line, "=")
+			if k = strings.TrimSpace(k); k == "" {
+				continue
+			}
+			form.Add(k, strings.TrimSpace(v))
+		}
+		if len(form) == 0 {
+			return nil, "", ""
+		}
+		return strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", ""
+	case "form":
+		var buf bytes.Buffer
+		mw := multipart.NewWriter(&buf)
+		wrote := false
+		for _, line := range strings.Split(expandVars(n.body, n.env, vars), "\n") {
+			k, v, _ := strings.Cut(line, "=")
+			if k = strings.TrimSpace(k); k == "" {
+				continue
+			}
+			v = strings.TrimSpace(v)
+			if path, isFile := strings.CutPrefix(v, "@"); isFile {
+				data, err := os.ReadFile(path)
+				if err != nil {
+					return nil, "", "form file " + path + ": " + err.Error()
+				}
+				fw, err := mw.CreateFormFile(k, filepath.Base(path))
+				if err != nil {
+					return nil, "", err.Error()
+				}
+				_, _ = fw.Write(data)
+			} else {
+				_ = mw.WriteField(k, v)
+			}
+			wrote = true
+		}
+		_ = mw.Close()
+		if !wrote {
+			return nil, "", ""
+		}
+		return &buf, mw.FormDataContentType(), ""
+	case "binary":
+		if n.binPath == "" {
+			return nil, "", ""
+		}
+		data, err := os.ReadFile(expandVars(n.binPath, n.env, vars))
+		if err != nil {
+			return nil, "", "binary body: " + err.Error()
+		}
+		return bytes.NewReader(data), "application/octet-stream", ""
+	default:
+		if body := expandVars(n.body, n.env, vars); body != "" {
+			return strings.NewReader(body), "", ""
+		}
+		return nil, "", ""
+	}
+}
+
+func doHTTP(ctx context.Context, n *execNode, vars map[string]string, method, rawURL string, bodyReader io.Reader, contentType string) stepResult {
+	req, err := http.NewRequestWithContext(ctx, method, rawURL, bodyReader)
+	if err != nil {
+		return stepResult{failed: true, errMsg: "invalid request: " + err.Error()}
+	}
+	n.applyHeaders(req.Header, vars)
+	if contentType != "" && req.Header.Get("Content-Type") == "" {
+		req.Header.Set("Content-Type", contentType)
 	}
 	resp, err := settings.HTTPClient.Do(req)
 	if err != nil {
@@ -791,6 +973,217 @@ func runHTTP(ctx context.Context, n *execNode, vars map[string]string) stepResul
 		res.errMsg = "body read error: " + rerr.Error()
 	}
 	return res
+}
+
+func runHTTP(ctx context.Context, n *execNode, vars map[string]string) stepResult {
+	rawURL, urlErr := resolveURL(n, vars)
+	if urlErr != "" {
+		return stepResult{failed: true, errMsg: urlErr}
+	}
+	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
+		rawURL = "http://" + rawURL
+	}
+	bodyReader, contentType, bodyErr := n.buildBody(vars)
+	if bodyErr != "" {
+		return stepResult{failed: true, errMsg: bodyErr}
+	}
+	return doHTTP(ctx, n, vars, n.method, rawURL, bodyReader, contentType)
+}
+
+func runGQL(ctx context.Context, n *execNode, vars map[string]string) stepResult {
+	rawURL, urlErr := resolveURL(n, vars)
+	if urlErr != "" {
+		return stepResult{failed: true, errMsg: urlErr}
+	}
+	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
+		rawURL = "http://" + rawURL
+	}
+	payload := struct {
+		Query     string          `json:"query"`
+		Variables json.RawMessage `json:"variables,omitempty"`
+	}{Query: expandVars(n.body, n.env, vars)}
+	if varsText := strings.TrimSpace(expandVars(n.gqlVars, n.env, vars)); varsText != "" {
+		if !json.Valid([]byte(varsText)) {
+			return stepResult{failed: true, errMsg: "GraphQL variables: invalid JSON"}
+		}
+		payload.Variables = json.RawMessage(varsText)
+	}
+	data, err := json.Marshal(payload)
+	if err != nil {
+		return stepResult{failed: true, errMsg: "GraphQL payload: " + err.Error()}
+	}
+	return doHTTP(ctx, n, vars, http.MethodPost, rawURL, bytes.NewReader(data), "application/json")
+}
+
+func parseWSHexBody(s string) ([]byte, error) {
+	clean := strings.Map(func(r rune) rune {
+		switch r {
+		case ' ', '\t', '\n', '\r', ',', ':', '-':
+			return -1
+		}
+		return r
+	}, s)
+	clean = strings.TrimPrefix(clean, "0x")
+	return hex.DecodeString(clean)
+}
+
+type liveWS struct {
+	conn    *ws.Conn
+	status  int
+	headers http.Header
+	stop    func() bool
+	closed  bool
+}
+
+func (l *liveWS) close() {
+	if l == nil || l.closed {
+		return
+	}
+	l.closed = true
+	_ = l.conn.WriteClose(ws.CloseNormal, "")
+	_ = l.conn.Close()
+	if l.stop != nil {
+		l.stop()
+	}
+}
+
+func wsSendPayload(opcode, msg string) (ws.Opcode, []byte, string) {
+	if strings.EqualFold(opcode, "BIN") {
+		decoded, derr := parseWSHexBody(msg)
+		if derr != nil {
+			return ws.OpBinary, nil, "hex payload: " + derr.Error()
+		}
+		return ws.OpBinary, decoded, ""
+	}
+	return ws.OpText, []byte(msg), ""
+}
+
+func collectWSReplies(ctx context.Context, conn *ws.Conn, waitMs int) []byte {
+	wait := time.Duration(waitMs) * time.Millisecond
+	if wait <= 0 {
+		return nil
+	}
+	deadline := time.Now().Add(wait)
+	_ = conn.Underlying().SetReadDeadline(deadline)
+	var collected [][]byte
+	total := 0
+	for time.Now().Before(deadline) && ctx.Err() == nil && total < maxBodyBytes {
+		op, payload, rerr := conn.ReadMessage()
+		if rerr != nil {
+			break
+		}
+		if op != ws.OpText && op != ws.OpBinary {
+			continue
+		}
+		collected = append(collected, payload)
+		total += len(payload) + 1
+	}
+	_ = conn.Underlying().SetReadDeadline(time.Time{})
+	return bytes.Join(collected, []byte("\n"))
+}
+
+func runWS(ctx context.Context, n *execNode, vars map[string]string) stepResult {
+	res, sock := runWSOpen(ctx, n, vars)
+	sock.close()
+	return res
+}
+
+func runWSOpen(ctx context.Context, n *execNode, vars map[string]string) (stepResult, *liveWS) {
+	rawURL, urlErr := resolveURL(n, vars)
+	if urlErr != "" {
+		return stepResult{failed: true, errMsg: urlErr}, nil
+	}
+	switch {
+	case strings.HasPrefix(rawURL, "ws://"), strings.HasPrefix(rawURL, "wss://"):
+	case strings.HasPrefix(rawURL, "http://"):
+		rawURL = "ws://" + strings.TrimPrefix(rawURL, "http://")
+	case strings.HasPrefix(rawURL, "https://"):
+		rawURL = "wss://" + strings.TrimPrefix(rawURL, "https://")
+	default:
+		rawURL = "ws://" + rawURL
+	}
+
+	headers := http.Header{}
+	n.applyHeaders(headers, vars)
+	opts := ws.DialOptions{
+		Subprotocols: n.subprotos,
+		Headers:      headers,
+		DialTimeout:  15 * time.Second,
+	}
+	if n.insecure {
+		opts.TLSConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	res, err := ws.Dial(ctx, rawURL, opts)
+	if err != nil {
+		out := stepResult{failed: true, errMsg: describeNetErr(ctx, err)}
+		if res != nil && res.Response != nil {
+			out.hasResp = true
+			out.status = res.Response.StatusCode
+			out.headers = res.Response.Header
+			out.body = res.ResponseBody
+		}
+		return out, nil
+	}
+	conn := res.Conn
+	stopWatch := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	sock := &liveWS{
+		conn:    conn,
+		status:  res.Response.StatusCode,
+		headers: res.Response.Header,
+		stop:    stopWatch,
+	}
+
+	out := stepResult{
+		hasResp: true,
+		status:  res.Response.StatusCode,
+		headers: res.Response.Header,
+	}
+
+	if msg := expandVars(n.body, n.env, vars); strings.TrimSpace(msg) != "" {
+		op, payload, perr := wsSendPayload(n.wsOpcode, msg)
+		if perr != "" {
+			sock.close()
+			return stepResult{failed: true, errMsg: perr}, nil
+		}
+		if werr := conn.WriteMessage(op, payload); werr != nil {
+			sock.close()
+			out.failed = true
+			out.errMsg = "send: " + werr.Error()
+			return out, nil
+		}
+	}
+
+	out.body = collectWSReplies(ctx, conn, n.waitMs)
+	if !n.keepOpen {
+		sock.close()
+		return out, nil
+	}
+	return out, sock
+}
+
+func runWSSend(ctx context.Context, n *execNode, vars map[string]string, sock *liveWS) stepResult {
+	if sock == nil || sock.closed {
+		return stepResult{failed: true, errMsg: "no open WebSocket — put a WebSocket node with 'keep socket open' before this step"}
+	}
+	out := stepResult{hasResp: true, status: sock.status, headers: sock.headers}
+	msg := expandVars(n.body, n.env, vars)
+	if strings.TrimSpace(msg) != "" {
+		op, payload, perr := wsSendPayload(n.wsOpcode, msg)
+		if perr != "" {
+			return stepResult{failed: true, errMsg: perr}
+		}
+		if werr := sock.conn.WriteMessage(op, payload); werr != nil {
+			sock.close()
+			out.failed = true
+			out.errMsg = "send: " + werr.Error()
+			return out
+		}
+	}
+	out.body = collectWSReplies(ctx, sock.conn, n.waitMs)
+	if n.wsClose {
+		sock.close()
+	}
+	return out
 }
 
 func evalCond(e execEdge, res *stepResult, env, vars map[string]string) bool {

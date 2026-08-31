@@ -233,6 +233,10 @@ type RequestTab struct {
 	AuthUser        widget.Editor
 	AuthPass        widget.Editor
 
+	ErrDetailsBtn  widget.Clickable
+	ErrCopyBtn     widget.Clickable
+	ErrDetailsOpen bool
+
 	SearchBtn    widget.Clickable
 	ReqSearchBtn widget.Clickable
 	ReqSearch    SearchBox
@@ -488,7 +492,25 @@ func (t *RequestTab) reqHeaderRowPx(gtx layout.Context) int {
 	if t.reqHeaderH > 0 {
 		return t.reqHeaderH
 	}
-	return gtx.Dp(unit.Dp(34))
+	return gtx.Dp(unit.Dp(28)) + 2*gtx.Dp(unit.Dp(2))
+}
+
+func (t *RequestTab) paneHeaderRow(gtx layout.Context, content layout.Widget) layout.Dimensions {
+	rowH := t.headersRowPx(gtx)
+	inner := gtx
+	inner.Constraints.Min.Y = 0
+	inner.Constraints.Max.Y = rowH
+	macro := op.Record(gtx.Ops)
+	dims := content(inner)
+	call := macro.Stop()
+	off := (rowH - dims.Size.Y) / 2
+	if off < 0 {
+		off = 0
+	}
+	st := op.Offset(image.Pt(0, off)).Push(gtx.Ops)
+	call.Add(gtx.Ops)
+	st.Pop()
+	return layout.Dimensions{Size: image.Pt(dims.Size.X, rowH)}
 }
 
 func (t *RequestTab) headersRowPx(gtx layout.Context) int {
@@ -502,18 +524,29 @@ func (t *RequestTab) reqPaneAboveHeadersPx(gtx layout.Context) int {
 	return t.headersRowPx(gtx) + gtx.Dp(unit.Dp(1))
 }
 
-func (t *RequestTab) reqPaneBelowHeadersContentPx(gtx layout.Context) int {
+func (t *RequestTab) reqPaneBelowHeadersContentPxFor(gtx layout.Context, headersExpanded bool) int {
 	row := t.reqHeaderRowPx(gtx)
 	line := gtx.Dp(unit.Dp(1))
-	h := gtx.Dp(unit.Dp(4)) + line + row
+	h := line + row
+	if headersExpanded {
+		h += gtx.Dp(unit.Dp(4))
+	}
 	if !t.ReqBodyCollapsed {
 		h += line
 	}
 	return h
 }
 
+func (t *RequestTab) reqPaneBelowHeadersContentPx(gtx layout.Context) int {
+	return t.reqPaneBelowHeadersContentPxFor(gtx, t.HeadersExpanded)
+}
+
+func (t *RequestTab) reqPaneBelowHeadersPxFor(gtx layout.Context, headersExpanded bool) int {
+	return t.reqPaneBelowHeadersContentPxFor(gtx, headersExpanded) + gtx.Dp(unit.Dp(1)) + gtx.Dp(unit.Dp(2))
+}
+
 func (t *RequestTab) reqPaneBelowHeadersPx(gtx layout.Context) int {
-	return t.reqPaneBelowHeadersContentPx(gtx) + gtx.Dp(unit.Dp(1)) + gtx.Dp(unit.Dp(2))
+	return t.reqPaneBelowHeadersPxFor(gtx, t.HeadersExpanded)
 }
 
 func (t *RequestTab) respCollapsedMinPx(gtx layout.Context) int {
@@ -533,13 +566,13 @@ func (t *RequestTab) stackedReqPaneMinPx(gtx layout.Context) int {
 		if hDp <= 0 {
 			hDp = 120
 		}
-		h += line + gtx.Dp(unit.Dp(hDp))
+		h += line + gtx.Dp(unit.Dp(hDp)) + gtx.Dp(unit.Dp(4))
 	}
-	h += gtx.Dp(unit.Dp(4)) + line + row
+	h += line + row
 	if !t.ReqBodyCollapsed {
-		h += line
+		h += line + gtx.Dp(unit.Dp(1)) + gtx.Dp(unit.Dp(2))
 	}
-	return h + gtx.Dp(unit.Dp(1)) + gtx.Dp(unit.Dp(2))
+	return h
 }
 
 func (t *RequestTab) headersFitDp(activeKV []*HeaderItem) int {
@@ -1502,7 +1535,11 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 	}
 
 	for t.AddHeaderBtn.Clicked(gtx) {
-		switch t.ReqSubTab {
+		sub := t.ReqSubTab
+		if t.Method == MethodWS || t.Method == MethodGraphQL {
+			sub = reqSubHeaders
+		}
+		switch sub {
 		case reqSubParams:
 			t.addParam("", "")
 			t.syncURLFromParams()
@@ -1570,6 +1607,17 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		gtx.Execute(clipboard.WriteCmd{
 			Type: "application/text",
 			Data: reader,
+		})
+	}
+
+	for t.ErrDetailsBtn.Clicked(gtx) {
+		t.ErrDetailsOpen = !t.ErrDetailsOpen
+	}
+
+	if t.ErrCopyBtn.Clicked(gtx) {
+		gtx.Execute(clipboard.WriteCmd{
+			Type: "application/text",
+			Data: io.NopCloser(strings.NewReader(t.Status)),
 		})
 	}
 
@@ -1757,6 +1805,10 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 			if t.RespBodyCollapsed {
 				respMinDp = float32(t.respCollapsedMinPx(gtx))
 			}
+		} else if t.Method == MethodGraphQL {
+			if pool := t.splitPaneRec + t.splitRespRec; pool > 0 {
+				flexExtent = float32(pool)
+			}
 		}
 	} else {
 		ratio = &t.SplitRatio
@@ -1764,7 +1816,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		dragAxis = gesture.Horizontal
 		reqMinDp = float32(defaultMin)
 		respMinDp = float32(gtx.Dp(unit.Dp(200)))
-		if pool := t.splitPaneRec + t.splitRespRec; pool > 0 && t.Method != MethodWS && t.Method != MethodGraphQL {
+		if pool := t.splitPaneRec + t.splitRespRec; pool > 0 && t.Method != MethodWS {
 			flexExtent = float32(pool)
 		}
 	}
@@ -1899,6 +1951,23 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		}
 	}
 
+	var minReqRatio, maxReqRatio float32
+	if flexExtent > 0 {
+		minReqRatio = reqMinDp / flexExtent
+		maxReqRatio = 1.0 - (respMinDp / flexExtent)
+	}
+	if minReqRatio > maxReqRatio {
+		minReqRatio = 0.5
+		maxReqRatio = 0.5
+	}
+
+	effRatio := *ratio
+	if effRatio < minReqRatio {
+		effRatio = minReqRatio
+	} else if effRatio > maxReqRatio {
+		effRatio = maxReqRatio
+	}
+
 	var moved bool
 	var finalX float32
 	var released bool
@@ -1918,7 +1987,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		case pointer.Press:
 			t.SplitDragX = pos + float32(t.PaneDrawnH)
 			t.IsDraggingSplit = true
-			t.splitPanePx = *ratio * flexExtent
+			t.splitPanePx = effRatio * flexExtent
 		case pointer.Drag:
 			finalX = pos + float32(t.PaneDrawnH)
 			moved = true
@@ -1928,25 +1997,9 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		}
 	}
 
-	var minReqRatio, maxReqRatio float32
-	if flexExtent > 0 {
-		minReqRatio = reqMinDp / flexExtent
-		maxReqRatio = 1.0 - (respMinDp / flexExtent)
-	}
-	if minReqRatio > maxReqRatio {
-		minReqRatio = 0.5
-		maxReqRatio = 0.5
-	}
-
-	if *ratio < minReqRatio {
-		*ratio = minReqRatio
-	} else if *ratio > maxReqRatio {
-		*ratio = maxReqRatio
-	}
-
 	if moved && flexExtent > 0 {
 		delta := finalX - t.SplitDragX
-		oldSnap := int(*ratio*flexExtent + 0.5)
+		oldSnap := int(effRatio*flexExtent + 0.5)
 		newPane := t.splitPanePx + delta
 		if stacked && t.Method != MethodWS && t.Method != MethodGraphQL {
 			if !t.ReqBodyCollapsed && newPane < float32(t.stackedReqPaneMinPx(gtx))-0.5 {
@@ -1978,12 +2031,13 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 			snap = int(newPane + 0.5)
 		}
 		*ratio = float32(snap) / flexExtent
+		effRatio = *ratio
 		t.SplitDragX = finalX
 		win.Invalidate()
 	}
 	if stacked && flexExtent > 0 && t.Method != MethodWS && t.Method != MethodGraphQL &&
-		t.RespBodyCollapsed && !t.ReqBodyCollapsed && *ratio < maxReqRatio {
-		*ratio = maxReqRatio
+		t.RespBodyCollapsed && !t.ReqBodyCollapsed && effRatio < maxReqRatio {
+		effRatio = maxReqRatio
 	}
 	if released {
 		if onSave != nil {
@@ -2015,7 +2069,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 					above += gtx.Dp(unit.Dp(1))
 					headersNow = t.headersRenderH
 				}
-				t.hbEditorPx = int(*ratio*flexExtent) - above - headersNow - t.reqPaneBelowHeadersPx(gtx)
+				t.hbEditorPx = int(effRatio*flexExtent) - above - headersNow - t.reqPaneBelowHeadersPx(gtx)
 				if t.hbEditorPx < 0 {
 					t.hbEditorPx = 0
 				}
@@ -2038,15 +2092,18 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		newH := t.hbHeadersPx + delta
 		row := float32(t.headersRowPx(gtx))
 		line := float32(gtx.Dp(unit.Dp(1)))
-		below := float32(t.reqPaneBelowHeadersPx(gtx))
+		below := float32(t.reqPaneBelowHeadersPxFor(gtx, true))
+		belowClosed := float32(t.reqPaneBelowHeadersPxFor(gtx, false))
 		hbMaxPx := newH
 		if stacked && flexExtent > 0 {
 			hbMaxPx = flexExtent - respMinDp - row - line - below - float32(t.hbEditorPx)
 		} else if t.reqPaneH > 0 {
-			if t.Method == MethodWS || t.Method == MethodGraphQL {
+			if t.Method == MethodGraphQL {
+				hbMaxPx = float32(t.reqPaneH) - row - line - float32(t.gqlBelowHeadersMinPx(gtx))
+			} else if t.Method == MethodWS {
 				hbMaxPx = float32(t.reqPaneH) - row - line - below
 			} else {
-				belowOpen := float32(t.reqPaneBelowHeadersContentPx(gtx))
+				belowOpen := float32(t.reqPaneBelowHeadersContentPxFor(gtx, true))
 				if t.ReqBodyCollapsed {
 					belowOpen += line
 				}
@@ -2081,7 +2138,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 			}
 			newSnap = 0
 			if stacked && flexExtent > 0 {
-				*ratio = (row + below + float32(t.hbEditorPx)) / flexExtent
+				*ratio = (row + belowClosed + float32(t.hbEditorPx)) / flexExtent
 			}
 		} else {
 			wasExpanded := t.HeadersExpanded
@@ -2096,6 +2153,9 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		}
 		t.hbManualDp = t.HeadersAbsHeight
 		t.HeadersBodyDragX = hbFinalPos
+		if stacked && flexExtent > 0 {
+			effRatio = *ratio
+		}
 		win.Invalidate()
 	}
 	if hbReleased {
@@ -2345,7 +2405,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 				return t.layoutWSBody(gtx, th, win, activeEnv)
 			}
 			if t.Method == MethodGraphQL {
-				return t.layoutGraphQLBody(gtx, th, win, activeEnv, ratio, stacked, isDragging)
+				return t.layoutGraphQLBody(gtx, th, win, activeEnv, &effRatio, stacked, isDragging)
 			}
 			flexAxis := layout.Horizontal
 			if stacked {
@@ -2358,7 +2418,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 					}),
 					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: flexAxis}.Layout(gtx,
-							layout.Flexed(*ratio, func(gtx layout.Context) layout.Dimensions {
+							layout.Flexed(effRatio, func(gtx layout.Context) layout.Dimensions {
 								if stacked {
 									t.splitPaneRec = gtx.Constraints.Max.Y
 								} else {
@@ -2373,6 +2433,9 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 											gtx.Constraints.Max.Y = compact
 										}
 										gtx.Constraints.Min.Y = gtx.Constraints.Max.Y
+									}
+									if stacked && t.ReqBodyCollapsed {
+										gtx.Constraints.Min.Y = 0
 									}
 									headersRowAt := func(gtx layout.Context, vInset unit.Dp) layout.Dimensions {
 										return layout.Inset{Top: vInset, Bottom: vInset}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -2434,6 +2497,10 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 										thick := gtx.Dp(unit.Dp(4))
 										size := image.Point{X: gtx.Constraints.Max.X, Y: thick}
 										rect := clip.Rect{Max: size}
+										if !t.HeadersExpanded {
+											size.Y = 0
+											rect = clip.Rect{Min: image.Pt(0, -thick/2), Max: image.Pt(size.X, thick/2+1)}
+										}
 										defer rect.Push(gtx.Ops).Pop()
 										pointer.CursorRowResize.Add(gtx.Ops)
 										t.HeadersBodyDrag.Add(gtx.Ops)
@@ -2629,8 +2696,11 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 											layout.Flexed(1, editorBody),
 										)
 									}
-									paint.FillShape(gtx.Ops, theme.Bg, clip.Rect{Max: gtx.Constraints.Min}.Op())
+									macro := op.Record(gtx.Ops)
 									dims := layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+									call := macro.Stop()
+									paint.FillShape(gtx.Ops, theme.Bg, clip.Rect{Max: dims.Size}.Op())
+									call.Add(gtx.Ops)
 									widgets.PaintBorder1px(gtx, dims.Size, theme.Border)
 									return dims
 								}(gtx)
@@ -2666,7 +2736,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 								}
 								return layout.Dimensions{Size: size}
 							}),
-							layout.Flexed(1-*ratio, func(gtx layout.Context) layout.Dimensions {
+							layout.Flexed(1-effRatio, func(gtx layout.Context) layout.Dimensions {
 								if stacked {
 									t.splitRespRec = gtx.Constraints.Max.Y
 								} else {
@@ -2738,6 +2808,16 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 													}
 													return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 														layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+															if !isErrorStatus(t.Status) {
+																return layout.Dimensions{}
+															}
+															ic := widgets.IconExpandMore
+															if t.ErrDetailsOpen {
+																ic = widgets.IconExpandLess
+															}
+															return widgets.SquareBtn(gtx, &t.ErrDetailsBtn, ic, th)
+														}),
+														layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 															return widgets.SquareBtn(gtx, &t.SearchBtn, widgets.IconSearch, th)
 														}),
 														layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -2773,6 +2853,12 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 												return layout.Dimensions{}
 											}
 											return wsHLine(gtx)
+										}),
+										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+											if stacked && t.RespBodyCollapsed {
+												return layout.Dimensions{}
+											}
+											return t.layoutErrorDetails(gtx, th)
 										}),
 										layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 											if stacked && t.RespBodyCollapsed {
@@ -2974,6 +3060,39 @@ func (t *RequestTab) layoutResponseBody(gtx layout.Context, th *material.Theme, 
 			return t.RespEditor.LayoutScrollbarHover(gtx, t.ScrollDrag.Dragging() || t.HScrollDrag.Dragging())
 		}),
 	)
+}
+
+func isErrorStatus(s string) bool { return strings.HasPrefix(s, "Error: ") }
+
+// layoutErrorDetails spells out the error the status line can only show one
+// truncated line of.
+func (t *RequestTab) layoutErrorDetails(gtx layout.Context, th *material.Theme) layout.Dimensions {
+	if !t.ErrDetailsOpen || t.RunOpen || !isErrorStatus(t.Status) {
+		return layout.Dimensions{}
+	}
+	gtx.Constraints.Min.X = gtx.Constraints.Max.X
+	macro := op.Record(gtx.Ops)
+	dim := layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Start}.Layout(gtx,
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				lbl := widgets.MonoLabel(th, unit.Sp(11), strings.TrimPrefix(t.Status, "Error: "))
+				lbl.Color = theme.DangerFg
+				return lbl.Layout(gtx)
+			}),
+			layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				btn := widgets.FilledButton(th, &t.ErrCopyBtn, "Copy", theme.Border, th.Fg)
+				btn.TextSize = unit.Sp(10)
+				btn.Inset = layout.Inset{Top: unit.Dp(3), Bottom: unit.Dp(3), Left: unit.Dp(8), Right: unit.Dp(8)}
+				return btn.Layout(gtx)
+			}),
+		)
+	})
+	call := macro.Stop()
+
+	paint.FillShape(gtx.Ops, theme.Danger, clip.Rect{Max: image.Pt(gtx.Constraints.Max.X, dim.Size.Y)}.Op())
+	call.Add(gtx.Ops)
+	return layout.Dimensions{Size: image.Pt(gtx.Constraints.Max.X, dim.Size.Y)}
 }
 
 func (t *RequestTab) layoutOversizeBanner(gtx layout.Context, th *material.Theme) layout.Dimensions {

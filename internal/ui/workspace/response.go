@@ -93,6 +93,10 @@ func (v *ResponseViewer) SetText(s string) {
 	v.selStart = 0
 	v.selEnd = 0
 	v.dragActive = false
+	v.stickBottom = false
+	v.anchorByte = 0
+	v.anchorFrac = 0
+	v.anchorValid = false
 	v.cancelReveal()
 }
 
@@ -241,6 +245,7 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 	textColor := textColorMacro.Stop()
 
 	charAdv := measureCharAdvance(s.Shaper, s.Font, s.TextSize, gtx)
+	v.lastCharAdv = charAdv
 	exactLineH := measureLineHeight(s.Shaper, s.Font, s.TextSize, textColor, gtx)
 	if exactLineH <= 0 {
 		exactLineH = lineHeight
@@ -251,7 +256,11 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 	v.monoAdvance = measureMonoAdvance(s.Shaper, s.Font, s.TextSize, gtx)
 
 	if s.Wrap != v.chunkHeightsWrap || (s.Wrap && v.chunkHeightsWidth != innerW) {
-		anchorLine, anchorSub := v.scrollAnchor(exactLineH, charAdv, v.chunkHeightsWidth, v.chunkHeightsWrap)
+		wasAtBottom := v.lastTotalH > 0 && v.scrollY > 0 && v.scrollY >= v.lastTotalH-innerH-exactLineH
+		if !v.anchorValid {
+			v.anchorByte, v.anchorFrac = v.anchorByteForScroll(exactLineH, charAdv, v.chunkHeightsWidth, v.chunkHeightsWrap)
+			v.anchorValid = true
+		}
 		v.invalidateChunkHeights()
 		v.chunkHeightsWrap = s.Wrap
 		v.chunkHeightsWidth = innerW
@@ -259,7 +268,14 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		v.scrollX = 0
 		v.invalidateAllWrapPlans()
 		v.padChunkHeights()
-		v.scrollY = v.scrollYForAnchor(anchorLine, anchorSub, exactLineH, charAdv, innerW, s.Wrap)
+		if wasAtBottom {
+			v.padWrapPlans()
+			v.measureTailChunks(gtx, exactLineH, lineHeight, innerW, innerH, s.Wrap)
+		} else {
+			v.scrollY = v.scrollYForByte(v.anchorByte, exactLineH, charAdv, innerW, s.Wrap) + v.anchorFrac
+		}
+		v.stickBottom = wasAtBottom
+		v.geoFrame = true
 	}
 	v.padChunkHeights()
 	v.padWrapPlans()
@@ -276,6 +292,12 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		totalH = innerH
 	}
 	v.lastTotalH = totalH
+	if v.stickBottom {
+		v.scrollY = totalH - innerH
+		if v.scrollY < 0 {
+			v.scrollY = 0
+		}
+	}
 
 	maxY := totalH - innerH
 	if maxY < 0 {
@@ -287,6 +309,10 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		pointer.ScrollRange{Min: -v.scrollY, Max: maxY - v.scrollY},
 	)
 	v.scrollY += sdist
+	if sdist != 0 {
+		v.stickBottom = false
+		v.anchorValid = false
+	}
 
 	if !s.Wrap {
 		maxX := v.maxLineWidth - innerW
@@ -559,6 +585,14 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		v.chunkHeights[line] = actualH
 		yOff += actualH
 	}
+
+	if v.geoFrame {
+		v.geoFrame = false
+	} else if !v.anchorValid || v.scrollY != v.prevFrameScrY {
+		v.anchorByte, v.anchorFrac = v.anchorByteForScroll(exactLineH, charAdv, innerW, s.Wrap)
+		v.anchorValid = true
+	}
+	v.prevFrameScrY = v.scrollY
 
 	return layout.Dimensions{Size: size}
 }

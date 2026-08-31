@@ -76,6 +76,12 @@ type textCore struct {
 	lastViewportH  int
 	descOvershoot  int
 	lineBox        int
+	stickBottom    bool
+	anchorByte     int
+	anchorFrac     int
+	anchorValid    bool
+	geoFrame       bool
+	prevFrameScrY  int
 
 	tokens        []syntax.Token
 	tokensLang    syntax.Lang
@@ -93,6 +99,8 @@ type textCore struct {
 	paintScratch []widgets.WrapGlyph
 	hitScratch   []widgets.WrapGlyph
 	monoAdvance  fixed.Int26_6
+	lastCharAdv  fixed.Int26_6
+	measureOps   *op.Ops
 }
 
 type colCache struct {
@@ -678,8 +686,19 @@ func (v *textCore) ScrollbarFade() float32 { return v.scrollbarFade.Value() }
 
 func (v *textCore) GetScrollY() int { return v.scrollY }
 
+func (v *textCore) BottomGap() int {
+	return v.lastTotalH - v.lastViewportH - v.scrollY
+}
+
+func (v *textCore) TopContentOffset() int {
+	off, _ := v.anchorByteForScroll(v.lastLineHeight, v.lastCharAdv, v.layoutInnerW, v.chunkHeightsWrap)
+	return off
+}
+
 func (v *textCore) SetScrollY(y int) {
 	v.scrollY = y
+	v.anchorValid = false
+	v.stickBottom = false
 	v.clampScroll()
 }
 
@@ -859,6 +878,114 @@ func (v *textCore) coordToByteOffset(
 	}
 	glyphs := v.shapeChunkScratch(gtx, chunkText, viewportW)
 	return chunkStart + widgets.ByteOffInWrap(glyphs, clickX, wrapLine)
+}
+
+func (v *textCore) anchorByteForScroll(lineH int, adv fixed.Int26_6, width int, wrap bool) (int, int) {
+	line, sub := v.scrollAnchor(lineH, adv, width, wrap)
+	frac := 0
+	if lineH > 0 {
+		frac = v.scrollY - v.scrollYForAnchor(line, sub, lineH, adv, width, wrap)
+		if frac < 0 || frac >= lineH {
+			frac = 0
+		}
+	}
+	if line >= len(v.lineStarts) {
+		return len(v.text), frac
+	}
+	start, end := v.lineBounds(line)
+	if !wrap || sub <= 0 {
+		return start, frac
+	}
+	need := sub * charsPerLineFor(width, adv)
+	off := start
+	for r := 0; r < need && off < end; r++ {
+		_, sz := utf8.DecodeRune(v.text[off:])
+		off += sz
+	}
+	return off, frac
+}
+
+func (v *textCore) scrollYForByte(off, lineH int, adv fixed.Int26_6, width int, wrap bool) int {
+	if lineH <= 0 {
+		return v.scrollY
+	}
+	if off < 0 {
+		off = 0
+	}
+	if off > len(v.text) {
+		off = len(v.text)
+	}
+	line := v.lineForByteOffset(off)
+	y := 0
+	for i := 0; i < line && i < len(v.chunkHeights); i++ {
+		h := v.chunkHeights[i]
+		if h <= 0 {
+			h = v.estimateChunkHeight(i, lineH, adv, width, wrap)
+		}
+		y += h
+	}
+	sub := 0
+	if wrap {
+		start, _ := v.lineBounds(line)
+		if off > start {
+			runes := utf8.RuneCount(v.text[start:off])
+			sub = runes / charsPerLineFor(width, adv)
+		}
+		if line < len(v.chunkHeights) {
+			h := v.chunkHeights[line]
+			if h <= 0 {
+				h = v.estimateChunkHeight(line, lineH, adv, width, wrap)
+			}
+			if maxSub := h/lineH - 1; sub > maxSub {
+				sub = maxSub
+			}
+			if sub < 0 {
+				sub = 0
+			}
+		}
+	}
+	return y + sub*lineH
+}
+
+// measureTailChunks fills exact heights for roughly one viewport of trailing
+// lines. Short chunks are measured through the same PaintColoredText call the
+// painter uses (into discarded ops): estimate-based row math differs from the
+// painted dims by a few px per chunk, and any mismatch makes the bottom pin
+// oscillate between geometry and paint frames.
+func (v *textCore) measureTailChunks(gtx layout.Context, lineH, fallbackH, innerW, innerH int, wrap bool) {
+	if !wrap || lineH <= 0 || innerW <= 0 {
+		return
+	}
+	need := innerH + lineH
+	acc := 0
+	for line := len(v.lineStarts) - 1; line >= 0 && acc < need; line-- {
+		start, end := v.lineBounds(line)
+		var h int
+		if end-start >= longLineThresholdBytes {
+			p := v.ensureWrapPlan(line, start, end, v.layoutShaper, v.layoutFont, v.layoutSize, gtx, innerW, lineH)
+			h = p.height
+		} else {
+			h = v.measureChunkPaintHeight(gtx, start, end, innerW)
+		}
+		if h <= 0 {
+			h = fallbackH
+		}
+		v.chunkHeights[line] = h
+		acc += h
+	}
+}
+
+func (v *textCore) measureChunkPaintHeight(gtx layout.Context, start, end, innerW int) int {
+	if v.measureOps == nil {
+		v.measureOps = new(op.Ops)
+	}
+	v.measureOps.Reset()
+	mgtx := gtx
+	mgtx.Ops = v.measureOps
+	mgtx.Constraints.Min = image.Point{}
+	mgtx.Constraints.Max = image.Pt(innerW, 1<<24)
+	dims := widgets.PaintColoredText(mgtx, v.layoutShaper, v.layoutFont, v.layoutSize, string(v.text[start:end]), nil, color.NRGBA{}, true, innerW)
+	return dims.Size.Y
 }
 
 func (v *textCore) estimateChunkHeight(line, lineHeight int, advance fixed.Int26_6, viewportW int, wrap bool) int {
@@ -1090,6 +1217,8 @@ func (v *textCore) applyDragScroll(gtx layout.Context, size image.Point, pad int
 	if overY != 0 || overX != 0 {
 		v.scrollY += autoScrollStep(overY)
 		v.scrollX += autoScrollStep(overX)
+		v.stickBottom = false
+		v.anchorValid = false
 		v.clampScroll()
 		gtx.Execute(op.InvalidateCmd{})
 	}
@@ -1164,9 +1293,27 @@ func (v *textCore) wordRight(off int) int {
 		}
 		i += sz
 	}
+	// The jump lands on the next word, but a line break ends it: skipping the
+	// separators straight through one dropped the caret into the middle of the
+	// following line instead of stopping at the end of the current one.
+	i = skipSeparatorsInLine(v.text, i)
+	if i > off {
+		return i
+	}
 	for i < len(v.text) {
 		r, sz := utf8.DecodeRune(v.text[i:])
-		if !widgets.IsSeparator(r) {
+		if r != '\n' && r != '\r' {
+			break
+		}
+		i += sz
+	}
+	return skipSeparatorsInLine(v.text, i)
+}
+
+func skipSeparatorsInLine(text []byte, i int) int {
+	for i < len(text) {
+		r, sz := utf8.DecodeRune(text[i:])
+		if r == '\n' || r == '\r' || !widgets.IsSeparator(r) {
 			break
 		}
 		i += sz
@@ -1334,8 +1481,12 @@ func (v *textCore) applyReveal(gtx layout.Context, advance fixed.Int26_6, lineH,
 	}
 	if innerH <= 0 {
 		v.scrollY = top
+		v.stickBottom = false
+		v.anchorValid = false
 	} else if top < v.scrollY+inset || top+lineH > v.scrollY+innerH-inset {
 		v.scrollY = top - (innerH-lineH)/2
+		v.stickBottom = false
+		v.anchorValid = false
 	}
 	v.clampScroll()
 	v.revealY = top - v.scrollY
@@ -1387,10 +1538,33 @@ func (v *textCore) ensureCaretVisible() {
 	}
 	if caretY < v.scrollY {
 		v.scrollY = caretY
+		v.stickBottom = false
+		v.anchorValid = false
 	} else if v.lastViewportH > 0 && caretY+chunkH > v.scrollY+v.lastViewportH {
 		v.scrollY = caretY + chunkH - v.lastViewportH
+		v.stickBottom = false
+		v.anchorValid = false
 	}
 	v.clampScroll()
+}
+
+// wrapSubLineEndX is where the fill of wrapped sub-line wl stops: the end of its
+// last glyph, not the viewport edge. Filling to the edge painted the sliver too
+// narrow to hold one more glyph as selected empty space right of the last
+// character, which showed up on every line that wrapped at the right margin.
+func wrapSubLineEndX(glyphs []widgets.WrapGlyph, wl, viewportW int) int {
+	// Past the far right of the sub-line is its last glyph, and the caret at the
+	// byte just after it resolves back to that glyph's trailing edge because the
+	// glyph carries the line break. Both lookups are binary searches, so this
+	// stays cheap when a chunk is painted with many highlights.
+	// The probe X stays well inside fixed.Int26_6 range: a larger one overflows
+	// to a negative and the hit test then answers with the line's first glyph.
+	end := widgets.ByteOffInWrap(glyphs, 1<<20, wl)
+	x, _ := widgets.CaretXYInWrap(glyphs, end)
+	if x > viewportW {
+		x = viewportW
+	}
+	return x
 }
 
 func (v *textCore) paintHighlight(
@@ -1458,7 +1632,6 @@ func (v *textCore) paintHighlight(
 		return
 	}
 	chunkBottom := yOff + chunkH
-	fullWidth := viewportW
 
 	for wl := startWL; wl <= endWL; wl++ {
 		y1 := yOff + wl*subLineH
@@ -1476,7 +1649,7 @@ func (v *textCore) paintHighlight(
 			y2 = chunkBottom
 		}
 		x1 := 0
-		x2 := fullWidth
+		x2 := wrapSubLineEndX(glyphs, wl, viewportW)
 		if wl == startWL {
 			x1 = startX
 		}

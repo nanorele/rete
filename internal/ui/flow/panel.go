@@ -380,6 +380,9 @@ func (ed *Editor) layoutRunBlock(gtx layout.Context, th *material.Theme) layout.
 func (ed *Editor) paletteItems() []paletteItem {
 	return []paletteItem{
 		{KindRequest, widgets.IconRequests, "HTTP Request", "send a request"},
+		{KindWSRequest, widgets.IconMITM, "WebSocket", "connect, send, collect replies"},
+		{KindWSSend, widgets.IconUpload, "WS Message", "send into an open socket"},
+		{KindGQLRequest, widgets.IconLab, "GraphQL", "post a query with variables"},
 		{KindCondition, widgets.IconSplit, "Condition", "branch by arrow rules"},
 		{KindLoop, widgets.IconRefresh, "Loop", "container, repeats its content"},
 		{KindDelay, widgets.IconDelay, "Delay", "wait before next step"},
@@ -484,9 +487,133 @@ func (ed *Editor) paletteGrid(gtx layout.Context, items []paletteItem) []layout.
 	return rows
 }
 
+func (ed *Editor) handleBlockItemEvents(gtx layout.Context, i int, b BlockInfo) {
+	for ed.blockBtns[i].Clicked(gtx) {
+		if !ed.blockDragActive {
+			ed.addBlock(b.ID)
+		}
+	}
+	for ed.blockDelBtns[i].Clicked(gtx) {
+		if err := DeleteBlock(b.ID); err != nil {
+			ed.note = "Block delete failed: " + err.Error()
+		}
+	}
+	for {
+		ev, ok := gtx.Event(pointer.Filter{
+			Target: &ed.blockDragTags[i],
+			Kinds:  pointer.Press | pointer.Drag | pointer.Release | pointer.Cancel,
+		})
+		if !ok {
+			break
+		}
+		pe, ok := ev.(pointer.Event)
+		if !ok {
+			continue
+		}
+		switch pe.Kind {
+		case pointer.Press:
+			ed.blockDragIdx = i
+			ed.blockDragName = b.Name
+			ed.blockDragOn = true
+			ed.blockDragActive = false
+		case pointer.Drag:
+			if ed.blockDragOn && ed.blockDragIdx == i {
+				if _, over := ed.windowToCanvas(widgets.GlobalPointerPos); over {
+					ed.blockDragActive = true
+				}
+			}
+		case pointer.Release:
+			if ed.blockDragOn && ed.blockDragIdx == i && ed.blockDragActive {
+				ed.dropBlockAtWindow(b.ID, widgets.GlobalPointerPos)
+			}
+			ed.blockDragOn = false
+			ed.blockDragActive = false
+		case pointer.Cancel:
+			ed.blockDragOn = false
+			ed.blockDragActive = false
+		}
+	}
+}
+
+func (ed *Editor) blocksSection(gtx layout.Context, th *material.Theme) []layout.FlexChild {
+	blocks := ed.blocks()
+	if len(blocks) == 0 {
+		return nil
+	}
+	if len(ed.blockBtns) < len(blocks) {
+		ed.blockBtns = make([]widget.Clickable, len(blocks))
+		ed.blockDelBtns = make([]widget.Clickable, len(blocks))
+		ed.blockDragTags = make([]bool, len(blocks))
+	}
+	for i, b := range blocks {
+		ed.handleBlockItemEvents(gtx, i, b)
+	}
+	children := []layout.FlexChild{
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ed.sectionLabel(gtx, th, "My blocks") }),
+	}
+	for i, b := range blocks {
+		i, b := i, b
+		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Bottom: unit.Dp(5)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				rowH := gtx.Dp(unit.Dp(30))
+				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+						return ed.blockBtns[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							gtx.Constraints.Min.X = gtx.Constraints.Max.X
+							bg := theme.BgField
+							if ed.blockBtns[i].Hovered() {
+								bg = theme.BgHover
+							}
+							rect := image.Rectangle{Max: image.Pt(gtx.Constraints.Max.X, rowH)}
+							rr := gtx.Dp(unit.Dp(5))
+							paint.FillShape(gtx.Ops, bg, clip.UniformRRect(rect, rr).Op(gtx.Ops))
+							paint.FillShape(gtx.Ops, theme.Border, clip.Stroke{Path: clip.UniformRRect(rect, rr).Path(gtx.Ops), Width: 1}.Op())
+							stripe := image.Rect(0, rr, gtx.Dp(unit.Dp(3)), rect.Max.Y-rr)
+							paint.FillShape(gtx.Ops, theme.Accent, clip.Rect(stripe).Op())
+							defer clip.Rect(rect).Push(gtx.Ops).Pop()
+							event.Op(gtx.Ops, &ed.blockDragTags[i])
+							return layout.Inset{Left: unit.Dp(10), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+								gtx.Constraints.Min.Y = rect.Max.Y
+								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+										gtx.Constraints.Min.Y = 0
+										name := b.Name
+										if name == "" {
+											name = "Block"
+										}
+										lbl := material.Label(th, unit.Sp(12), name)
+										lbl.MaxLines = 1
+										return lbl.Layout(gtx)
+									}),
+								)
+							})
+						})
+					}),
+					layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return ed.blockDelBtns[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							s := gtx.Dp(unit.Dp(18))
+							col := theme.FgDim
+							if ed.blockDelBtns[i].Hovered() {
+								col = theme.Danger
+							}
+							gtx.Constraints.Min = image.Pt(s, s)
+							gtx.Constraints.Max = gtx.Constraints.Min
+							return widgets.IconClose.Layout(gtx, col)
+						})
+					}),
+				)
+			})
+		}))
+	}
+	return children
+}
+
 func (ed *Editor) shortcutsSection(gtx layout.Context, th *material.Theme) []layout.FlexChild {
 	lines := []string{
-		"Drag from right port — connect nodes",
+		"Drag from right/bottom port — connect nodes",
+		"One outgoing arrow per node · Condition branches",
+		"Drag a target's in port — move the arrow",
 		"Double-click node — rename",
 		"RMB / MMB drag — pan canvas",
 		"Scroll — zoom · Ctrl+scroll — zoom ×3",
@@ -523,12 +650,13 @@ func (ed *Editor) layoutPalette(gtx layout.Context, th *material.Theme) layout.D
 			layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
 		}
 		children = append(children, ed.paletteGrid(gtx, items)...)
+		children = append(children, ed.blocksSection(gtx, th)...)
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 	}
 	children := []layout.FlexChild{
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				lbl := material.Label(th, unit.Sp(10), "Click to add, or drag onto the canvas. Drag from a right port to connect nodes.")
+				lbl := material.Label(th, unit.Sp(10), "Click to add, or drag onto the canvas. Hover a node to reveal its ports, then drag from a right or bottom port to connect. Each node has one outgoing arrow — use Condition to branch.")
 				lbl.Color = theme.FgDim
 				return lbl.Layout(gtx)
 			})
@@ -586,6 +714,7 @@ func (ed *Editor) layoutPalette(gtx layout.Context, th *material.Theme) layout.D
 			})
 		}))
 	}
+	children = append(children, ed.blocksSection(gtx, th)...)
 	children = append(children, ed.shortcutsSection(gtx, th)...)
 	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 }
@@ -908,6 +1037,83 @@ func (ed *Editor) layoutNodeProps(gtx layout.Context, th *material.Theme, n *Nod
 		)
 	}
 
+	urlSection := func(hint string) []layout.FlexChild {
+		return []layout.FlexChild{
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ed.sectionLabel(gtx, th, "URL") }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.borderedEditor(gtx, th, &n.URLEd, hint)
+			}),
+		}
+	}
+	headersSection := func() []layout.FlexChild {
+		return []layout.FlexChild{
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.sectionLabel(gtx, th, short("Headers (Key: Value per line)", "Headers"))
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.borderedEditor(gtx, th, &n.HeadersEd, "Content-Type: application/json")
+			}),
+		}
+	}
+	authTypes := []string{"none", "bearer", "basic"}
+	authCookieSections := func() []layout.FlexChild {
+		authBtns := make([]*widget.Clickable, len(authTypes))
+		for i := range authTypes {
+			authBtns[i] = &ed.authKindBtn[i]
+		}
+		sel := n.AuthType
+		if sel == "" {
+			sel = "none"
+		}
+		out := []layout.FlexChild{
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ed.sectionLabel(gtx, th, "Auth") }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.chipRow(gtx, th, authBtns, authTypes, sel, func(a string) {
+					ed.pushHistory()
+					if a == "none" {
+						n.AuthType = ""
+					} else {
+						n.AuthType = a
+					}
+				})
+			}),
+		}
+		switch n.AuthType {
+		case "bearer":
+			out = append(out,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return ed.borderedEditor(gtx, th, &n.AuthTokenEd, "token or {{token}}")
+				}),
+			)
+		case "basic":
+			out = append(out,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return ed.borderedEditor(gtx, th, &n.AuthUserEd, "username")
+				}),
+				layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return ed.borderedEditor(gtx, th, &n.AuthPassEd, "password")
+				}),
+			)
+		}
+		out = append(out,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.sectionLabel(gtx, th, short("Cookies (name=value per line)", "Cookies"))
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.borderedEditor(gtx, th, &n.CookiesEd, "session=abc123")
+			}),
+		)
+		return out
+	}
+	tailSections := func() []layout.FlexChild {
+		out := []layout.FlexChild{
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ed.warnBlock(gtx, th, n) }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ed.sectionLabel(gtx, th, "Environment") }),
+		}
+		return append(out, ed.envDropdown(gtx, th, n)...)
+	}
+
 	switch n.Kind {
 	case KindRequest:
 		btns := make([]*widget.Clickable, len(methods))
@@ -922,25 +1128,185 @@ func (ed *Editor) layoutNodeProps(gtx layout.Context, th *material.Theme, n *Nod
 					n.Method = m
 				})
 			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ed.sectionLabel(gtx, th, "URL") }),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return ed.borderedEditor(gtx, th, &n.URLEd, "https://example.com/api or {{base_url}}/path")
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return ed.sectionLabel(gtx, th, short("Headers (Key: Value per line)", "Headers"))
-			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return ed.borderedEditor(gtx, th, &n.HeadersEd, "Content-Type: application/json")
-			}),
+		)
+		children = append(children, urlSection("https://example.com/api or {{base_url}}/path")...)
+		children = append(children, headersSection()...)
+		bodyTypes := []string{"raw", "urlencoded", "form", "binary"}
+		btBtns := make([]*widget.Clickable, len(bodyTypes))
+		for i := range bodyTypes {
+			btBtns[i] = &ed.bodyTypeBtn[i]
+		}
+		bt := n.BodyType
+		if bt == "" {
+			bt = "raw"
+		}
+		children = append(children,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ed.sectionLabel(gtx, th, "Body") }),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(90))
-				return ed.borderedEditor(gtx, th, &n.BodyEd, "{ }")
+				return ed.chipRow(gtx, th, btBtns, bodyTypes, bt, func(b string) {
+					ed.pushHistory()
+					n.BodyType = b
+				})
 			}),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ed.warnBlock(gtx, th, n) }),
-			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ed.sectionLabel(gtx, th, "Environment") }),
 		)
-		children = append(children, ed.envDropdown(gtx, th, n)...)
+		switch bt {
+		case "binary":
+			children = append(children,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					return ed.borderedEditor(gtx, th, &n.BinPathEd, "C:\\path\\to\\file.bin")
+				}),
+			)
+		case "urlencoded":
+			children = append(children,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(90))
+					return ed.borderedEditor(gtx, th, &n.BodyEd, "key=value")
+				}),
+			)
+		case "form":
+			children = append(children,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(90))
+					return ed.borderedEditor(gtx, th, &n.BodyEd, "field=value or file=@C:\\path\\file.png")
+				}),
+			)
+		default:
+			children = append(children,
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(90))
+					return ed.borderedEditor(gtx, th, &n.BodyEd, "{ }")
+				}),
+			)
+		}
+		children = append(children, authCookieSections()...)
+		children = append(children, tailSections()...)
+	case KindWSRequest:
+		children = append(children, urlSection("wss://example.com/socket or {{ws_url}}")...)
+		children = append(children, headersSection()...)
+		children = append(children,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.sectionLabel(gtx, th, short("Subprotocols (comma separated)", "Subprotocols"))
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.borderedEditor(gtx, th, &n.SubprotosEd, "graphql-ws, mqtt")
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.sectionLabel(gtx, th, short("Message to send (optional)", "Message"))
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(90))
+				return ed.borderedEditor(gtx, th, &n.BodyEd, `{"hello":"world"} — BIN opcode expects hex`)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ed.sectionLabel(gtx, th, "Opcode") }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				opTypes := []string{"TEXT", "BIN"}
+				opBtns := []*widget.Clickable{&ed.wsOpBtn[0], &ed.wsOpBtn[1]}
+				sel := n.WSOpcode
+				if sel == "" {
+					sel = "TEXT"
+				}
+				return ed.chipRow(gtx, th, opBtns, opTypes, sel, func(o string) {
+					ed.pushHistory()
+					n.WSOpcode = o
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.sectionLabel(gtx, th, short("Collect replies for, ms", "Wait, ms"))
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.borderedEditor(gtx, th, &n.WaitMsEd, "1000")
+			}),
+			layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				lbls := []string{"skip TLS verify"}
+				sel := ""
+				if n.InsecureTLS {
+					sel = lbls[0]
+				}
+				return ed.chipRow(gtx, th, []*widget.Clickable{&ed.wsInsecBtn[0]}, lbls, sel, func(string) {
+					ed.pushHistory()
+					n.InsecureTLS = !n.InsecureTLS
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				lbls := []string{"keep socket open"}
+				sel := ""
+				if n.KeepOpen {
+					sel = lbls[0]
+				}
+				return ed.chipRow(gtx, th, []*widget.Clickable{&ed.wsKeepBtn}, lbls, sel, func(string) {
+					ed.pushHistory()
+					n.KeepOpen = !n.KeepOpen
+				})
+			}),
+		)
+		children = append(children, authCookieSections()...)
+		children = append(children,
+			hint("The node connects, optionally sends one message and collects replies for the wait window. With 'keep socket open' the connection stays alive so later WS Message nodes can send into it; otherwise it disconnects. Replies become the response body for conditions and Set Variable."),
+		)
+		children = append(children, tailSections()...)
+	case KindWSSend:
+		children = append(children,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.sectionLabel(gtx, th, short("Message to send", "Message"))
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(90))
+				return ed.borderedEditor(gtx, th, &n.BodyEd, `{"hello":"world"} — BIN opcode expects hex`)
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ed.sectionLabel(gtx, th, "Opcode") }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				opTypes := []string{"TEXT", "BIN"}
+				opBtns := []*widget.Clickable{&ed.wsOpBtn[0], &ed.wsOpBtn[1]}
+				sel := n.WSOpcode
+				if sel == "" {
+					sel = "TEXT"
+				}
+				return ed.chipRow(gtx, th, opBtns, opTypes, sel, func(o string) {
+					ed.pushHistory()
+					n.WSOpcode = o
+				})
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.sectionLabel(gtx, th, short("Collect replies for, ms", "Wait, ms"))
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.borderedEditor(gtx, th, &n.WaitMsEd, "1000")
+			}),
+			layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				lbls := []string{"close socket after"}
+				sel := ""
+				if n.WSClose {
+					sel = lbls[0]
+				}
+				return ed.chipRow(gtx, th, []*widget.Clickable{&ed.wsCloseBtn}, lbls, sel, func(string) {
+					ed.pushHistory()
+					n.WSClose = !n.WSClose
+				})
+			}),
+			hint("Sends the message into the socket opened by the nearest previous WebSocket node with 'keep socket open'. Replies collected during the wait window become the response body for conditions and Set Variable."),
+		)
+		children = append(children, tailSections()...)
+	case KindGQLRequest:
+		children = append(children, urlSection("https://example.com/graphql")...)
+		children = append(children, headersSection()...)
+		children = append(children,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ed.sectionLabel(gtx, th, "Query") }),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(90))
+				return ed.borderedEditor(gtx, th, &n.BodyEd, "query { me { id } }")
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.sectionLabel(gtx, th, short("Variables (JSON)", "Variables"))
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min.Y = gtx.Dp(unit.Dp(60))
+				return ed.borderedEditor(gtx, th, &n.VarsEd, "{ }")
+			}),
+		)
+		children = append(children, authCookieSections()...)
+		children = append(children, tailSections()...)
 	case KindLoop:
 		children = append(children,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ed.sectionLabel(gtx, th, "Iterations") }),
@@ -1001,6 +1367,41 @@ func (ed *Editor) layoutNodeProps(gtx layout.Context, th *material.Theme, n *Nod
 	}
 
 	if n.Kind != KindStart {
+		for ed.blockSaveBtn.Clicked(gtx) {
+			if ed.saveSelectionAsBlock(ed.blockNameEd.Text()) {
+				ed.blockNameEd.SetText("")
+			}
+		}
+		children = append(children,
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				return ed.sectionLabel(gtx, th, short("Save selection as block", "Save block"))
+			}),
+			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				if ed.panelCompact {
+					return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return ed.borderedEditor(gtx, th, &ed.blockNameEd, "Block name")
+						}),
+						layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							btn := widgets.FilledButton(th, &ed.blockSaveBtn, "Save", theme.BgSecondary, theme.Fg)
+							gtx.Constraints.Min.X = gtx.Constraints.Max.X
+							return btn.Layout(gtx)
+						}),
+					)
+				}
+				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+						return ed.borderedEditor(gtx, th, &ed.blockNameEd, "Block name")
+					}),
+					layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						btn := widgets.FilledButton(th, &ed.blockSaveBtn, "Save", theme.BgSecondary, theme.Fg)
+						return btn.Layout(gtx)
+					}),
+				)
+			}),
+		)
 		for ed.BtnDelete.Clicked(gtx) {
 			ed.pushHistory()
 			if len(ed.selected) > 1 {

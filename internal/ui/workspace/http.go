@@ -490,6 +490,7 @@ func (t *RequestTab) beginRequest() {
 	t.previewLoading.Store(false)
 	t.jsonFmtState = &JSONFormatterState{}
 	t.Status = "Sending..."
+	t.ErrDetailsOpen = false
 	t.RespEditor.SetText("")
 	t.invalidateSearchCache()
 	t.isRequesting = true

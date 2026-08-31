@@ -26,6 +26,10 @@ func siblingIndex(n *collections.CollectionNode) int {
 	return -1
 }
 
+func indentPx(metric unit.Metric, depth int) int {
+	return metric.Dp(unit.Dp(float32(depth * 12)))
+}
+
 func isAncestorOrSelf(ancestor, n *collections.CollectionNode) bool {
 	for cur := n; cur != nil; cur = cur.Parent {
 		if cur == ancestor {
@@ -70,7 +74,12 @@ func dragNodeDrop(host *Host, metric unit.Metric) (drop nodeDropTarget, ok bool)
 	}
 
 	cursorY := rowYAt(srcStart) + int(*host.DragNodeCurrentY)
-	cursorX := int(*host.DragNodeCurrentX)
+	// The row is grabbed wherever its label happens to sit, so the raw pointer X
+	// carries no depth intent — it would always be far right of every indent and
+	// the deepest slot would win, burying the node inside the folder above the
+	// gap. Only the horizontal travel since the drag started expresses intent, so
+	// it is measured against the dragged node's own indent.
+	cursorX := indentPx(metric, src.Depth) + int(*host.DragNodeCurrentX-*host.DragNodeOriginX)
 
 	if src.Parent == nil {
 		return dragRootDrop(host, cursorY, rowYAt)
@@ -170,7 +179,7 @@ func dragChildDrop(host *Host, src *collections.CollectionNode, srcStart, cursor
 	}
 
 	depthPx := func(d int) int {
-		return metric.Dp(unit.Dp(float32(d * 12)))
+		return indentPx(metric, d)
 	}
 
 	type slot struct {

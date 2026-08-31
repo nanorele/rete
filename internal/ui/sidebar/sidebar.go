@@ -758,7 +758,12 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 					if node.Parent != nil {
 						dup := collections.CloneNode(node, node.Parent)
 						recalcDepth(dup, node.Depth)
-						node.Parent.Children = append(node.Parent.Children, dup)
+						at := siblingIndex(node) + 1
+						if at <= 0 || at > len(node.Parent.Children) {
+							at = len(node.Parent.Children)
+						}
+						sibs := node.Parent.Children
+						node.Parent.Children = append(sibs[:at:at], append([]*collections.CollectionNode{dup}, sibs[at:]...)...)
 						dup.IsRenaming = true
 						dup.NameEditor.SetText(dup.Name)
 						dup.NameEditor.SetCaret(0, len([]rune(dup.Name)))
@@ -774,7 +779,15 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						newCol.Root = dupRoot
 						collections.AssignParents(dupRoot, nil, newCol)
 						recalcDepth(dupRoot, 0)
-						*host.Collections = append(*host.Collections, &collections.CollectionUI{Data: newCol})
+						at := len(*host.Collections)
+						for i, c := range *host.Collections {
+							if c != nil && c.Data == node.Collection {
+								at = i + 1
+								break
+							}
+						}
+						cols := *host.Collections
+						*host.Collections = append(cols[:at:at], append([]*collections.CollectionUI{{Data: newCol}}, cols[at:]...)...)
 						dupRoot.IsRenaming = true
 						dupRoot.NameEditor.SetText(dupRoot.Name)
 						dupRoot.NameEditor.SetCaret(0, len([]rune(dupRoot.Name)))

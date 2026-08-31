@@ -76,7 +76,7 @@ func (rig *vstackRig) paneTop() int {
 }
 
 func (rig *vstackRig) paneH() int {
-	return int(rig.tab.VStackRatio*rig.tab.stackedSplitExtent(rig.gtx()) + 0.5)
+	return rig.tab.splitPaneRec
 }
 
 func (rig *vstackRig) splitDividerY() int {

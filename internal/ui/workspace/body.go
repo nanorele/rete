@@ -11,6 +11,7 @@ import (
 	"github.com/nanorele/gio-x/explorer"
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/layout"
+	"github.com/nanorele/gio/op"
 	"github.com/nanorele/gio/op/clip"
 	"github.com/nanorele/gio/op/paint"
 	"github.com/nanorele/gio/text"
@@ -123,19 +124,18 @@ func (t *RequestTab) layoutURLEncodedBody(gtx layout.Context, th *material.Theme
 	}
 
 	fillBodyBackground(gtx)
-	return layout.UniformInset(unit.Dp(4)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+	return layout.UniformInset(unit.Dp(12)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				if len(t.URLEncoded) == 0 {
 					return emptyHint(gtx, th, "No fields. Click + Add field to add one.")
 				}
-				minKey := widgets.KVKeysMinWidth(gtx, th, &t.KeyWidths, len(t.URLEncoded), func(i int) *widget.Editor { return &t.URLEncoded[i].Key })
 				children := make([]layout.FlexChild, 0, len(t.URLEncoded)*2)
 				for i, p := range t.URLEncoded {
 					p := p
 					children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 						return layout.Inset{Top: unit.Dp(1), Bottom: unit.Dp(0), Left: unit.Dp(1), Right: unit.Dp(1)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							return widgets.KVRow(gtx, th, &p.Key, &p.Value, &p.DelBtn, &t.HeaderKeyW, &p.SplitDrag, &p.splitLastX, &t.HeaderKeyBelowMin, minKey, env, nil, nil)
+							return urlEncodedRow(gtx, th, p, env)
 						})
 					}))
 					if i < len(t.URLEncoded)-1 {
@@ -148,6 +148,30 @@ func (t *RequestTab) layoutURLEncodedBody(gtx layout.Context, th *material.Theme
 			layout.Rigid(addRowButton(th, &t.AddUEPartBtn, "+ Add field")),
 		)
 	})
+}
+
+func urlEncodedRow(gtx layout.Context, th *material.Theme, p *URLEncodedPart, env map[string]string) layout.Dimensions {
+	fieldH := gtx.Dp(unit.Dp(26))
+	return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+		layout.Flexed(0.32, func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min.Y = fieldH
+			gtx.Constraints.Max.Y = fieldH
+			return widgets.TextFieldOverlay(gtx, th, &p.Key, "Key", true, env, 0, unit.Sp(11))
+		}),
+		layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min.Y = fieldH
+			gtx.Constraints.Max.Y = fieldH
+			return widgets.TextFieldOverlay(gtx, th, &p.Value, "Value", true, env, 0, unit.Sp(11))
+		}),
+		layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			bw := gtx.Dp(unit.Dp(20))
+			gtx.Constraints.Min = image.Point{X: bw, Y: fieldH}
+			gtx.Constraints.Max = gtx.Constraints.Min
+			return p.DelBtn.Layout(gtx, widgets.DeleteButtonInside)
+		}),
+	)
 }
 
 func (t *RequestTab) layoutFormDataBody(gtx layout.Context, th *material.Theme, win *app.Window, exp *explorer.Explorer, env map[string]string) layout.Dimensions {
@@ -168,8 +192,6 @@ func (t *RequestTab) layoutFormDataBody(gtx layout.Context, th *material.Theme, 
 				p.Kind = model.FormPartFile
 			} else {
 				p.Kind = model.FormPartText
-				p.FilePath = ""
-				p.FileSize = 0
 			}
 			t.dirtyCheckNeeded = true
 		}
@@ -225,26 +247,33 @@ func (t *RequestTab) layoutBinaryBody(gtx layout.Context, th *material.Theme, wi
 			}),
 			layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return material.Clickable(gtx, &t.ChooseBinaryBtn, func(gtx layout.Context) layout.Dimensions {
-					gtx.Constraints.Min.X = gtx.Constraints.Max.X
-					bg := theme.BgField
-					if t.ChooseBinaryBtn.Hovered() {
-						bg = theme.BgHover
-					}
-					size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(36)))
-					paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
-					return layout.Inset{Top: unit.Dp(8), Bottom: unit.Dp(8), Left: unit.Dp(12), Right: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return widgets.Bordered1px(gtx, unit.Dp(4), theme.Border, func(gtx layout.Context) layout.Dimensions {
+					return material.Clickable(gtx, &t.ChooseBinaryBtn, func(gtx layout.Context) layout.Dimensions {
+						mac := op.Record(gtx.Ops)
+						mgtx := gtx
+						mgtx.Constraints.Min = image.Point{}
+						lineH := material.Label(th, unit.Sp(11), "X").Layout(mgtx).Size.Y
+						mac.Stop()
+						size := image.Pt(gtx.Constraints.Max.X, lineH+2*gtx.Dp(unit.Dp(6)))
+						gtx.Constraints.Min = size
+						gtx.Constraints.Max = size
+						bg := theme.BgField
+						if t.ChooseBinaryBtn.Hovered() {
+							bg = theme.BgHover
+						}
+						paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
 						label := "Choose a file..."
 						if t.BinaryFilePath != "" {
 							label = filepath.Base(t.BinaryFilePath) + "  ·  " + formatSize(t.BinaryFileSize)
 						}
-						lbl := widgets.MonoLabel(th, unit.Sp(12), label)
+						lbl := widgets.MonoLabel(th, unit.Sp(11), label)
 						if t.BinaryFilePath == "" {
 							lbl.Color = theme.FgMuted
 						}
 						lbl.MaxLines = 1
 						lbl.Truncator = "…"
-						return lbl.Layout(gtx)
+						layout.Inset{Top: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, lbl.Layout)
+						return layout.Dimensions{Size: size}
 					})
 				})
 			}),
@@ -283,9 +312,9 @@ func formPartRow(gtx layout.Context, th *material.Theme, p *FormDataPart, env ma
 		}),
 		layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			gtx.Constraints.Min.Y = fieldH
+			gtx.Constraints.Max.Y = fieldH
 			if p.Kind == model.FormPartText {
-				gtx.Constraints.Min.Y = fieldH
-				gtx.Constraints.Max.Y = fieldH
 				return widgets.TextFieldOverlay(gtx, th, &p.Value, "Value", true, env, 0, unit.Sp(11))
 			}
 			return formFilePicker(gtx, th, p)
@@ -303,26 +332,27 @@ func formPartRow(gtx layout.Context, th *material.Theme, p *FormDataPart, env ma
 
 func formFilePicker(gtx layout.Context, th *material.Theme, p *FormDataPart) layout.Dimensions {
 	return material.Clickable(gtx, &p.ChooseBtn, func(gtx layout.Context) layout.Dimensions {
-		gtx.Constraints.Min.X = gtx.Constraints.Max.X
+		size := image.Pt(gtx.Constraints.Max.X, gtx.Constraints.Max.Y)
+		gtx.Constraints.Min = size
+		gtx.Constraints.Max = size
 		bg := theme.BgField
 		if p.ChooseBtn.Hovered() {
 			bg = theme.BgHover
 		}
-		size := image.Pt(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(27)))
 		paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
-		return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			label := "Choose a file..."
-			if p.FilePath != "" {
-				label = filepath.Base(p.FilePath) + "  ·  " + formatSize(p.FileSize)
-			}
-			lbl := widgets.MonoLabel(th, unit.Sp(11), label)
-			if p.FilePath == "" {
-				lbl.Color = theme.FgMuted
-			}
-			lbl.MaxLines = 1
-			lbl.Truncator = "…"
-			return lbl.Layout(gtx)
-		})
+		widgets.PaintBorder1px(gtx, size, theme.Border)
+		label := "Choose a file..."
+		if p.FilePath != "" {
+			label = filepath.Base(p.FilePath) + "  ·  " + formatSize(p.FileSize)
+		}
+		lbl := widgets.MonoLabel(th, unit.Sp(11), label)
+		if p.FilePath == "" {
+			lbl.Color = theme.FgMuted
+		}
+		lbl.MaxLines = 1
+		lbl.Truncator = "…"
+		layout.Inset{Top: unit.Dp(6), Left: unit.Dp(4), Right: unit.Dp(4)}.Layout(gtx, lbl.Layout)
+		return layout.Dimensions{Size: size}
 	})
 }
 

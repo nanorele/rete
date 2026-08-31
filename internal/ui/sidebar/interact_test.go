@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"image"
+	"strings"
 	"testing"
 	"time"
 
@@ -446,6 +447,57 @@ func TestSidebarRig_NodeMenuDuplicateChildAndRoot(t *testing.T) {
 	}
 }
 
+func TestSidebarRig_DuplicateLandsBelowSource(t *testing.T) {
+	rig := newSideRig(t, image.Pt(260, 900))
+	root := rig.addCollection("Col")
+	folder := mkNode("folder", true)
+	folder.Parent = root
+	folder.Collection = root.Collection
+	root.Children = append(root.Children, folder)
+	rig.addRequest(root, "tail", "GET")
+	recalcDepth(root, 0)
+	rig.rebuildVisible()
+	rig.frames(2)
+
+	rig.click(&folder.MenuBtn)
+	rig.click(&folder.DupBtn)
+
+	if len(root.Children) != 3 {
+		t.Fatalf("children = %d, want 3", len(root.Children))
+	}
+	if root.Children[0] != folder {
+		t.Fatal("the source node must keep its place")
+	}
+	if root.Children[1] == folder || !strings.HasPrefix(root.Children[1].Name, "folder") {
+		t.Fatalf("the copy must sit right below its source; order = %q, %q, %q",
+			root.Children[0].Name, root.Children[1].Name, root.Children[2].Name)
+	}
+	if root.Children[2].Name != "tail" {
+		t.Fatalf("the trailing sibling moved: %q", root.Children[2].Name)
+	}
+}
+
+func TestSidebarRig_DuplicateCollectionLandsBelowSource(t *testing.T) {
+	rig := newSideRig(t, image.Pt(260, 900))
+	first := rig.addCollection("First")
+	rig.addCollection("Last")
+	rig.frames(2)
+
+	rig.click(&first.MenuBtn)
+	rig.click(&first.DupBtn)
+
+	if len(*rig.host.Collections) != 3 {
+		t.Fatalf("collections = %d, want 3", len(*rig.host.Collections))
+	}
+	names := make([]string, 0, 3)
+	for _, c := range *rig.host.Collections {
+		names = append(names, c.Data.Name)
+	}
+	if names[1] != "First Copy" || names[2] != "Last" {
+		t.Fatalf("collection order = %v, want [First, First Copy, Last]", names)
+	}
+}
+
 func TestSidebarRig_NodeMenuDeleteChild(t *testing.T) {
 	rig := newSideRig(t, image.Pt(260, 900))
 	root := rig.addCollection("Col")
@@ -735,8 +787,8 @@ func TestSidebarRig_EnvMenuActions(t *testing.T) {
 	if len(*rig.host.Environments) != 3 {
 		t.Fatalf("duplicate: environments = %d, want 3", len(*rig.host.Environments))
 	}
-	if got := (*rig.host.Environments)[2].Data.Name; got != "Dev (copy)" {
-		t.Errorf("duplicate name = %q", got)
+	if got := (*rig.host.Environments)[1].Data.Name; got != "Dev (copy)" {
+		t.Errorf("the copy should sit right below its source; got %q at index 1", got)
 	}
 }
 

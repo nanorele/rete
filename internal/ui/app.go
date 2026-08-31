@@ -136,6 +136,7 @@ type AppUI struct {
 	TabCtxClose       widget.Clickable
 	TabCtxCloseOthers widget.Clickable
 	TabCtxCloseAll    widget.Clickable
+	TabCtxToFlow      widget.Clickable
 
 	ColsExpanded    bool
 	ColsHeaderClick widget.Clickable
@@ -1292,7 +1293,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 			if ui.EditingEnv != nil && !ui.SettingsOpen && !ui.EnvColorPicker.IsOpen() && !ui.envMenuAtPress {
 				sidebarRight := 0
 				if !ui.hideSidebar() {
-					sidebarRight = ui.SidebarWidth + gtx.Dp(unit.Dp(4))
+					sidebarRight = ui.SidebarWidth + 1
 				}
 				titleBarH := gtx.Dp(unit.Dp(30))
 				if int(pe.Position.X) < sidebarRight && int(pe.Position.Y) >= titleBarH {
@@ -1680,6 +1681,12 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 		ui.closeTab(idx)
 	}
 
+	for ui.TabCtxToFlow.Clicked(gtx) {
+		if idx := ui.TabBar.TabCtxMenuIdx; idx >= 0 && idx < len(ui.Tabs) {
+			ui.copyTabToScenario(ui.Tabs[idx])
+		}
+		ui.TabBar.TabCtxMenuOpen = false
+	}
 	for ui.TabCtxClose.Clicked(gtx) {
 		ui.closeTab(ui.TabBar.TabCtxMenuIdx)
 		ui.TabBar.TabCtxMenuOpen = false
@@ -1769,7 +1776,6 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 	}
 
 	hideSidebar := ui.hideSidebar()
-	hideTabBar := ui.Settings.HideTabBar
 
 	dim := layout.Stack{}.Layout(gtx,
 		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
@@ -1814,8 +1820,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 					}
 
 					hit := gtx.Dp(unit.Dp(4))
-					size := image.Point{X: hit, Y: h}
-					defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+					defer clip.Rect{Min: image.Pt(vis-hit, 0), Max: image.Pt(vis+1, h)}.Push(gtx.Ops).Pop()
 					pointer.CursorColResize.Add(gtx.Ops)
 					ui.SidebarDrag.Add(gtx.Ops)
 
@@ -1826,158 +1831,21 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 							break
 						}
 					}
-					return layout.Dimensions{Size: size}
+					return layout.Dimensions{Size: image.Point{X: vis, Y: h}}
 				}),
 			)
 			horizChildren = append(horizChildren,
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					if ui.EditingEnv != nil {
-						return ui.layoutEnvEditor(gtx)
+					edge := 1
+					if gtx.Constraints.Max.X > edge {
+						gtx.Constraints.Max.X -= edge
+						if gtx.Constraints.Min.X > gtx.Constraints.Max.X {
+							gtx.Constraints.Min.X = gtx.Constraints.Max.X
+						}
 					}
-
-					if ui.SidebarSection == "flows" {
-						return ui.layoutFlowSection(gtx)
-					}
-
-					if ui.SidebarSection == "netlimit" {
-						return ui.layoutNetlimitSection(gtx)
-					}
-
-					if ui.SidebarSection == "mitm" {
-						return ui.layoutMITMSection(gtx)
-					}
-
-					if ui.SidebarSection == "har" {
-						return ui.layoutHARSection(gtx)
-					}
-
-					tabBarChildren := []layout.FlexChild{}
-					if !hideTabBar {
-						tabBarChildren = append(tabBarChildren, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return ui.layoutTabBar(gtx)
-						}))
-					}
-					return layout.Flex{Axis: layout.Vertical}.Layout(gtx, append(tabBarChildren,
-						layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-							if len(ui.Tabs) > 0 && ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
-								rt := ui.Tabs[ui.ActiveIdx]
-								ui.wireWSHost(rt)
-
-								for rt.SendBtn.Clicked(gtx) {
-									rt.SendMenuOpen = false
-									if rt.RunOpen {
-										rt.RunnerAction(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
-										continue
-									}
-									if rt.Method == workspace.MethodWS {
-										ui.triggerWSAction(rt)
-									} else {
-										rt.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
-									}
-									ui.saveState()
-								}
-								if rt.URLSubmitted {
-									rt.URLSubmitted = false
-									rt.SendMenuOpen = false
-									if rt.RunOpen {
-										rt.RunnerAction(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
-									} else {
-										if rt.Method == workspace.MethodWS {
-											ui.triggerWSAction(rt)
-										} else {
-											rt.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
-										}
-										ui.saveState()
-									}
-								}
-								for rt.CancelBtn.Clicked(gtx) {
-									rt.CancelRequest()
-								}
-								for rt.SaveToFileBtn.Clicked(gtx) {
-									rt.SendMenuOpen = false
-									suggested := rt.SuggestedFile
-									if suggested == "" {
-										suggested = utils.FilenameFromURL(rt.URLInput.Text())
-									}
-									if suggested == "" {
-										suggested = "response.json"
-									}
-									go func() {
-										w, err := ui.Explorer.CreateFile(suggested)
-										if err != nil || w == nil {
-											return
-										}
-										rt.FileSaveMu.Lock()
-										if rt.Closed.Load() {
-											rt.FileSaveMu.Unlock()
-											_ = w.Close()
-											return
-										}
-										select {
-										case rt.FileSaveChan <- w:
-											rt.FileSaveMu.Unlock()
-											ui.Window.Invalidate()
-										default:
-											rt.FileSaveMu.Unlock()
-											_ = w.Close()
-										}
-									}()
-								}
-								select {
-								case w := <-rt.FileSaveChan:
-									if f, ok := w.(*os.File); ok {
-										rt.SaveToFilePath = f.Name()
-									}
-									rt.ExecuteRequestToFile(ui.rootCtx, ui.Window, ui.activeEnvSnapshot(), w)
-								default:
-								}
-
-								isDragging := ui.SidebarDrag.Dragging() || ui.SidebarEnvDrag.Dragging()
-								dims := rt.Layout(gtx, ui.Theme, ui.Window, ui.Explorer, ui.activeEnvVars, isDragging, func() {
-									ui.syncLayoutPrefs()
-									ui.saveState()
-								}, ui.markCollectionDirty)
-								ui.syncLayoutPrefs()
-								if rt.TakeLayoutSaveRequest() {
-									ui.saveState()
-								}
-								return dims
-							}
-
-							return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										gtx.Constraints.Min = image.Point{X: gtx.Dp(unit.Dp(64)), Y: gtx.Dp(unit.Dp(64))}
-										return widgets.IconSearch.Layout(gtx, theme.FgMuted)
-									}),
-									layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										lbl := material.Label(ui.Theme, unit.Sp(16), "No request selected")
-										lbl.Color = theme.FgMuted
-										return lbl.Layout(gtx)
-									}),
-									layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										lbl := material.Label(ui.Theme, unit.Sp(14), "Select one from the sidebar or click '+' to create a new one")
-										lbl.Color = theme.FgDim
-										return lbl.Layout(gtx)
-									}),
-									layout.Rigid(layout.Spacer{Height: unit.Dp(24)}.Layout),
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										if ui.TabBar.AddTabBtn.Clicked(gtx) {
-											ui.TabBar.TabCtxMenuOpen = false
-											ui.Tabs = append(ui.Tabs, workspace.NewRequestTab("New request"))
-											ui.ActiveIdx = len(ui.Tabs) - 1
-										}
-										btn := widgets.PrimaryButton(ui.Theme, &ui.TabBar.AddTabBtn, "Create Request")
-										btn.TextSize = unit.Sp(14)
-										btn.Inset = layout.Inset{Top: unit.Dp(10), Bottom: unit.Dp(10), Left: unit.Dp(16), Right: unit.Dp(16)}
-										return btn.Layout(gtx)
-									}),
-								)
-							})
-						}),
-					)...)
+					d := ui.layoutMainContent(gtx)
+					d.Size.X += edge
+					return d
 				}),
 			)
 			return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, horizChildren...)
@@ -1992,6 +1860,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 				int(ui.TabBar.TabCtxMenuPos.Y)+gtx.Dp(unit.Dp(4)),
 			)
 			widgets.DeferMenu(gtx, ui.Theme, &ui.TabBar.TabCtxMenuOpen, anchor, widgets.MenuMinWidthDp, []widgets.MenuItem{
+				{Label: "Copy to scenario", Click: &ui.TabCtxToFlow, Icon: widgets.IconFlow},
 				{Label: "Close", Click: &ui.TabCtxClose, Icon: widgets.IconClose},
 				{Label: "Close others", Click: &ui.TabCtxCloseOthers},
 				{Label: "Close all", Click: &ui.TabCtxCloseAll, Icon: widgets.IconClear},
@@ -2011,6 +1880,156 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 	}
 
 	return dim
+}
+
+func (ui *AppUI) layoutMainContent(gtx layout.Context) layout.Dimensions {
+	if ui.EditingEnv != nil {
+		return ui.layoutEnvEditor(gtx)
+	}
+
+	if ui.SidebarSection == "flows" {
+		return ui.layoutFlowSection(gtx)
+	}
+
+	if ui.SidebarSection == "netlimit" {
+		return ui.layoutNetlimitSection(gtx)
+	}
+
+	if ui.SidebarSection == "mitm" {
+		return ui.layoutMITMSection(gtx)
+	}
+
+	if ui.SidebarSection == "har" {
+		return ui.layoutHARSection(gtx)
+	}
+
+	tabBarChildren := []layout.FlexChild{}
+	if !ui.Settings.HideTabBar {
+		tabBarChildren = append(tabBarChildren, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return ui.layoutTabBar(gtx)
+		}))
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, append(tabBarChildren,
+		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+			if len(ui.Tabs) > 0 && ui.ActiveIdx >= 0 && ui.ActiveIdx < len(ui.Tabs) {
+				rt := ui.Tabs[ui.ActiveIdx]
+				ui.wireWSHost(rt)
+
+				for rt.SendBtn.Clicked(gtx) {
+					rt.SendMenuOpen = false
+					if rt.RunOpen {
+						rt.RunnerAction(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
+						continue
+					}
+					if rt.Method == workspace.MethodWS {
+						ui.triggerWSAction(rt)
+					} else {
+						rt.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
+					}
+					ui.saveState()
+				}
+				if rt.URLSubmitted {
+					rt.URLSubmitted = false
+					rt.SendMenuOpen = false
+					if rt.RunOpen {
+						rt.RunnerAction(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
+					} else {
+						if rt.Method == workspace.MethodWS {
+							ui.triggerWSAction(rt)
+						} else {
+							rt.ExecuteRequest(ui.rootCtx, ui.Window, ui.activeEnvSnapshot())
+						}
+						ui.saveState()
+					}
+				}
+				for rt.CancelBtn.Clicked(gtx) {
+					rt.CancelRequest()
+				}
+				for rt.SaveToFileBtn.Clicked(gtx) {
+					rt.SendMenuOpen = false
+					suggested := rt.SuggestedFile
+					if suggested == "" {
+						suggested = utils.FilenameFromURL(rt.URLInput.Text())
+					}
+					if suggested == "" {
+						suggested = "response.json"
+					}
+					go func() {
+						w, err := ui.Explorer.CreateFile(suggested)
+						if err != nil || w == nil {
+							return
+						}
+						rt.FileSaveMu.Lock()
+						if rt.Closed.Load() {
+							rt.FileSaveMu.Unlock()
+							_ = w.Close()
+							return
+						}
+						select {
+						case rt.FileSaveChan <- w:
+							rt.FileSaveMu.Unlock()
+							ui.Window.Invalidate()
+						default:
+							rt.FileSaveMu.Unlock()
+							_ = w.Close()
+						}
+					}()
+				}
+				select {
+				case w := <-rt.FileSaveChan:
+					if f, ok := w.(*os.File); ok {
+						rt.SaveToFilePath = f.Name()
+					}
+					rt.ExecuteRequestToFile(ui.rootCtx, ui.Window, ui.activeEnvSnapshot(), w)
+				default:
+				}
+
+				isDragging := ui.SidebarDrag.Dragging() || ui.SidebarEnvDrag.Dragging()
+				dims := rt.Layout(gtx, ui.Theme, ui.Window, ui.Explorer, ui.activeEnvVars, isDragging, func() {
+					ui.syncLayoutPrefs()
+					ui.saveState()
+				}, ui.markCollectionDirty)
+				ui.syncLayoutPrefs()
+				if rt.TakeLayoutSaveRequest() {
+					ui.saveState()
+				}
+				return dims
+			}
+
+			return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				return layout.Flex{Axis: layout.Vertical, Alignment: layout.Middle}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						gtx.Constraints.Min = image.Point{X: gtx.Dp(unit.Dp(64)), Y: gtx.Dp(unit.Dp(64))}
+						return widgets.IconSearch.Layout(gtx, theme.FgMuted)
+					}),
+					layout.Rigid(layout.Spacer{Height: unit.Dp(16)}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						lbl := material.Label(ui.Theme, unit.Sp(16), "No request selected")
+						lbl.Color = theme.FgMuted
+						return lbl.Layout(gtx)
+					}),
+					layout.Rigid(layout.Spacer{Height: unit.Dp(8)}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						lbl := material.Label(ui.Theme, unit.Sp(14), "Select one from the sidebar or click '+' to create a new one")
+						lbl.Color = theme.FgDim
+						return lbl.Layout(gtx)
+					}),
+					layout.Rigid(layout.Spacer{Height: unit.Dp(24)}.Layout),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						if ui.TabBar.AddTabBtn.Clicked(gtx) {
+							ui.TabBar.TabCtxMenuOpen = false
+							ui.Tabs = append(ui.Tabs, workspace.NewRequestTab("New request"))
+							ui.ActiveIdx = len(ui.Tabs) - 1
+						}
+						btn := widgets.PrimaryButton(ui.Theme, &ui.TabBar.AddTabBtn, "Create Request")
+						btn.TextSize = unit.Sp(14)
+						btn.Inset = layout.Inset{Top: unit.Dp(10), Bottom: unit.Dp(10), Left: unit.Dp(16), Right: unit.Dp(16)}
+						return btn.Layout(gtx)
+					}),
+				)
+			})
+		}),
+	)...)
 }
 
 func (ui *AppUI) layoutSidebarToggleBtn(gtx layout.Context) layout.Dimensions {
@@ -2150,6 +2169,89 @@ func (ui *AppUI) layoutFlowSection(gtx layout.Context) layout.Dimensions {
 		ui.Flow = flow.NewEditor()
 	}
 	return ui.Flow.Layout(gtx, ui.Theme, ui.flowHost())
+}
+
+func (ui *AppUI) copyTabToScenario(tab *workspace.RequestTab) {
+	if ui.Flow == nil {
+		ui.Flow = flow.NewEditor()
+	}
+	req := flow.TabRequest{
+		Name:   tab.GetCleanTitle(),
+		Method: tab.Method,
+		URL:    tab.URLInput.Text(),
+	}
+	for _, h := range tab.Headers {
+		if h.IsGenerated {
+			continue
+		}
+		k := h.Key.Text()
+		if k == "" {
+			continue
+		}
+		req.Headers = append(req.Headers, [2]string{k, h.Value.Text()})
+	}
+	if am := tab.AuthModel(); am.Type != "" {
+		req.AuthType = am.Type
+		req.AuthToken = am.Token
+		req.AuthUser = am.Username
+		req.AuthPass = am.Password
+	}
+	for _, c := range tab.CookieModels() {
+		req.Cookies = append(req.Cookies, [2]string{c.Key, c.Value})
+	}
+	switch tab.Method {
+	case workspace.MethodWS:
+		req.Kind = flow.KindWSRequest
+		s := tab.EnsureWS()
+		req.Subprotos = s.SubprotocolList()
+		req.WSInsecure = s.InsecureSkipVerify
+		req.WSMessage = s.ComposerEditor.Text()
+		req.WSOpcode = "TEXT"
+		if !s.OpcodeText {
+			req.WSOpcode = "BIN"
+		}
+	case workspace.MethodGraphQL:
+		req.Kind = flow.KindGQLRequest
+		g := tab.EnsureGQL()
+		req.GQLQuery = g.Query.Text()
+		req.GQLVars = g.Variables.Text()
+	default:
+		req.Kind = flow.KindRequest
+		req.Body = tab.ReqEditor.Text()
+		switch tab.BodyType {
+		case model.BodyURLEncoded:
+			req.BodyType = "urlencoded"
+			for _, p := range tab.URLEncoded {
+				k := p.Key.Text()
+				if k == "" || p.Disabled {
+					continue
+				}
+				req.URLEncoded = append(req.URLEncoded, [2]string{k, p.Value.Text()})
+			}
+		case model.BodyFormData:
+			req.BodyType = "form"
+			for _, p := range tab.FormParts {
+				k := p.Key.Text()
+				if k == "" || p.Disabled {
+					continue
+				}
+				req.FormParts = append(req.FormParts, flow.TabFormPart{
+					Key:      k,
+					Value:    p.Value.Text(),
+					IsFile:   p.Kind == model.FormPartFile,
+					FilePath: p.FilePath,
+				})
+			}
+		case model.BodyBinary:
+			req.BodyType = "binary"
+			req.BinaryPath = tab.BinaryFilePath
+		default:
+			req.BodyType = "raw"
+		}
+	}
+	ui.Flow.AddRequestNode(req)
+	ui.SidebarSection = "flows"
+	ui.Window.Invalidate()
 }
 
 func (ui *AppUI) dropNodeOnFlowCanvas(node *collections.CollectionNode) bool {

@@ -891,7 +891,9 @@ func (s *ScrollLabel) Layout(gtx layout.Context, th *material.Theme, lbl materia
 	call := macro.Stop()
 
 	cl := clip.Rect{Max: image.Pt(viewW, dim.Size.Y)}.Push(gtx.Ops)
+	pass := pointer.PassOp{}.Push(gtx.Ops)
 	s.scroller.Add(gtx.Ops)
+	pass.Pop()
 	off := op.Offset(image.Pt(-s.scrollX, 0)).Push(gtx.Ops)
 	call.Add(gtx.Ops)
 	off.Pop()
@@ -1074,6 +1076,10 @@ func SquareBtnSized(gtx layout.Context, clk *widget.Clickable, ic *widget.Icon, 
 			return ic.Layout(gtx, th.Fg)
 		})
 	})
+}
+
+func init() {
+	widget.WordSeparator = IsSeparator
 }
 
 func IsSeparator(r rune) bool {

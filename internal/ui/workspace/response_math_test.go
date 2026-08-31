@@ -259,6 +259,27 @@ func TestWordRight(t *testing.T) {
 	}
 }
 
+func TestWordRightStaysOnLine(t *testing.T) {
+	v := NewResponseViewer()
+	body := "{\n    \"phoneNumber\": 123456789,\n\t\"force\": true\n}"
+	v.SetText(body)
+
+	valueStart := strings.Index(body, "123456789")
+	lineEnd := strings.Index(body[valueStart:], "\n") + valueStart
+
+	if got := v.wordRight(valueStart); got != lineEnd {
+		t.Fatalf("wordRight from the start of the value = %d (%q), want %d (end of its line)",
+			got, body[got:min(got+6, len(body))], lineEnd)
+	}
+
+	next := v.wordRight(lineEnd)
+	wantNext := strings.Index(body, "force")
+	if next != wantNext {
+		t.Fatalf("wordRight from the line end = %d (%q), want %d (first word of the next line)",
+			next, body[next:min(next+6, len(body))], wantNext)
+	}
+}
+
 func TestColumnAt(t *testing.T) {
 	v := NewResponseViewer()
 	v.SetText("abc\nпривет")
