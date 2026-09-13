@@ -225,8 +225,10 @@ func TestNodeSizeWorld(t *testing.T) {
 		wantW float32
 		wantH float32
 	}{
-		{"plain node ignores W/H", &Node{Kind: KindDelay, W: 500, H: 500}, defW, defH},
-		{"request node grows a body box", &Node{Kind: KindRequest, W: 500, H: 500}, defW, defH + bodyBoxH(defH)},
+		{"plain node default size", &Node{Kind: KindDelay}, defW, defH},
+		{"plain node explicit size", &Node{Kind: KindDelay, W: 500, H: 500}, 500, 500},
+		{"request node grows a body box", &Node{Kind: KindRequest}, defW, defH + bodyBoxH(defH)},
+		{"request node explicit size", &Node{Kind: KindRequest, W: 500, H: 500}, 500, 500},
 		{"ws message node grows a body box", &Node{Kind: KindWSSend}, defW, defH + bodyBoxH(defH)},
 		{"loop default size", &Node{Kind: KindLoop}, defW * 2.4, defH * 4},
 		{"loop explicit size", &Node{Kind: KindLoop, W: 300, H: 400}, 300, 400},

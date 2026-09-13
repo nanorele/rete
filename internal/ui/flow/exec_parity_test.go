@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -16,10 +17,12 @@ import (
 )
 
 type parityHit struct {
-	method string
-	header http.Header
-	body   string
-	close  bool
+	method  string
+	header  http.Header
+	body    string
+	close   bool
+	length  int64
+	chunked bool
 }
 
 func parityServer(t *testing.T, respond func(w http.ResponseWriter)) (*httptest.Server, *atomic.Value) {
@@ -27,7 +30,7 @@ func parityServer(t *testing.T, respond func(w http.ResponseWriter)) (*httptest.
 	var last atomic.Value
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		data, _ := io.ReadAll(r.Body)
-		last.Store(parityHit{method: r.Method, header: r.Header.Clone(), body: string(data), close: r.Close})
+		last.Store(parityHit{method: r.Method, header: r.Header.Clone(), body: string(data), close: r.Close, length: r.ContentLength, chunked: len(r.TransferEncoding) > 0})
 		if respond != nil {
 			respond(w)
 			return
@@ -235,4 +238,77 @@ func TestRunGQLSystemHeaders(t *testing.T) {
 	if h.method != "POST" || h.header.Get("Content-Type") != "application/json" || h.header.Get("User-Agent") != "rete-test/1.0" {
 		t.Errorf("method=%q ct=%q ua=%q", h.method, h.header.Get("Content-Type"), h.header.Get("User-Agent"))
 	}
+}
+
+func TestRunHTTPContentTypeAndLengthWithoutHeaders(t *testing.T) {
+	srv, last := parityServer(t, nil)
+	withSettings(t, func() {
+		settings.AutoFormatJSONRequest = false
+		settings.TrimTrailingWS = false
+		settings.StripJSONComments = false
+	})
+	cases := []struct {
+		name     string
+		node     *execNode
+		wantCT   string
+		wantBody string
+	}{
+		{"raw json", &execNode{method: "POST", url: srv.URL, body: `{"a":1}`}, "application/json", `{"a":1}`},
+		{"raw text", &execNode{method: "POST", url: srv.URL, body: "hello world"}, "text/plain", "hello world"},
+		{"urlencoded", &execNode{method: "POST", url: srv.URL, bodyType: "urlencoded", body: "a=1\nb=two"}, "application/x-www-form-urlencoded", "a=1&b=two"},
+		{"ws-style put", &execNode{method: "PUT", url: srv.URL, body: "[1,2,3]"}, "application/json", "[1,2,3]"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			res := runHTTP(context.Background(), tc.node, nil)
+			if res.failed {
+				t.Fatalf("failed: %+v", res)
+			}
+			h := last.Load().(parityHit)
+			if got := h.header.Get("Content-Type"); got != tc.wantCT {
+				t.Errorf("Content-Type = %q, want %q", got, tc.wantCT)
+			}
+			if h.body != tc.wantBody {
+				t.Fatalf("body = %q, want %q", h.body, tc.wantBody)
+			}
+			if h.chunked {
+				t.Error("the body must be sent with a Content-Length, not chunked")
+			}
+			if h.length != int64(len(tc.wantBody)) {
+				t.Errorf("Content-Length = %d, want %d", h.length, len(tc.wantBody))
+			}
+			if got := h.header.Get("Content-Length"); got != strconv.Itoa(len(tc.wantBody)) {
+				t.Errorf("Content-Length header = %q, want %d", got, len(tc.wantBody))
+			}
+		})
+	}
+
+	t.Run("form data", func(t *testing.T) {
+		n := &execNode{method: "POST", url: srv.URL, bodyType: "form", body: "field=value"}
+		if res := runHTTP(context.Background(), n, nil); res.failed {
+			t.Fatalf("failed: %+v", res)
+		}
+		h := last.Load().(parityHit)
+		if !strings.HasPrefix(h.header.Get("Content-Type"), "multipart/form-data; boundary=") {
+			t.Errorf("Content-Type = %q", h.header.Get("Content-Type"))
+		}
+		if h.chunked || h.length != int64(len(h.body)) || h.length == 0 {
+			t.Errorf("multipart body must carry its Content-Length, got %d (chunked=%v) for %d bytes", h.length, h.chunked, len(h.body))
+		}
+	})
+
+	t.Run("graphql", func(t *testing.T) {
+		n := &execNode{kind: KindGQLRequest, url: srv.URL, body: "query { me { id } }"}
+		res := runGQL(context.Background(), n, nil)
+		if res.failed {
+			t.Fatalf("failed: %+v", res)
+		}
+		h := last.Load().(parityHit)
+		if h.header.Get("Content-Type") != "application/json" {
+			t.Errorf("Content-Type = %q", h.header.Get("Content-Type"))
+		}
+		if h.chunked || h.length != int64(len(h.body)) || h.length == 0 {
+			t.Errorf("GraphQL body must carry its Content-Length, got %d (chunked=%v) for %d bytes", h.length, h.chunked, len(h.body))
+		}
+	})
 }

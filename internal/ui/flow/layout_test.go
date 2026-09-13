@@ -179,7 +179,6 @@ func TestLayoutAllPanelModes(t *testing.T) {
 		name string
 		mode panelMode
 	}{
-		{"widgets", modeWidgets},
 		{"properties", modeProps},
 		{"history", modeHistory},
 	}
@@ -266,7 +265,7 @@ func TestLayoutCompactPanel(t *testing.T) {
 	setupFlowConfig(t)
 	ed := newTestEditor()
 	ed.panelW = 1
-	ed.mode = modeWidgets
+	ed.mode = modeProps
 	layoutOnce(t, ed, &Host{WinSize: image.Pt(1200, 800)}, image.Pt(1200, 800))
 	if !ed.panelCompact {
 		t.Error("a narrow panel must switch to compact mode")
@@ -337,7 +336,7 @@ func TestNewEditorLoadsLatest(t *testing.T) {
 	if ed.Runner == nil {
 		t.Fatal("NewEditor must create a runner")
 	}
-	if ed.zoom != 1 || !ed.pendingFit || ed.mode != modeWidgets {
+	if ed.zoom != 1 || !ed.pendingFit || ed.mode != modeProps {
 		t.Errorf("unexpected initial state: zoom=%v pendingFit=%v mode=%v", ed.zoom, ed.pendingFit, ed.mode)
 	}
 	if ed.selected == nil {

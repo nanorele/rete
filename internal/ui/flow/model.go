@@ -103,16 +103,26 @@ type Node struct {
 	W, H  float32
 	EnvID string
 
-	NameEd     widget.Editor
-	Method     string
-	URLEd      widget.Editor
-	HeadersEd  widget.Editor
-	BodyEd     widget.Editor
-	CountEd    widget.Editor
-	DelayEd    widget.Editor
-	VarNameEd  widget.Editor
-	VarValueEd widget.Editor
-	LoopSrcEd  widget.Editor
+	NameEd       widget.Editor
+	Method       string
+	URLEd        widget.Editor
+	HeadersEd    widget.Editor
+	BodyEd       widget.Editor
+	canvasEd     widget.Editor
+	canvasSrc    *widget.Editor
+	canvasSrcRev uint64
+	canvasEdRev  uint64
+
+	bodyTopFrac       float32
+	bodyAnchorSy      int
+	bodyContentH      int
+	bodyScrollPending bool
+	hitTag            bool
+	CountEd           widget.Editor
+	DelayEd           widget.Editor
+	VarNameEd         widget.Editor
+	VarValueEd        widget.Editor
+	LoopSrcEd         widget.Editor
 
 	BodyType    string
 	AuthType    string
@@ -256,7 +266,7 @@ func (n *Node) HasPorts() bool {
 	return n.Kind != KindNote
 }
 
-const bodyBoxRatio = 1.15
+const bodyBoxRatio = 0.42
 
 func bodyBoxH(defH float32) float32 {
 	return defH * bodyBoxRatio
@@ -266,7 +276,48 @@ func (n *Node) HasBodyBox() bool {
 	return n.Kind.IsRequest()
 }
 
+func (n *Node) CanvasBodyEditor() *widget.Editor {
+	e, _ := n.canvasBodyEditor()
+	return e
+}
+
 func (n *Node) canvasBodyEditor() (*widget.Editor, string) {
+	src, hint := n.bodySource()
+	n.syncCanvasEditor(src)
+	return &n.canvasEd, hint
+}
+
+func (n *Node) syncCanvasEditor(src *widget.Editor) {
+	if n.canvasSrc != src {
+		n.canvasSrc = src
+		n.canvasEd.SetText(src.Text())
+	} else if n.canvasEd.Revision() != n.canvasEdRev {
+		if !src.TextEqual(n.canvasEd.Text()) {
+			src.SetText(n.canvasEd.Text())
+		}
+	} else if src.Revision() != n.canvasSrcRev {
+		if !n.canvasEd.TextEqual(src.Text()) {
+			n.canvasEd.SetText(src.Text())
+		}
+	}
+	n.canvasSrcRev = src.Revision()
+	n.canvasEdRev = n.canvasEd.Revision()
+}
+
+func (n *Node) trackBodyScroll(e *widget.Editor, viewH int) {
+	contentH := e.GetScrollBounds().Max.Y + viewH
+	sy := e.GetScrollY()
+	if contentH <= 0 {
+		return
+	}
+	if sy != n.bodyAnchorSy || contentH != n.bodyContentH {
+		n.bodyTopFrac = float32(sy) / float32(contentH)
+		n.bodyAnchorSy = sy
+		n.bodyContentH = contentH
+	}
+}
+
+func (n *Node) bodySource() (*widget.Editor, string) {
 	switch n.Kind {
 	case KindRequest:
 		switch n.BodyType {
@@ -295,10 +346,27 @@ func nodeSizeWorld(n *Node, defW, defH float32) (float32, float32) {
 		}
 		return w, h
 	}
-	if n.HasBodyBox() {
-		return defW, defH + bodyBoxH(defH)
+	w, h := n.W, n.H
+	if w <= 0 {
+		w = defW
 	}
-	return defW, defH
+	if h <= 0 {
+		h = defH
+		if n.HasBodyBox() {
+			h += bodyBoxH(defH)
+		}
+	}
+	return w, h
+}
+
+func nodeMinSize(n *Node, defW, defH float32) (float32, float32) {
+	if n.Kind == KindLoop {
+		return defW * 1.2, defH * 2
+	}
+	if n.HasBodyBox() {
+		return defW * 0.5, defH + bodyBoxH(defH)
+	}
+	return defW * 0.5, defH
 }
 
 func loopContains(loop, n *Node, defW, defH float32) bool {
@@ -422,11 +490,18 @@ func (e *Edge) Summary() string {
 	return "Always"
 }
 
+type ScenarioView struct {
+	Zoom float32 `json:"zoom"`
+	PanX float32 `json:"x"`
+	PanY float32 `json:"y"`
+}
+
 type Scenario struct {
 	ID     string
 	NameEd widget.Editor
 	Nodes  []*Node
 	Edges  []*Edge
+	View   *ScenarioView
 }
 
 func NewScenario() *Scenario {
@@ -540,10 +615,11 @@ type edgeDTO struct {
 }
 
 type scenarioDTO struct {
-	ID    string    `json:"id"`
-	Name  string    `json:"name"`
-	Nodes []nodeDTO `json:"nodes"`
-	Edges []edgeDTO `json:"edges"`
+	ID    string        `json:"id"`
+	Name  string        `json:"name"`
+	Nodes []nodeDTO     `json:"nodes"`
+	Edges []edgeDTO     `json:"edges"`
+	View  *ScenarioView `json:"view,omitempty"`
 }
 
 func nodeToDTO(n *Node) nodeDTO {
@@ -668,6 +744,10 @@ func (s *Scenario) toDTO() scenarioDTO {
 	for _, e := range s.Edges {
 		dto.Edges = append(dto.Edges, edgeToDTO(e))
 	}
+	if s.View != nil {
+		v := *s.View
+		dto.View = &v
+	}
 	return dto
 }
 
@@ -756,7 +836,9 @@ func ImportScenario(data []byte) (string, error) {
 }
 
 func encodeScenario(s *Scenario) (string, error) {
-	data, err := json.Marshal(s.toDTO())
+	dto := s.toDTO()
+	dto.View = nil
+	data, err := json.Marshal(dto)
 	if err != nil {
 		return "", err
 	}
@@ -778,6 +860,10 @@ func scenarioFromDTO(dto scenarioDTO) *Scenario {
 	}
 	s.NameEd.SingleLine = true
 	s.NameEd.SetText(dto.Name)
+	if dto.View != nil && dto.View.Zoom > 0 {
+		v := *dto.View
+		s.View = &v
+	}
 	for _, nd := range dto.Nodes {
 		s.Nodes = append(s.Nodes, nodeFromDTO(nd))
 	}

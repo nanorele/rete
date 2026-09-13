@@ -1523,7 +1523,7 @@ func TestCreateNew(t *testing.T) {
 		if ed.pan != (f32.Point{}) || ed.zoom != 1 || !ed.pendingFit {
 			t.Error("the view must be reset")
 		}
-		if ed.mode != modeWidgets || ed.note != "" {
+		if ed.mode != modeProps || ed.note != "" {
 			t.Errorf("panel state must be reset, mode=%v note=%q", ed.mode, ed.note)
 		}
 		if _, err := LoadScenario(ed.Scenario.ID); err != nil {
@@ -1650,4 +1650,83 @@ func TestToggleRunReportsValidationWarnings(t *testing.T) {
 	if ed.histRun != nil {
 		t.Error("the pinned history run must be cleared")
 	}
+}
+
+func TestScenarioViewPersists(t *testing.T) {
+	setupFlowConfig(t)
+	ed := newTestEditor()
+	ed.zoom = 0.75
+	ed.pan = f32.Pt(-120, 40)
+	ed.SaveScenario()
+	id := ed.Scenario.ID
+
+	s, err := LoadScenario(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if s.View == nil || s.View.Zoom != 0.75 || s.View.PanX != -120 || s.View.PanY != 40 {
+		t.Fatalf("saved view = %+v, want zoom 0.75 pan (-120,40)", s.View)
+	}
+	if ed.encode() == "" || ed.encode() != ed.lastSaved {
+		t.Error("the view must not make the scenario dirty")
+	}
+
+	t.Run("opening restores the view instead of fitting", func(t *testing.T) {
+		other := newTestEditor()
+		other.pendingFit = true
+		if !other.OpenScenario(id) {
+			t.Fatal("open must succeed")
+		}
+		if other.zoom != 0.75 || other.pan != f32.Pt(-120, 40) {
+			t.Errorf("view = zoom %v pan %v, want the saved one", other.zoom, other.pan)
+		}
+		if other.pendingFit {
+			t.Error("a saved view must suppress the fit")
+		}
+	})
+
+	t.Run("a pending fit never overwrites the saved view", func(t *testing.T) {
+		other := newTestEditor()
+		other.Scenario, _ = LoadScenario(id)
+		other.pendingFit = true
+		other.zoom, other.pan = 1, f32.Point{}
+		other.FlushView()
+		s, _ := LoadScenario(id)
+		if s.View == nil || s.View.Zoom != 0.75 {
+			t.Errorf("view = %+v, want the saved 0.75 zoom", s.View)
+		}
+	})
+
+	t.Run("flush writes only a changed view", func(t *testing.T) {
+		ed.zoom = 1.5
+		if !ed.viewDirty() {
+			t.Fatal("a zoom change must mark the view dirty")
+		}
+		ed.FlushView()
+		s, _ := LoadScenario(id)
+		if s.View == nil || s.View.Zoom != 1.5 {
+			t.Errorf("view = %+v, want zoom 1.5", s.View)
+		}
+		if ed.viewDirty() {
+			t.Error("flush must clear the dirty view")
+		}
+	})
+
+	t.Run("switching scenarios flushes the old view", func(t *testing.T) {
+		second := NewScenario()
+		if err := second.Save(); err != nil {
+			t.Fatal(err)
+		}
+		ed.zoom = 0.5
+		if !ed.OpenScenario(second.ID) {
+			t.Fatal("open must succeed")
+		}
+		s, _ := LoadScenario(id)
+		if s.View == nil || s.View.Zoom != 0.5 {
+			t.Errorf("old scenario view = %+v, want zoom 0.5", s.View)
+		}
+		if !ed.pendingFit {
+			t.Error("a scenario without a view must fit")
+		}
+	})
 }

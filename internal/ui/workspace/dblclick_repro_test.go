@@ -285,3 +285,36 @@ func TestTripleClickSelectsLine(t *testing.T) {
 		t.Errorf("triple-click should select the whole line; got %q", got)
 	}
 }
+
+func TestMultiClickWordLineAll(t *testing.T) {
+	rig := newRespRig("first line\nsecond line\nthird line", false)
+	for i := 0; i < 3; i++ {
+		rig.frame(time.Unix(1700000000, 0))
+	}
+	x, y := 40, 4+rig.v.lastLineHeight+rig.v.lastLineHeight/2
+	sel := func() string { return string(rig.v.text[rig.v.selStart:rig.v.selEnd]) }
+
+	rig.click(x, y, time.Second)
+	rig.click(x, y, time.Second+120*time.Millisecond)
+	if got := sel(); got != "second" {
+		t.Errorf("double-click must select the word; got %q", got)
+	}
+	rig.click(x, y, time.Second+240*time.Millisecond)
+	if got := sel(); got != "second line" {
+		t.Errorf("triple-click must select the line; got %q", got)
+	}
+	rig.click(x, y, time.Second+360*time.Millisecond)
+	if got := sel(); got != string(rig.v.text) {
+		t.Errorf("quadruple-click must select everything; got %q", got)
+	}
+	rig.click(x, y, time.Second+480*time.Millisecond)
+	if rig.v.selStart != rig.v.selEnd {
+		t.Errorf("a fifth click must start over with a plain caret; got %q", sel())
+	}
+
+	rig.click(x, y, 5*time.Second)
+	rig.click(x+40, y, 5*time.Second+120*time.Millisecond)
+	if rig.v.selStart != rig.v.selEnd {
+		t.Errorf("a second click far from the first must not count as a double-click; got %q", sel())
+	}
+}

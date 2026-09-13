@@ -160,6 +160,10 @@ func (ui *AppUI) ContentKeyFilters() []event.Filter {
 	return ui.contentKeyFilters()
 }
 
+func (ui *AppUI) FlowUndoFilters() []event.Filter {
+	return ui.flowUndoFilters()
+}
+
 func (ui *AppUI) FindShortcut(gtx layout.Context) {
 	ui.findShortcut(gtx)
 }

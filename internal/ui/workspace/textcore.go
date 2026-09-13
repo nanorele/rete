@@ -285,8 +285,10 @@ func clipSpansToVars(spans []widgets.ColoredSpan, chunk []byte) []widgets.Colore
 	return res
 }
 
+const multiClickInterval = 500 * time.Millisecond
+
 func (v *textCore) resolveClickCount(now time.Time, evTime time.Duration, pos image.Point) int {
-	const interval = 500 * time.Millisecond
+	const interval = multiClickInterval
 	const slop = 5
 	dx := pos.X - v.lastClickPos.X
 	dy := pos.Y - v.lastClickPos.Y
@@ -300,10 +302,10 @@ func (v *textCore) resolveClickCount(now time.Time, evTime time.Duration, pos im
 	if evTime != 0 && v.lastClickEvTime != 0 {
 		d := evTime - v.lastClickEvTime
 		within = d >= 0 && d <= interval
-	} else {
-		within = !v.lastClickTime.IsZero() && now.Sub(v.lastClickTime) <= interval
+	} else if !v.lastClickTime.IsZero() {
+		within = now.Sub(v.lastClickTime) <= interval
 	}
-	if within && dx <= slop && dy <= slop {
+	if within && dx <= slop && dy <= slop && v.multiClickN < 4 {
 		v.multiClickN++
 	} else {
 		v.multiClickN = 1

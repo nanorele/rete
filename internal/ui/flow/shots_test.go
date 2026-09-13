@@ -145,7 +145,7 @@ func TestFlowShotStates(t *testing.T) {
 		{Kind: int(KindSetVar), X: 260, Y: 0, Name: "Store token"},
 	}})
 	buildShotScenario(ed)
-	ed.mode = modeWidgets
+	ed.mode = modeProps
 	host := &Host{Win: new(app.Window), RootCtx: context.Background(), WinSize: sz}
 	renderFlowShot(t, "flow_states", sz, ed, host)
 }
@@ -158,7 +158,7 @@ func TestFlowShotPortsHover(t *testing.T) {
 	ed := NewEditor()
 	hovered, _ := buildShotScenario(ed)
 	ed.clearSelection()
-	ed.mode = modeWidgets
+	ed.mode = modeProps
 	renderFlowShot(t, "flow_ports_hover", sz, ed, host, func() {
 		sp, w, h := ed.nodeScreenRect(hovered)
 		ed.setHover(f32.Pt(sp.X+w/2, sp.Y+h/2))
@@ -167,13 +167,13 @@ func TestFlowShotPortsHover(t *testing.T) {
 	idle := NewEditor()
 	buildShotScenario(idle)
 	idle.clearSelection()
-	idle.mode = modeWidgets
+	idle.mode = modeProps
 	renderFlowShot(t, "flow_ports_idle", sz, idle, host)
 
 	used := NewEditor()
 	buildShotScenario(used)
 	used.clearSelection()
-	used.mode = modeWidgets
+	used.mode = modeProps
 	var connected *Node
 	for _, n := range used.Scenario.Nodes {
 		if n.DisplayName() == "Open socket" {
@@ -206,7 +206,7 @@ func TestFlowShotFourPorts(t *testing.T) {
 	buildShotScenario(startHover)
 	startHover.Scenario.Edges = startHover.Scenario.Edges[1:]
 	startHover.clearSelection()
-	startHover.mode = modeWidgets
+	startHover.mode = modeProps
 	start := startHover.Scenario.Nodes[0]
 	renderFlowShot(t, "flow_start_four_ports", sz, startHover, host, func() {
 		sp, w, h := startHover.nodeScreenRect(start)
@@ -216,7 +216,7 @@ func TestFlowShotFourPorts(t *testing.T) {
 	tail := NewEditor()
 	buildShotScenario(tail)
 	tail.clearSelection()
-	tail.mode = modeWidgets
+	tail.mode = modeProps
 	var login *Node
 	for _, n := range tail.Scenario.Nodes {
 		if n.DisplayName() == "Login" {
@@ -232,7 +232,7 @@ func TestFlowShotFourPorts(t *testing.T) {
 	shared := NewEditor()
 	buildShotScenario(shared)
 	shared.clearSelection()
-	shared.mode = modeWidgets
+	shared.mode = modeProps
 	var fetch, broken, sharedLogin *Node
 	for _, n := range shared.Scenario.Nodes {
 		switch n.DisplayName() {

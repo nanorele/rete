@@ -662,6 +662,9 @@ func (ui *AppUI) Run() error {
 			if ui.EditingEnv != nil {
 				ui.commitEditingEnv()
 			}
+			if ui.Flow != nil {
+				ui.Flow.FlushView()
+			}
 			if ui.envColorSaveDirty != nil {
 				ui.saveEnvironmentAsync(ui.envColorSaveDirty)
 				ui.envColorSaveDirty = nil
@@ -1551,19 +1554,46 @@ func (ui *AppUI) closeAllSidebarMenus() {
 }
 
 func (ui *AppUI) contentKeyFilters() []event.Filter {
-	filters := []event.Filter{
+	return []event.Filter{
 		key.Filter{Name: "S", Required: key.ModShortcut},
 		key.Filter{Name: "W", Required: key.ModShortcut},
 		key.Filter{Name: "F", Required: key.ModShortcut},
 		key.Filter{Name: key.NameReturn, Required: key.ModShortcut},
 	}
-	if ui.SidebarSection == "flows" {
-		filters = append(filters,
-			key.Filter{Name: "Z", Required: key.ModShortcut},
-			key.Filter{Name: "Y", Required: key.ModShortcut},
-		)
+}
+
+func (ui *AppUI) flowUndoFilters() []event.Filter {
+	if ui.SidebarSection != "flows" {
+		return nil
 	}
-	return filters
+	return []event.Filter{
+		key.Filter{Name: "Z", Required: key.ModShortcut, Optional: key.ModShift},
+		key.Filter{Name: "Y", Required: key.ModShortcut},
+	}
+}
+
+func (ui *AppUI) drainFlowUndo(gtx layout.Context) {
+	filters := ui.flowUndoFilters()
+	if len(filters) == 0 || ui.Flow == nil {
+		return
+	}
+	for {
+		ev, ok := gtx.Event(filters...)
+		if !ok {
+			break
+		}
+		e, ok := ev.(key.Event)
+		if !ok || e.State != key.Press {
+			continue
+		}
+		switch {
+		case e.Name == "Y", e.Name == "Z" && e.Modifiers.Contain(key.ModShift):
+			ui.Flow.Redo()
+		default:
+			ui.Flow.Undo()
+		}
+		ui.Window.Invalidate()
+	}
 }
 
 // findShortcut routes Ctrl+F to whichever section is on screen. Sections whose
@@ -1619,16 +1649,6 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 				}
 			case "F":
 				ui.findShortcut(gtx)
-			case "Z":
-				if ui.SidebarSection == "flows" && ui.Flow != nil {
-					ui.Flow.Undo()
-					ui.Window.Invalidate()
-				}
-			case "Y":
-				if ui.SidebarSection == "flows" && ui.Flow != nil {
-					ui.Flow.Redo()
-					ui.Window.Invalidate()
-				}
 			case key.NameReturn:
 				if ui.EditingEnv != nil {
 					ui.commitEditingEnv()
@@ -1886,6 +1906,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 		}
 		ui.pendingEnvClose = nil
 	}
+	ui.drainFlowUndo(gtx)
 
 	return dim
 }

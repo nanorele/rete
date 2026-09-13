@@ -11,7 +11,6 @@ import (
 	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/font"
-	"github.com/nanorele/gio/io/event"
 	"github.com/nanorele/gio/io/key"
 	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
@@ -40,9 +39,6 @@ func (ed *Editor) layoutPanel(gtx layout.Context, th *material.Theme, host *Host
 	paint.FillShape(gtx.Ops, theme.Bg, clip.Rect{Max: gtx.Constraints.Max}.Op())
 	ed.panelCompact = gtx.Constraints.Max.X < gtx.Dp(unit.Dp(170))
 
-	for ed.BtnWidgets.Clicked(gtx) {
-		ed.mode = modeWidgets
-	}
 	for ed.BtnProps.Clicked(gtx) {
 		ed.mode = modeProps
 	}
@@ -93,8 +89,6 @@ func (ed *Editor) layoutPanel(gtx layout.Context, th *material.Theme, host *Host
 				}
 				return inset.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					switch ed.mode {
-					case modeWidgets:
-						return ed.layoutPalette(gtx, th)
 					case modeHistory:
 						return ed.layoutHistory(gtx, th)
 					default:
@@ -137,25 +131,20 @@ func (ed *Editor) layoutModeToggle(gtx layout.Context, th *material.Theme) layou
 			})
 		})
 	}
-	labels := [3]string{"Widgets", "Properties", "History"}
+	labels := [2]string{"Properties", "History"}
 	if gtx.Constraints.Max.X < gtx.Dp(unit.Dp(210)) {
-		labels = [3]string{"Add", "Props", "Runs"}
+		labels = [2]string{"Props", "Runs"}
 	}
-	third := gtx.Constraints.Max.X / 3
+	half := gtx.Constraints.Max.X / 2
 	return layout.Flex{Axis: layout.Horizontal}.Layout(gtx,
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min.X = third
-			gtx.Constraints.Max.X = third
-			return tab(gtx, &ed.BtnWidgets, labels[0], widgets.IconAdd, ed.mode == modeWidgets)
-		}),
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			gtx.Constraints.Min.X = third
-			gtx.Constraints.Max.X = third
-			return tab(gtx, &ed.BtnProps, labels[1], widgets.IconTune, ed.mode == modeProps)
+			gtx.Constraints.Min.X = half
+			gtx.Constraints.Max.X = half
+			return tab(gtx, &ed.BtnProps, labels[0], widgets.IconTune, ed.mode == modeProps)
 		}),
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			gtx.Constraints.Min.X = gtx.Constraints.Max.X
-			return tab(gtx, &ed.BtnHistory, labels[2], widgets.IconHistory, ed.mode == modeHistory)
+			return tab(gtx, &ed.BtnHistory, labels[1], widgets.IconHistory, ed.mode == modeHistory)
 		}),
 	)
 }
@@ -416,8 +405,8 @@ func (ed *Editor) handlePaletteItemEvents(gtx layout.Context, i int, it paletteI
 			ed.palDragActive = false
 		case pointer.Drag:
 			if ed.palDragOn && ed.palDragKind == it.kind {
-				if _, over := ed.windowToCanvas(widgets.GlobalPointerPos); over {
-					ed.palDragActive = true
+				if local, over := ed.windowToCanvas(widgets.GlobalPointerPos); over {
+					ed.palDragActive = !image.Pt(int(local.X), int(local.Y)).In(ed.paletteBar)
 				}
 			}
 		case pointer.Release:
@@ -431,60 +420,6 @@ func (ed *Editor) handlePaletteItemEvents(gtx layout.Context, i int, it paletteI
 			ed.palDragActive = false
 		}
 	}
-}
-
-func (ed *Editor) paletteGrid(gtx layout.Context, items []paletteItem) []layout.FlexChild {
-	gap := gtx.Dp(unit.Dp(6))
-	tile := gtx.Dp(unit.Dp(40))
-	cols := (gtx.Constraints.Max.X + gap) / (tile + gap)
-	if cols < 1 {
-		cols = 1
-	}
-	var rows []layout.FlexChild
-	for start := 0; start < len(items); start += cols {
-		end := start + cols
-		if end > len(items) {
-			end = len(items)
-		}
-		row := make([]layout.FlexChild, 0, (end-start)*2)
-		for i := start; i < end; i++ {
-			i := i
-			it := items[i]
-			if i > start {
-				row = append(row, layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout))
-			}
-			row = append(row, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return ed.addBtns[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					bg := theme.BgField
-					if ed.addBtns[i].Hovered() {
-						bg = theme.BgHover
-					}
-					rect := image.Rectangle{Max: image.Pt(tile, tile)}
-					rr := gtx.Dp(unit.Dp(6))
-					paint.FillShape(gtx.Ops, bg, clip.UniformRRect(rect, rr).Op(gtx.Ops))
-					paint.FillShape(gtx.Ops, theme.Border, clip.Stroke{Path: clip.UniformRRect(rect, rr).Path(gtx.Ops), Width: 1}.Op())
-					stripe := image.Rect(0, rr, gtx.Dp(unit.Dp(3)), tile-rr)
-					paint.FillShape(gtx.Ops, kindColor(it.kind), clip.Rect(stripe).Op())
-					defer clip.Rect(rect).Push(gtx.Ops).Pop()
-					event.Op(gtx.Ops, &ed.palDragTags[i])
-					isz := gtx.Dp(unit.Dp(20))
-					off := image.Pt((tile-isz)/2, (tile-isz)/2)
-					defer op.Offset(off).Push(gtx.Ops).Pop()
-					gtx.Constraints.Min = image.Pt(isz, isz)
-					gtx.Constraints.Max = gtx.Constraints.Min
-					it.icon.Layout(gtx, kindColor(it.kind))
-					return layout.Dimensions{Size: rect.Max}
-				})
-			}))
-		}
-		rowChildren := row
-		rows = append(rows, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Bottom: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return layout.Flex{Axis: layout.Horizontal}.Layout(gtx, rowChildren...)
-			})
-		}))
-	}
-	return rows
 }
 
 func (ed *Editor) handleBlockItemEvents(gtx layout.Context, i int, b BlockInfo) {
@@ -513,6 +448,7 @@ func (ed *Editor) handleBlockItemEvents(gtx layout.Context, i int, b BlockInfo) 
 		switch pe.Kind {
 		case pointer.Press:
 			ed.blockDragIdx = i
+			ed.blockDragID = b.ID
 			ed.blockDragName = b.Name
 			ed.blockDragOn = true
 			ed.blockDragActive = false
@@ -535,191 +471,6 @@ func (ed *Editor) handleBlockItemEvents(gtx layout.Context, i int, b BlockInfo) 
 	}
 }
 
-func (ed *Editor) blocksSection(gtx layout.Context, th *material.Theme) []layout.FlexChild {
-	blocks := ed.blocks()
-	if len(blocks) == 0 {
-		return nil
-	}
-	if len(ed.blockBtns) < len(blocks) {
-		ed.blockBtns = make([]widget.Clickable, len(blocks))
-		ed.blockDelBtns = make([]widget.Clickable, len(blocks))
-		ed.blockDragTags = make([]bool, len(blocks))
-	}
-	for i, b := range blocks {
-		ed.handleBlockItemEvents(gtx, i, b)
-	}
-	children := []layout.FlexChild{
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ed.sectionLabel(gtx, th, "My blocks") }),
-	}
-	for i, b := range blocks {
-		i, b := i, b
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Bottom: unit.Dp(5)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				rowH := gtx.Dp(unit.Dp(30))
-				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-						return ed.blockBtns[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							gtx.Constraints.Min.X = gtx.Constraints.Max.X
-							bg := theme.BgField
-							if ed.blockBtns[i].Hovered() {
-								bg = theme.BgHover
-							}
-							rect := image.Rectangle{Max: image.Pt(gtx.Constraints.Max.X, rowH)}
-							rr := gtx.Dp(unit.Dp(5))
-							paint.FillShape(gtx.Ops, bg, clip.UniformRRect(rect, rr).Op(gtx.Ops))
-							paint.FillShape(gtx.Ops, theme.Border, clip.Stroke{Path: clip.UniformRRect(rect, rr).Path(gtx.Ops), Width: 1}.Op())
-							stripe := image.Rect(0, rr, gtx.Dp(unit.Dp(3)), rect.Max.Y-rr)
-							paint.FillShape(gtx.Ops, theme.Accent, clip.Rect(stripe).Op())
-							defer clip.Rect(rect).Push(gtx.Ops).Pop()
-							event.Op(gtx.Ops, &ed.blockDragTags[i])
-							return layout.Inset{Left: unit.Dp(10), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-								gtx.Constraints.Min.Y = rect.Max.Y
-								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-										gtx.Constraints.Min.Y = 0
-										name := b.Name
-										if name == "" {
-											name = "Block"
-										}
-										lbl := material.Label(th, unit.Sp(12), name)
-										lbl.MaxLines = 1
-										return lbl.Layout(gtx)
-									}),
-								)
-							})
-						})
-					}),
-					layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
-					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-						return ed.blockDelBtns[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-							s := gtx.Dp(unit.Dp(18))
-							col := theme.FgDim
-							if ed.blockDelBtns[i].Hovered() {
-								col = theme.Danger
-							}
-							gtx.Constraints.Min = image.Pt(s, s)
-							gtx.Constraints.Max = gtx.Constraints.Min
-							return widgets.IconClose.Layout(gtx, col)
-						})
-					}),
-				)
-			})
-		}))
-	}
-	return children
-}
-
-func (ed *Editor) shortcutsSection(gtx layout.Context, th *material.Theme) []layout.FlexChild {
-	lines := []string{
-		"Drag from any of the 4 ports — connect nodes",
-		"One outgoing arrow per node · Condition branches",
-		"Drag an arrow's end or its port — move that arrow",
-		"Several arrows on a port — click one first, then drag",
-		"Double-click node — rename",
-		"RMB / MMB drag — pan canvas",
-		"Scroll — zoom · Ctrl+scroll — zoom ×3",
-		"Ctrl+Enter — run · Ctrl+S — save",
-		"Pause button — step-by-step run",
-		"Del — delete · Esc — cancel",
-		"Ctrl+C / V / D — copy / paste / duplicate",
-		"Ctrl+Z / Ctrl+Y — undo / redo",
-		"Ctrl+A — select all",
-	}
-	children := []layout.FlexChild{
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions { return ed.sectionLabel(gtx, th, "Shortcuts") }),
-	}
-	for _, line := range lines {
-		line := line
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Bottom: unit.Dp(2)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				lbl := material.Label(th, unit.Sp(10), line)
-				lbl.Color = theme.FgDim
-				return lbl.Layout(gtx)
-			})
-		}))
-	}
-	return children
-}
-
-func (ed *Editor) layoutPalette(gtx layout.Context, th *material.Theme) layout.Dimensions {
-	items := ed.paletteItems()
-	for i, it := range items {
-		ed.handlePaletteItemEvents(gtx, i, it)
-	}
-	if ed.panelCompact {
-		children := []layout.FlexChild{
-			layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
-		}
-		children = append(children, ed.paletteGrid(gtx, items)...)
-		children = append(children, ed.blocksSection(gtx, th)...)
-		return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
-	}
-	children := []layout.FlexChild{
-		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				lbl := material.Label(th, unit.Sp(10), "Click to add, or drag onto the canvas. Hover a node to reveal its four ports, then drag from any port to connect. Each node has one outgoing arrow — use Condition to branch.")
-				lbl.Color = theme.FgDim
-				return lbl.Layout(gtx)
-			})
-		}),
-	}
-	for i, it := range items {
-		i, it := i, it
-		children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-			return layout.Inset{Bottom: unit.Dp(5)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				return ed.addBtns[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-					gtx.Constraints.Min.X = gtx.Constraints.Max.X
-					bg := theme.BgField
-					if ed.addBtns[i].Hovered() {
-						bg = theme.BgHover
-					}
-					rect := image.Rectangle{Max: image.Pt(gtx.Constraints.Max.X, gtx.Dp(unit.Dp(38)))}
-					rr := gtx.Dp(unit.Dp(5))
-					paint.FillShape(gtx.Ops, bg, clip.UniformRRect(rect, rr).Op(gtx.Ops))
-					paint.FillShape(gtx.Ops, theme.Border, clip.Stroke{Path: clip.UniformRRect(rect, rr).Path(gtx.Ops), Width: 1}.Op())
-					stripe := image.Rect(0, rr, gtx.Dp(unit.Dp(3)), rect.Max.Y-rr)
-					paint.FillShape(gtx.Ops, kindColor(it.kind), clip.Rect(stripe).Op())
-					defer clip.Rect(rect).Push(gtx.Ops).Pop()
-					event.Op(gtx.Ops, &ed.palDragTags[i])
-					return layout.Inset{Left: unit.Dp(10), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						gtx.Constraints.Min.Y = rect.Max.Y
-						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								s := gtx.Dp(unit.Dp(16))
-								gtx.Constraints.Min = image.Pt(s, s)
-								gtx.Constraints.Max = gtx.Constraints.Min
-								return it.icon.Layout(gtx, kindColor(it.kind))
-							}),
-							layout.Rigid(layout.Spacer{Width: unit.Dp(8)}.Layout),
-							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-								gtx.Constraints.Min.Y = 0
-								return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										lbl := material.Label(th, unit.Sp(12), it.title)
-										lbl.LineHeightScale = 1.0
-										lbl.MaxLines = 1
-										return lbl.Layout(gtx)
-									}),
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										lbl := material.Label(th, unit.Sp(9), it.desc)
-										lbl.Color = theme.FgMuted
-										lbl.LineHeightScale = 1.0
-										lbl.MaxLines = 1
-										return lbl.Layout(gtx)
-									}),
-								)
-							}),
-						)
-					})
-				})
-			})
-		}))
-	}
-	children = append(children, ed.blocksSection(gtx, th)...)
-	children = append(children, ed.shortcutsSection(gtx, th)...)
-	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
-}
-
 func (ed *Editor) sectionLabel(gtx layout.Context, th *material.Theme, txt string) layout.Dimensions {
 	return layout.Inset{Top: unit.Dp(10), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		lbl := material.Label(th, unit.Sp(11), txt)
@@ -740,6 +491,7 @@ func (ed *Editor) borderedEditor(gtx layout.Context, th *material.Theme, e *widg
 		func(gtx layout.Context) layout.Dimensions {
 			return layout.UniformInset(unit.Dp(7)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 				gtx.Constraints.Min.X = gtx.Constraints.Max.X
+				editorExtraKeys(gtx, e)
 				me := material.Editor(th, e, hint)
 				me.TextSize = unit.Sp(12)
 				me.HintColor = theme.FgDim
@@ -984,11 +736,16 @@ func (ed *Editor) layoutProps(gtx layout.Context, th *material.Theme) layout.Dim
 	if e := ed.selectedEdge(); e != nil {
 		return ed.layoutEdgeProps(gtx, th, e)
 	}
-	return layout.Inset{Top: unit.Dp(16)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-		lbl := material.Label(th, unit.Sp(12), "Select a node or an arrow on the canvas")
-		lbl.Color = theme.FgDim
-		return lbl.Layout(gtx)
-	})
+	children := []layout.FlexChild{
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return layout.Inset{Top: unit.Dp(16)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				lbl := material.Label(th, unit.Sp(12), "Select a node or an arrow on the canvas")
+				lbl.Color = theme.FgDim
+				return lbl.Layout(gtx)
+			})
+		}),
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
 }
 
 func (ed *Editor) layoutNodeProps(gtx layout.Context, th *material.Theme, n *Node) layout.Dimensions {

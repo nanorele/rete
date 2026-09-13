@@ -365,7 +365,10 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		gtx.Execute(key.FocusCmd{Tag: v})
 		clicks := v.resolveClickCount(gtx.Now, ev.Time, ev.Position)
 		switch {
-		case clicks >= 3:
+		case clicks >= 4:
+			v.selStart, v.selEnd = 0, v.Len()
+			v.dragActive = false
+		case clicks == 3:
 			v.selStart, v.selEnd = v.sourceLineBoundsAt(off)
 			v.dragActive = false
 		case clicks == 2:

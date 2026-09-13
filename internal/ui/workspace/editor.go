@@ -920,7 +920,10 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		v.imeEchoPending = false
 		clicks := v.resolveClickCount(gtx.Now, ev.Time, ev.Position)
 		switch {
-		case clicks >= 3:
+		case clicks >= 4:
+			v.selStart, v.selEnd = 0, v.Len()
+			v.dragActive = false
+		case clicks == 3:
 			v.selStart, v.selEnd = v.sourceLineBoundsAt(off)
 			v.dragActive = false
 		case clicks == 2:

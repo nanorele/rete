@@ -185,6 +185,7 @@ func TestOnPressConditionSlots(t *testing.T) {
 func TestOnPressEnvChipOpensMenu(t *testing.T) {
 	ed := newBlankEditor()
 	n := addNodeTo(ed, KindRequest, 100, 100)
+	n.EnvID = "e1"
 	c0, c1 := ed.envChipRect(n)
 	mid := f32.Pt((c0.X+c1.X)/2, (c0.Y+c1.Y)/2)
 
@@ -194,6 +195,54 @@ func TestOnPressEnvChipOpensMenu(t *testing.T) {
 	}
 	if ed.selNodeID != "" {
 		t.Error("opening the env chip must not select the node")
+	}
+
+	t.Run("no chip while the node follows the active env", func(t *testing.T) {
+		ed := newBlankEditor()
+		addNodeTo(ed, KindRequest, 100, 100)
+		ed.onPress(press(f32.Pt(c0.X+8, mid.Y)))
+		if ed.envMenuNodeID != "" {
+			t.Errorf("envMenuNodeID = %q, want none", ed.envMenuNodeID)
+		}
+		if !ed.marquee {
+			t.Error("the empty chip area must behave like empty canvas")
+		}
+	})
+}
+
+func TestOnPressResizesAnyNode(t *testing.T) {
+	ed := newBlankEditor()
+	n := addNodeTo(ed, KindRequest, 100, 100)
+	_, nw, nh := ed.nodeScreenRect(n)
+	ed.onPress(press(f32.Pt(100+nw, 100+nh)))
+	if ed.resizeNodeID != n.ID {
+		t.Fatalf("resizeNodeID = %q, want %q", ed.resizeNodeID, n.ID)
+	}
+	ed.onDrag(f32.Pt(100+nw+120, 100+nh+80))
+	if n.W != nw+120 || n.H != nh+80 {
+		t.Errorf("node size = (%v,%v), want (%v,%v)", n.W, n.H, nw+120, nh+80)
+	}
+	if _, w2, h2 := ed.nodeScreenRect(n); w2 != n.W || h2 != n.H {
+		t.Errorf("screen size = (%v,%v), want the stored size", w2, h2)
+	}
+	ed.onDrag(f32.Pt(100, 100))
+	minW, minH := nodeMinSize(n, ed.nodeW, ed.nodeH)
+	if n.W != minW || n.H != minH {
+		t.Errorf("clamped to (%v,%v), want (%v,%v)", n.W, n.H, minW, minH)
+	}
+	if minH <= ed.nodeH {
+		t.Error("a request node must keep room for its body box")
+	}
+
+	plain := addNodeTo(ed, KindDelay, 600, 100)
+	ed.onRelease(f32.Pt(100, 100))
+	ed.onPress(press(f32.Pt(600+ed.nodeW, 100+ed.nodeH)))
+	if ed.resizeNodeID != plain.ID {
+		t.Fatalf("resizeNodeID = %q, want %q", ed.resizeNodeID, plain.ID)
+	}
+	ed.onDrag(f32.Pt(0, 0))
+	if plain.H != ed.nodeH {
+		t.Errorf("delay min height = %v, want the header height %v", plain.H, ed.nodeH)
 	}
 }
 
@@ -643,5 +692,81 @@ func TestOnReleaseAppliesMarqueeAndClearsState(t *testing.T) {
 	}
 	if len(ed.dragMembers) != 0 {
 		t.Error("drag members must be cleared")
+	}
+}
+
+func TestWheelZoomWhilePanningKeepsContinuity(t *testing.T) {
+	ed := newBlankEditor()
+	ed.onPress(pointer.Event{Kind: pointer.Press, Position: f32.Pt(300, 300), Buttons: pointer.ButtonSecondary})
+	if !ed.panning {
+		t.Fatal("RMB press must start panning")
+	}
+	ed.onDrag(f32.Pt(340, 320))
+	ed.zoomByNotches(f32.Pt(340, 320), 2)
+	zoomed := ed.pan
+	ed.onDrag(f32.Pt(340, 320))
+	if ed.pan != zoomed {
+		t.Errorf("pan after a still drag = %v, want the zoomed pan %v", ed.pan, zoomed)
+	}
+	ed.onDrag(f32.Pt(350, 320))
+	if want := zoomed.Add(f32.Pt(10, 0)); ed.pan != want {
+		t.Errorf("pan = %v, want %v", ed.pan, want)
+	}
+}
+
+func TestResizeEdgeAt(t *testing.T) {
+	ed := newBlankEditor()
+	n := addNodeTo(ed, KindDelay, 100, 100)
+	cases := []struct {
+		name string
+		pt   f32.Point
+		node bool
+		edge resizeEdge
+	}{
+		{"bottom-right corner", f32.Pt(100+ed.nodeW-3, 100+ed.nodeH-3), true, resizeEdge{r: true, b: true}},
+		{"left edge", f32.Pt(101, 110), true, resizeEdge{l: true}},
+		{"right edge", f32.Pt(100+ed.nodeW-1, 110), true, resizeEdge{r: true}},
+		{"top edge", f32.Pt(140, 101), true, resizeEdge{t: true}},
+		{"top-left corner", f32.Pt(100, 100), true, resizeEdge{l: true, t: true}},
+		{"bottom port wins", f32.Pt(100+ed.nodeW/2, 100+ed.nodeH), false, resizeEdge{}},
+		{"inside the node", f32.Pt(140, 120), false, resizeEdge{}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, e := ed.resizeEdgeAt(tc.pt)
+			if (got == n) != tc.node || e != tc.edge {
+				t.Errorf("resizeEdgeAt(%v) = node %v edge %+v, want node %v edge %+v", tc.pt, got == n, e, tc.node, tc.edge)
+			}
+		})
+	}
+}
+
+func TestOnDragResizesFromLeftAndTop(t *testing.T) {
+	ed := newBlankEditor()
+	n := addNodeTo(ed, KindDelay, 300, 300)
+	w0, h0 := ed.nodeWH(n)
+
+	ed.onPress(press(f32.Pt(301, 305)))
+	if ed.resizeNodeID != n.ID || !ed.resizeEdge.l {
+		t.Fatalf("pressing the left edge must start a left resize, got %q %+v", ed.resizeNodeID, ed.resizeEdge)
+	}
+	ed.onDrag(f32.Pt(261, 305))
+	if n.X != 260 || n.W != w0+40 || n.Y != 300 {
+		t.Errorf("left resize: pos (%v,%v) size %v, want x 260 w %v", n.X, n.Y, n.W, w0+40)
+	}
+	ed.onDrag(f32.Pt(900, 305))
+	minW, _ := nodeMinSize(n, ed.nodeW, ed.nodeH)
+	if n.W != minW || n.X != 300+w0-minW {
+		t.Errorf("left resize clamp: x %v w %v, want the right edge pinned at %v", n.X, n.W, 300+w0)
+	}
+	ed.onRelease(f32.Pt(900, 305))
+
+	ed.onPress(press(f32.Pt(n.X+12, 301)))
+	if ed.resizeNodeID != n.ID || !ed.resizeEdge.t {
+		t.Fatalf("pressing the top edge must start a top resize, got %q %+v", ed.resizeNodeID, ed.resizeEdge)
+	}
+	ed.onDrag(f32.Pt(n.X+12, 271))
+	if n.Y != 270 || n.H != h0+30 {
+		t.Errorf("top resize: y %v h %v, want y 270 h %v", n.Y, n.H, h0+30)
 	}
 }

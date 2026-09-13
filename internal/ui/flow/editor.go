@@ -36,8 +36,7 @@ import (
 type panelMode int
 
 const (
-	modeWidgets panelMode = iota
-	modeProps
+	modeProps panelMode = iota
 	modeHistory
 )
 
@@ -75,6 +74,7 @@ type Editor struct {
 	canvasSize image.Point
 	canvasOrig image.Point
 	pendingFit bool
+	lastView   ScenarioView
 	nodeW      float32
 	nodeH      float32
 	portHit    float32
@@ -85,12 +85,28 @@ type Editor struct {
 	mode      panelMode
 	histRun   *RunRecord
 
-	dragNodeID      string
-	dragMembers     []string
-	dragOff         f32.Point
-	dragMoved       bool
-	resizeNodeID    string
-	resizeMoved     bool
+	dragNodeID   string
+	dragMembers  []string
+	dragOff      f32.Point
+	dragMoved    bool
+	resizeNodeID string
+	bodyPressID  string
+	resizeMoved  bool
+	resizeEdge   resizeEdge
+	resizeOrig   [4]float32
+	resizeStart  f32.Point
+
+	ghostKind  NodeKind
+	ghostLabel string
+	ghostBlock string
+	ghostNodes []*Node
+	ghostRel   []f32.Point
+
+	customMenuOpen  bool
+	customBtn       widget.Clickable
+	customRect      image.Rectangle
+	customPopup     image.Rectangle
+	customRows      []image.Rectangle
 	panning         bool
 	panStart        f32.Point
 	panOrigin       f32.Point
@@ -136,6 +152,7 @@ type Editor struct {
 	blockDragTags   []bool
 	blockDragIdx    int
 	blockDragName   string
+	blockDragID     string
 	blockDragOn     bool
 	blockDragActive bool
 	blocksCache     []BlockInfo
@@ -147,7 +164,6 @@ type Editor struct {
 
 	note string
 
-	BtnWidgets widget.Clickable
 	BtnProps   widget.Clickable
 	BtnHistory widget.Clickable
 	BtnRun     widget.Clickable
@@ -179,6 +195,8 @@ type Editor struct {
 	panelCompact bool
 	fitBadge     image.Rectangle
 	zoomBadge    image.Rectangle
+	paletteBar   image.Rectangle
+	paletteRects [9]image.Rectangle
 
 	lastSaved    string
 	nextAutosave time.Time
@@ -197,13 +215,14 @@ func NewEditor() *Editor {
 	ed := &Editor{
 		Scenario:   LoadLatest(),
 		Runner:     NewRunner(),
-		mode:       modeWidgets,
+		mode:       modeProps,
 		zoom:       1,
 		selected:   make(map[string]bool),
 		pendingFit: true,
 	}
 	ed.panelList.Axis = layout.Vertical
 	ed.blockNameEd.SingleLine = true
+	ed.applyView()
 	return ed
 }
 
@@ -302,13 +321,54 @@ func (ed *Editor) insertBlockAt(dto scenarioDTO, at f32.Point) {
 	ed.mode = modeProps
 }
 
+func (ed *Editor) currentView() ScenarioView {
+	return ScenarioView{Zoom: ed.zoom, PanX: ed.pan.X, PanY: ed.pan.Y}
+}
+
+func (ed *Editor) syncView() {
+	if ed.pendingFit || ed.Scenario == nil {
+		return
+	}
+	v := ed.currentView()
+	ed.Scenario.View = &v
+	ed.lastView = v
+}
+
+func (ed *Editor) applyView() {
+	if v := ed.Scenario.View; v != nil && v.Zoom > 0 {
+		ed.zoom = v.Zoom
+		ed.pan = f32.Pt(v.PanX, v.PanY)
+		ed.pendingFit = false
+		ed.lastView = *v
+		return
+	}
+	ed.pendingFit = true
+	ed.lastView = ed.currentView()
+}
+
+func (ed *Editor) viewDirty() bool {
+	if ed.pendingFit || ed.Scenario == nil {
+		return false
+	}
+	return ed.currentView() != ed.lastView
+}
+
 func (ed *Editor) SaveScenario() {
+	ed.syncView()
 	if err := ed.Scenario.Save(); err != nil {
 		ed.note = "Save failed: " + err.Error()
 	} else {
 		ed.note = "Saved"
 		ed.lastSaved = ed.encode()
 	}
+}
+
+func (ed *Editor) FlushView() {
+	if !ed.viewDirty() {
+		return
+	}
+	ed.syncView()
+	_ = ed.Scenario.Save()
 }
 
 func (ed *Editor) OpenScenario(id string) bool {
@@ -322,6 +382,7 @@ func (ed *Editor) OpenScenario(id string) bool {
 	if err != nil {
 		return false
 	}
+	ed.FlushView()
 	ed.pushHistory()
 	ed.Scenario = s
 	ed.Runner.Reset()
@@ -332,7 +393,7 @@ func (ed *Editor) OpenScenario(id string) bool {
 	}
 	ed.note = "Opened: " + name
 	ed.lastSaved = ed.encode()
-	ed.pendingFit = true
+	ed.applyView()
 	return true
 }
 
@@ -347,7 +408,7 @@ func (ed *Editor) CreateNew() {
 	ed.zoom = 1
 	ed.pendingFit = true
 	ed.clearSelection()
-	ed.mode = modeWidgets
+	ed.mode = modeProps
 	ed.note = ""
 	_ = ed.Scenario.Save()
 	ed.lastSaved = ed.encode()
@@ -360,6 +421,9 @@ func (ed *Editor) autosave() {
 	if ed.nextAutosave.IsZero() {
 		ed.nextAutosave = now.Add(autosaveEvery)
 		ed.lastSaved = ed.encode()
+		if ed.lastView.Zoom == 0 {
+			ed.lastView = ed.currentView()
+		}
 		return
 	}
 	if now.Before(ed.nextAutosave) {
@@ -367,9 +431,14 @@ func (ed *Editor) autosave() {
 	}
 	ed.nextAutosave = now.Add(autosaveEvery)
 	enc := ed.encode()
-	if enc == "" || enc == ed.lastSaved {
+	if enc == "" {
 		return
 	}
+	if enc == ed.lastSaved {
+		ed.FlushView()
+		return
+	}
+	ed.syncView()
 	if err := ed.Scenario.Save(); err == nil {
 		ed.lastSaved = enc
 		if ed.note == "" || ed.note == "Saved" || ed.note == "Auto-saved" {
@@ -546,6 +615,10 @@ func (ed *Editor) pruneSelection() {
 	}
 }
 
+func (ed *Editor) PushHistory() {
+	ed.pushHistory()
+}
+
 func (ed *Editor) Undo() {
 	cur := ed.encode()
 	for len(ed.undoStack) > 0 {
@@ -665,9 +738,10 @@ func (ed *Editor) cancelInteraction() {
 	ed.connectFromSide = ""
 	ed.connectToID = ""
 	ed.connectToSide = ""
-	if ed.envMenuNodeID != "" || ed.envDropOpen {
+	if ed.envMenuNodeID != "" || ed.envDropOpen || ed.customMenuOpen {
 		ed.envMenuNodeID = ""
 		ed.envDropOpen = false
+		ed.customMenuOpen = false
 		return
 	}
 	ed.clearSelection()
@@ -1085,9 +1159,19 @@ func (ed *Editor) edgeControlsDir(p0, p1, o0, o1 f32.Point) (f32.Point, f32.Poin
 	return f32.Pt(p0.X+o0.X*k0, p0.Y+o0.Y*k0), f32.Pt(p1.X+o1.X*k1, p1.Y+o1.Y*k1)
 }
 
+func (ed *Editor) syncBodyEditors() {
+	for _, n := range ed.Scenario.Nodes {
+		if n.HasBodyBox() {
+			n.canvasBodyEditor()
+		}
+	}
+}
+
 func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Host) layout.Dimensions {
 	size := gtx.Constraints.Max
 	ed.canvasSize = size
+	ed.syncBodyEditors()
+	ed.handleToolbarEvents(gtx)
 	ed.nodeW = float32(gtx.Dp(unit.Dp(176)))
 	ed.nodeH = float32(gtx.Dp(unit.Dp(56)))
 	ed.portHit = float32(gtx.Dp(unit.Dp(12)))
@@ -1104,6 +1188,8 @@ func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Hos
 			key.Filter{Focus: ed, Name: "C", Required: key.ModShortcut},
 			key.Filter{Focus: ed, Name: "V", Required: key.ModShortcut},
 			key.Filter{Focus: ed, Name: "D", Required: key.ModShortcut},
+			key.Filter{Focus: ed, Name: "Z", Required: key.ModShortcut, Optional: key.ModShift},
+			key.Filter{Focus: ed, Name: "Y", Required: key.ModShortcut},
 		)
 		if !ok {
 			break
@@ -1113,6 +1199,14 @@ func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Hos
 			continue
 		}
 		switch e.Name {
+		case "Z":
+			if e.Modifiers.Contain(key.ModShift) {
+				ed.Redo()
+			} else {
+				ed.Undo()
+			}
+		case "Y":
+			ed.Redo()
 		case key.NameDeleteForward, key.NameDeleteBackward:
 			ed.deleteSelection()
 		case key.NameEscape:
@@ -1160,6 +1254,9 @@ func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Hos
 		case pointer.Release, pointer.Cancel:
 			ed.onRelease(e.Position)
 		case pointer.Scroll:
+			if ed.bodyBoxAt(e.Position) != nil {
+				break
+			}
 			notches := 0
 			if e.Scroll.Y < 0 {
 				notches = 1
@@ -1186,6 +1283,13 @@ func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Hos
 	paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: size}.Op())
 	ed.drawGrid(gtx, size)
 	event.Op(gtx.Ops, ed)
+	if ed.resizeNodeID != "" {
+		ed.resizeEdge.cursor().Add(gtx.Ops)
+	} else if ed.hoverOn && !ed.interacting() {
+		if _, e := ed.resizeEdgeAt(ed.hoverPos); e.any() {
+			e.cursor().Add(gtx.Ops)
+		}
+	}
 
 	for _, n := range ed.Scenario.Nodes {
 		if n.Kind == KindLoop {
@@ -1201,12 +1305,205 @@ func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Hos
 			ed.drawNode(gtx, th, n)
 		}
 	}
+	ed.bodyPressID = ""
 	ed.drawMarquee(gtx)
 	ed.drawDropGhost(gtx, th)
 	ed.drawEnvMenu(gtx, th)
 	ed.drawViewBadges(gtx, th, size)
+	ed.layoutCanvasPalette(gtx, th, size)
 
 	return layout.Dimensions{Size: size}
+}
+
+func (ed *Editor) handleToolbarEvents(gtx layout.Context) {
+	for i, it := range ed.paletteItems() {
+		ed.handlePaletteItemEvents(gtx, i, it)
+	}
+	for ed.customBtn.Clicked(gtx) {
+		ed.customMenuOpen = !ed.customMenuOpen
+	}
+	blocks := ed.blocks()
+	if len(ed.blockBtns) < len(blocks) {
+		ed.blockBtns = make([]widget.Clickable, len(blocks))
+		ed.blockDelBtns = make([]widget.Clickable, len(blocks))
+		ed.blockDragTags = make([]bool, len(blocks))
+	}
+	for i, b := range blocks {
+		ed.handleBlockItemEvents(gtx, i, b)
+	}
+	if ed.blockDragActive {
+		ed.customMenuOpen = false
+	}
+}
+
+func (ed *Editor) layoutCanvasPalette(gtx layout.Context, th *material.Theme, size image.Point) {
+	items := ed.paletteItems()
+	pad := gtx.Dp(unit.Dp(6))
+	gap := gtx.Dp(unit.Dp(4))
+	btnH := gtx.Dp(unit.Dp(26))
+	padX := gtx.Dp(unit.Dp(8))
+	isz := gtx.Dp(unit.Dp(14))
+	lblSp := unit.Sp(10)
+	maxW := size.X - pad*2
+	if maxW <= 0 {
+		return
+	}
+	const customLabel = "Custom"
+	widths := make([]int, len(items)+1)
+	for i, it := range items {
+		widths[i] = padX + isz + gap + widgets.MeasureTextWidthCached(gtx, th, lblSp, font.Font{}, it.title) + padX
+	}
+	widths[len(items)] = padX + isz + gap + widgets.MeasureTextWidthCached(gtx, th, lblSp, font.Font{}, customLabel) + padX
+	var rows [][]int
+	var cur []int
+	used := 0
+	for i, w := range widths {
+		if len(cur) > 0 && used+gap+w > maxW {
+			rows = append(rows, cur)
+			cur, used = nil, 0
+		}
+		if len(cur) > 0 {
+			used += gap
+		}
+		cur = append(cur, i)
+		used += w
+	}
+	if len(cur) > 0 {
+		rows = append(rows, cur)
+	}
+	y := size.Y - pad - btnH
+	ed.paletteBar = image.Rectangle{}
+	button := func(rect image.Rectangle, clk *widget.Clickable, dragTag *bool, ic *widget.Icon, col color.NRGBA, title string, active bool) {
+		defer op.Offset(rect.Min).Push(gtx.Ops).Pop()
+		g := gtx
+		g.Constraints = layout.Exact(rect.Size())
+		clk.Layout(g, func(g layout.Context) layout.Dimensions {
+			bg := theme.BgPopup
+			fg := theme.FgMuted
+			if clk.Hovered() || active {
+				bg = theme.BgHover
+				fg = theme.Fg
+			}
+			box := image.Rectangle{Max: rect.Size()}
+			rr := g.Dp(unit.Dp(4))
+			paint.FillShape(g.Ops, bg, clip.UniformRRect(box, rr).Op(g.Ops))
+			paint.FillShape(g.Ops, theme.BorderSubtle, clip.Stroke{Path: clip.UniformRRect(box, rr).Path(g.Ops), Width: 1}.Op())
+			defer clip.Rect(box).Push(g.Ops).Pop()
+			if dragTag != nil {
+				event.Op(g.Ops, dragTag)
+			}
+			pointer.CursorPointer.Add(g.Ops)
+			func() {
+				defer op.Offset(image.Pt(padX, (btnH-isz)/2)).Push(g.Ops).Pop()
+				ig := g
+				ig.Constraints.Min = image.Pt(isz, isz)
+				ig.Constraints.Max = ig.Constraints.Min
+				ic.Layout(ig, col)
+			}()
+			ed.drawText(g, th, image.Pt(padX+isz+gap, (btnH-g.Sp(lblSp))/2-1), rect.Dx(), lblSp, title, fg)
+			return layout.Dimensions{Size: rect.Size()}
+		})
+	}
+	for r := len(rows) - 1; r >= 0; r-- {
+		x := pad
+		for _, i := range rows[r] {
+			w := widths[i]
+			rect := image.Rect(x, y, x+w, y+btnH)
+			ed.paletteBar = ed.paletteBar.Union(rect)
+			if i == len(items) {
+				ed.customRect = rect
+				button(rect, &ed.customBtn, nil, widgets.IconFlow, theme.Accent, customLabel, ed.customMenuOpen)
+			} else {
+				it := items[i]
+				ed.paletteRects[i] = rect
+				button(rect, &ed.addBtns[i], &ed.palDragTags[i], it.icon, kindColor(it.kind), it.title, false)
+			}
+			x += w + gap
+		}
+		y -= btnH + gap
+	}
+	ed.customPopup = image.Rectangle{}
+	if ed.customMenuOpen {
+		ed.layoutCustomMenu(gtx, th, size)
+	}
+}
+
+func (ed *Editor) layoutCustomMenu(gtx layout.Context, th *material.Theme, size image.Point) {
+	blocks := ed.blocks()
+	rowH := gtx.Dp(unit.Dp(28))
+	ed.customRows = ed.customRows[:0]
+	var local []image.Rectangle
+	content := func(gtx layout.Context) layout.Dimensions {
+		local = local[:0]
+		if len(blocks) == 0 {
+			return layout.UniformInset(unit.Dp(10)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				lbl := material.Label(th, unit.Sp(11), "No custom widgets yet. Select nodes and save them as a block.")
+				lbl.Color = theme.FgDim
+				return lbl.Layout(gtx)
+			})
+		}
+		children := make([]layout.FlexChild, 0, len(blocks))
+		for i, b := range blocks {
+			i, b := i, b
+			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+				gtx.Constraints.Min.X = gtx.Constraints.Max.X
+				rect := image.Rectangle{Max: image.Pt(gtx.Constraints.Max.X, rowH)}
+				local = append(local, rect)
+				return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+						return ed.blockBtns[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							gtx.Constraints.Min = image.Pt(gtx.Constraints.Max.X, rowH)
+							box := image.Rectangle{Max: gtx.Constraints.Min}
+							if ed.blockBtns[i].Hovered() {
+								paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect(box).Op())
+							}
+							defer clip.Rect(box).Push(gtx.Ops).Pop()
+							event.Op(gtx.Ops, &ed.blockDragTags[i])
+							pointer.CursorPointer.Add(gtx.Ops)
+							stripe := image.Rect(0, 4, gtx.Dp(unit.Dp(3)), rowH-4)
+							paint.FillShape(gtx.Ops, theme.Accent, clip.Rect(stripe).Op())
+							name := b.Name
+							if name == "" {
+								name = "Block"
+							}
+							ed.drawText(gtx, th, image.Pt(gtx.Dp(unit.Dp(12)), (rowH-gtx.Sp(unit.Sp(12)))/2-1), box.Dx()-gtx.Dp(unit.Dp(16)), unit.Sp(12), name, theme.Fg)
+							return layout.Dimensions{Size: box.Max}
+						})
+					}),
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{Left: unit.Dp(4), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+							return ed.blockDelBtns[i].Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+								s := gtx.Dp(unit.Dp(16))
+								col := theme.FgDim
+								if ed.blockDelBtns[i].Hovered() {
+									col = theme.Danger
+								}
+								gtx.Constraints.Min = image.Pt(s, s)
+								gtx.Constraints.Max = gtx.Constraints.Min
+								return widgets.IconClose.Layout(gtx, col)
+							})
+						})
+					}),
+				)
+			}))
+		}
+		return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return layout.Flex{Axis: layout.Vertical}.Layout(gtx, children...)
+		})
+	}
+	anchor := widgets.MenuAnchor{Pt: image.Pt(ed.customRect.Min.X, ed.customRect.Min.Y-gtx.Dp(unit.Dp(4))), AlignBottom: true, Clamp: size}
+	mg := gtx
+	if maxW := gtx.Dp(unit.Dp(260)); mg.Constraints.Max.X > maxW {
+		mg.Constraints.Max.X = maxW
+	}
+	dims := widgets.DeferMenuSurfaceAt(mg, &ed.customMenuOpen, anchor, widgets.MenuMinWidthDp, content)
+	origin := anchor.Resolve(dims.Size)
+	ed.customPopup = image.Rectangle{Min: origin, Max: origin.Add(dims.Size)}
+	off := origin.Add(image.Pt(1, 1+gtx.Dp(unit.Dp(4))))
+	for _, r := range local {
+		ed.customRows = append(ed.customRows, r.Add(off))
+		off.Y += r.Dy()
+	}
 }
 
 func (ed *Editor) drawConnectPreview(gtx layout.Context) {
@@ -1230,7 +1527,11 @@ func (ed *Editor) drawConnectPreview(gtx layout.Context) {
 		return
 	}
 	c0, c1 := ed.edgeControlsDir(p0, p1, o0, o1)
-	ed.strokeBezier(gtx, p0, c0, c1, p1, theme.Accent, float32(gtx.Dp(unit.Dp(2)))*ed.zoom)
+	end := p1
+	if ed.connectToID != "" {
+		end = ed.arrowBase(gtx, p1, o1)
+	}
+	ed.strokeBezier(gtx, p0, c0, c1, end, theme.Accent, float32(gtx.Dp(unit.Dp(2)))*ed.zoom)
 	if ed.connectToID != "" {
 		ed.drawArrowHead(gtx, p1, o1, theme.Accent)
 	}
@@ -1283,37 +1584,96 @@ func (ed *Editor) drawEnvMenu(gtx layout.Context, th *material.Theme) {
 
 func (ed *Editor) drawDropGhost(gtx layout.Context, th *material.Theme) {
 	var pos f32.Point
-	var label string
 	switch {
 	case ed.palDragActive:
 		gp := widgets.GlobalPointerPos
 		pos = f32.Pt(gp.X-float32(ed.canvasOrig.X), gp.Y-float32(ed.canvasOrig.Y))
-		label = ed.palDragKind.Title()
+		ed.ensureKindGhost(ed.palDragKind, "")
 	case ed.blockDragActive:
 		gp := widgets.GlobalPointerPos
 		pos = f32.Pt(gp.X-float32(ed.canvasOrig.X), gp.Y-float32(ed.canvasOrig.Y))
-		label = ed.blockDragName
+		ed.ensureBlockGhost(ed.blockDragID, ed.blockDragName)
 	case ed.extDrag:
 		pos = f32.Pt(ed.extDragPos.X-float32(ed.canvasOrig.X), ed.extDragPos.Y-float32(ed.canvasOrig.Y))
-		label = ed.extDragLabel
+		ed.ensureKindGhost(KindRequest, ed.extDragLabel)
 	default:
+		ed.clearGhost()
 		return
 	}
 	if pos.X < 0 || pos.Y < 0 || pos.X > float32(ed.canvasSize.X) || pos.Y > float32(ed.canvasSize.Y) {
 		return
 	}
-	w := int(ed.nodeW * ed.zoom)
-	h := int(ed.nodeH * ed.zoom)
-	rect := image.Rect(int(pos.X)-w/2, int(pos.Y)-h/2, int(pos.X)+w/2, int(pos.Y)+h/2)
-	r := int(float32(gtx.Dp(unit.Dp(6))) * ed.zoom)
-	fill := theme.Accent
-	fill.A = 26
-	paint.FillShape(gtx.Ops, fill, clip.UniformRRect(rect, r).Op(gtx.Ops))
-	paint.FillShape(gtx.Ops, theme.Accent, clip.Stroke{Path: clip.UniformRRect(rect, r).Path(gtx.Ops), Width: float32(gtx.Dp(unit.Dp(1)))}.Op())
-	if label != "" {
-		pad := int(float32(gtx.Dp(unit.Dp(10))) * ed.zoom)
-		ed.drawText(gtx, th, image.Pt(rect.Min.X+pad, rect.Min.Y+(h-gtx.Sp(unit.Sp(12*ed.zoom)))/2), w-pad*2, unit.Sp(12*ed.zoom), label, theme.Fg)
+	at := ed.toWorld(pos)
+	for i, n := range ed.ghostNodes {
+		n.X = at.X + ed.ghostRel[i].X
+		n.Y = at.Y + ed.ghostRel[i].Y
+		ed.drawNode(gtx, th, n)
 	}
+}
+
+func (ed *Editor) clearGhost() {
+	ed.ghostNodes = nil
+	ed.ghostRel = nil
+	ed.ghostKind = 0
+	ed.ghostLabel = ""
+	ed.ghostBlock = ""
+}
+
+func (ed *Editor) ensureKindGhost(kind NodeKind, label string) {
+	if ed.ghostBlock == "" && ed.ghostKind == kind && ed.ghostLabel == label && len(ed.ghostNodes) == 1 {
+		return
+	}
+	ed.clearGhost()
+	n := ed.newNodeAt(kind, 0, 0)
+	n.ID = "ghost"
+	if label != "" {
+		n.NameEd.SetText(label)
+	}
+	ed.ghostKind = kind
+	ed.ghostLabel = label
+	ed.ghostNodes = []*Node{n}
+	ed.ghostRel = []f32.Point{f32.Pt(-ed.nodeW/2, -ed.nodeH/2)}
+}
+
+func (ed *Editor) ensureBlockGhost(id, name string) {
+	if ed.ghostBlock == id && len(ed.ghostNodes) > 0 {
+		return
+	}
+	ed.clearGhost()
+	dto, err := LoadBlock(id)
+	if err != nil || len(dto.Nodes) == 0 {
+		ed.ensureKindGhost(KindNote, name)
+		ed.ghostBlock = id
+		return
+	}
+	minX, minY := dto.Nodes[0].X, dto.Nodes[0].Y
+	maxX, maxY := dto.Nodes[0].X, dto.Nodes[0].Y
+	for _, nd := range dto.Nodes {
+		if nd.X < minX {
+			minX = nd.X
+		}
+		if nd.Y < minY {
+			minY = nd.Y
+		}
+		if nd.X > maxX {
+			maxX = nd.X
+		}
+		if nd.Y > maxY {
+			maxY = nd.Y
+		}
+	}
+	offX := -(minX + maxX + ed.nodeW) / 2
+	offY := -(minY + maxY + ed.nodeH) / 2
+	for i, nd := range dto.Nodes {
+		if NodeKind(nd.Kind) == KindStart {
+			continue
+		}
+		n := nodeFromDTO(nd)
+		n.ID = "ghost:" + itoa(i)
+		ed.ghostNodes = append(ed.ghostNodes, n)
+		ed.ghostRel = append(ed.ghostRel, f32.Pt(nd.X+offX, nd.Y+offY))
+	}
+	ed.ghostBlock = id
 }
 
 func zoomLevelBounds() (int, int) {
@@ -1340,8 +1700,26 @@ func (ed *Editor) zoomByNotches(pt f32.Point, notches int) {
 		return
 	}
 	ratio := nz / ed.zoom
-	ed.pan = f32.Pt(pt.X-(pt.X-ed.pan.X)*ratio, pt.Y-(pt.Y-ed.pan.Y)*ratio)
-	ed.zoom = nz
+	np := f32.Pt(pt.X-(pt.X-ed.pan.X)*ratio, pt.Y-(pt.Y-ed.pan.Y)*ratio)
+	if ed.panning {
+		ed.panOrigin = ed.panOrigin.Add(np.Sub(ed.pan))
+	}
+	ed.pan = np
+	ed.setZoom(nz)
+}
+
+func (ed *Editor) setZoom(z float32) {
+	if z == ed.zoom || ed.zoom <= 0 {
+		ed.zoom = z
+		return
+	}
+	ed.zoom = z
+	for _, n := range ed.Scenario.Nodes {
+		if !n.HasBodyBox() {
+			continue
+		}
+		n.bodyScrollPending = true
+	}
 }
 
 func (ed *Editor) setHover(pt f32.Point) {
@@ -1444,6 +1822,18 @@ func (ed *Editor) envChipRect(n *Node) (f32.Point, f32.Point) {
 	gap := 4 * ed.zoom
 	chipH := 16 * ed.zoom
 	return f32.Pt(sp.X, sp.Y-gap-chipH), f32.Pt(sp.X+w, sp.Y-gap)
+}
+
+func (ed *Editor) bodyBoxAt(pt f32.Point) *Node {
+	pp := image.Pt(int(pt.X), int(pt.Y))
+	nodes := ed.Scenario.Nodes
+	for i := len(nodes) - 1; i >= 0; i-- {
+		n := nodes[i]
+		if box, ok := ed.bodyBoxRect(n); ok && pp.In(box) {
+			return n
+		}
+	}
+	return nil
 }
 
 func (ed *Editor) bodyBoxRect(n *Node) (image.Rectangle, bool) {
@@ -1612,6 +2002,16 @@ func (ed *Editor) onPress(e pointer.Event) {
 	}
 
 	pp := image.Pt(int(pt.X), int(pt.Y))
+	if ed.customMenuOpen && pp.In(ed.customPopup) {
+		return
+	}
+	if pp.In(ed.paletteBar) {
+		if !pp.In(ed.customRect) {
+			ed.customMenuOpen = false
+		}
+		return
+	}
+	ed.customMenuOpen = false
 	if pp.In(ed.fitBadge) {
 		ed.fitView()
 		return
@@ -1627,7 +2027,7 @@ func (ed *Editor) onPress(e pointer.Event) {
 		if n.Kind == KindLoop {
 			continue
 		}
-		if n.Kind.IsRequest() {
+		if n.Kind.IsRequest() && n.EnvID != "" {
 			c0, c1 := ed.envChipRect(n)
 			if pt.X >= c0.X && pt.X <= c1.X && pt.Y >= c0.Y && pt.Y <= c1.Y {
 				ed.envMenuNodeID = n.ID
@@ -1637,8 +2037,12 @@ func (ed *Editor) onPress(e pointer.Event) {
 		if ed.pressPorts(n, pt, w) {
 			return
 		}
+		if ed.pressResize(n, pt) {
+			return
+		}
 		if box, ok := ed.bodyBoxRect(n); ok && pp.In(box) {
 			ed.wantFocus = false
+			ed.bodyPressID = n.ID
 			if !ed.selected[n.ID] {
 				ed.selectOnly(n.ID)
 			} else {
@@ -1675,19 +2079,13 @@ func (ed *Editor) onPress(e pointer.Event) {
 		if n.Kind != KindLoop {
 			continue
 		}
-		sp, nw, nh := ed.nodeScreenRect(n)
-		corner := f32.Pt(sp.X+nw, sp.Y+nh)
-		if dist(pt, corner) <= ed.portHit*1.2 {
-			ed.pendingSnap = ed.encode()
-			ed.resizeNodeID = n.ID
-			ed.resizeMoved = false
-			ed.selectOnly(n.ID)
-			ed.mode = modeProps
-			return
-		}
 		if ed.pressPorts(n, pt, w) {
 			return
 		}
+		if ed.pressResize(n, pt) {
+			return
+		}
+		sp, nw, _ := ed.nodeScreenRect(n)
 		headerH := ed.nodeH * ed.zoom
 		if pt.X >= sp.X && pt.X <= sp.X+nw && pt.Y >= sp.Y && pt.Y <= sp.Y+headerH {
 			ed.trySelectNode(n, e, w, -1)
@@ -1698,6 +2096,88 @@ func (ed *Editor) onPress(e pointer.Event) {
 	ed.marquee = true
 	ed.marqueeStart = pt
 	ed.marqueeCur = pt
+}
+
+func (ed *Editor) interacting() bool {
+	return ed.connecting() || ed.dragNodeID != "" || ed.panning || ed.marquee
+}
+
+type resizeEdge struct{ l, r, t, b bool }
+
+func (e resizeEdge) any() bool { return e.l || e.r || e.t || e.b }
+
+func (e resizeEdge) cursor() pointer.Cursor {
+	switch {
+	case e.l && e.t:
+		return pointer.CursorNorthWestResize
+	case e.r && e.b:
+		return pointer.CursorSouthEastResize
+	case e.r && e.t:
+		return pointer.CursorNorthEastResize
+	case e.l && e.b:
+		return pointer.CursorSouthWestResize
+	case e.l || e.r:
+		return pointer.CursorEastWestResize
+	default:
+		return pointer.CursorNorthSouthResize
+	}
+}
+
+func (ed *Editor) resizeEdgeHit(n *Node, pt f32.Point) (resizeEdge, bool) {
+	sp, nw, nh := ed.nodeScreenRect(n)
+	var e resizeEdge
+	if dist(pt, f32.Pt(sp.X+nw, sp.Y+nh)) <= ed.portHit*1.2 {
+		e.r, e.b = true, true
+		return e, true
+	}
+	m := ed.portHit * 0.5
+	if m < 3 {
+		m = 3
+	}
+	if pt.X < sp.X-m || pt.X > sp.X+nw+m || pt.Y < sp.Y-m || pt.Y > sp.Y+nh+m {
+		return e, false
+	}
+	e.l = pt.X <= sp.X+m
+	e.r = pt.X >= sp.X+nw-m
+	e.t = pt.Y <= sp.Y+m
+	e.b = pt.Y >= sp.Y+nh-m
+	return e, e.any()
+}
+
+func (ed *Editor) resizeEdgeAt(pt f32.Point) (*Node, resizeEdge) {
+	nodes := ed.Scenario.Nodes
+	for pass := 0; pass < 2; pass++ {
+		for i := len(nodes) - 1; i >= 0; i-- {
+			n := nodes[i]
+			if (n.Kind == KindLoop) != (pass == 1) {
+				continue
+			}
+			if _, ok := ed.portAt(n, pt); ok && n.HasPorts() {
+				return nil, resizeEdge{}
+			}
+			if e, ok := ed.resizeEdgeHit(n, pt); ok {
+				return n, e
+			}
+		}
+	}
+	return nil, resizeEdge{}
+}
+
+func (ed *Editor) pressResize(n *Node, pt f32.Point) bool {
+	e, ok := ed.resizeEdgeHit(n, pt)
+	if !ok {
+		return false
+	}
+	w, h := ed.nodeWH(n)
+	ed.pendingSnap = ed.encode()
+	ed.resizeNodeID = n.ID
+	ed.resizeEdge = e
+	ed.resizeOrig = [4]float32{n.X, n.Y, w, h}
+	ed.resizeStart = ed.toWorld(pt)
+	ed.resizeMoved = false
+	ed.selectOnly(n.ID)
+	ed.mode = modeProps
+	return true
 }
 
 func (ed *Editor) lastEdgeTo(nodeID string) *Edge {
@@ -1717,24 +2197,52 @@ func (ed *Editor) onDrag(pt f32.Point) {
 	case ed.resizeNodeID != "":
 		if n := ed.Scenario.NodeByID(ed.resizeNodeID); n != nil {
 			w := ed.toWorld(pt)
-			minW := ed.nodeW * 1.2
-			minH := ed.nodeH * 2
-			nw := w.X - n.X
-			nh := w.Y - n.Y
+			minW, minH := nodeMinSize(n, ed.nodeW, ed.nodeH)
+			e := ed.resizeEdge
+			if !e.any() {
+				e.r, e.b = true, true
+			}
+			ox, oy, ow, oh := ed.resizeOrig[0], ed.resizeOrig[1], ed.resizeOrig[2], ed.resizeOrig[3]
+			if ow <= 0 || oh <= 0 {
+				ox, oy = n.X, n.Y
+				ow, oh = ed.nodeWH(n)
+			}
+			dx := w.X - ed.resizeStart.X
+			dy := w.Y - ed.resizeStart.Y
+			nx, ny, nw, nh := ox, oy, ow, oh
+			if e.r {
+				nw = ow + dx
+			}
+			if e.l {
+				nx = ox + dx
+				nw = ow - dx
+			}
+			if e.b {
+				nh = oh + dy
+			}
+			if e.t {
+				ny = oy + dy
+				nh = oh - dy
+			}
 			if nw < minW {
+				if e.l {
+					nx = ox + ow - minW
+				}
 				nw = minW
 			}
 			if nh < minH {
+				if e.t {
+					ny = oy + oh - minH
+				}
 				nh = minH
 			}
-			if nw != n.W || nh != n.H {
+			if nx != n.X || ny != n.Y || nw != n.W || nh != n.H {
 				if !ed.resizeMoved {
 					ed.commitPending()
 				}
 				ed.resizeMoved = true
 			}
-			n.W = nw
-			n.H = nh
+			n.X, n.Y, n.W, n.H = nx, ny, nw, nh
 		}
 	case ed.dragNodeID != "":
 		if n := ed.Scenario.NodeByID(ed.dragNodeID); n != nil {
@@ -1999,7 +2507,7 @@ func (ed *Editor) drawViewBadges(gtx layout.Context, th *material.Theme, size im
 	x := pad
 	badge := func(txt string) image.Rectangle {
 		tw := widgets.MeasureTextWidthCached(gtx, th, unit.Sp(10), font.Font{}, txt)
-		rect := image.Rect(x, size.Y-bh-pad*2, x+tw+pad*2, size.Y-pad)
+		rect := image.Rect(x, pad, x+tw+pad*2, pad*2+bh)
 		rr := gtx.Dp(unit.Dp(4))
 		paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(rect, rr).Op(gtx.Ops))
 		paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Stroke{Path: clip.UniformRRect(rect, rr).Path(gtx.Ops), Width: 1}.Op())
@@ -2057,7 +2565,7 @@ func (ed *Editor) fitView() {
 	if z < minZoom {
 		z = minZoom
 	}
-	ed.zoom = z
+	ed.setZoom(z)
 	cx := (minX + maxX) / 2
 	cy := (minY + maxY) / 2
 	ed.pan = f32.Pt(float32(ed.canvasSize.X)/2-cx*z, float32(ed.canvasSize.Y)/2-cy*z)
@@ -2067,7 +2575,7 @@ func (ed *Editor) resetZoom() {
 	c := f32.Pt(float32(ed.canvasSize.X)/2, float32(ed.canvasSize.Y)/2)
 	ratio := 1 / ed.zoom
 	ed.pan = f32.Pt(c.X-(c.X-ed.pan.X)*ratio, c.Y-(c.Y-ed.pan.Y)*ratio)
-	ed.zoom = 1
+	ed.setZoom(1)
 }
 
 func itoa(v int) string {
@@ -2107,12 +2615,15 @@ func (ed *Editor) drawEdge(gtx layout.Context, th *material.Theme, e *Edge) {
 		if st != StIdle {
 			glow := theme.Accent
 			glow.A = 110
-			ed.strokeBezier(gtx, p0, c0, c1, p1, glow, width+float32(gtx.Dp(unit.Dp(3)))*ed.zoom)
+			ed.strokeBezier(gtx, p0, c0, c1, ed.arrowBase(gtx, p1, o1), glow, width+float32(gtx.Dp(unit.Dp(3)))*ed.zoom)
 		}
 	}
-	ed.strokeBezier(gtx, p0, c0, c1, p1, col, width)
+	ed.strokeBezier(gtx, p0, c0, c1, ed.arrowBase(gtx, p1, o1), col, width)
 	ed.drawArrowHead(gtx, p1, o1, col)
 
+	if e.Cond == CondAlways {
+		return
+	}
 	mid := bezierAt(p0, c0, c1, p1, 0.5)
 	label := e.Summary()
 	lblSp := unit.Sp(10 * ed.zoom)
@@ -2128,9 +2639,18 @@ func (ed *Editor) drawEdge(gtx layout.Context, th *material.Theme, e *Edge) {
 	ed.drawText(gtx, th, image.Pt(rect.Min.X+padX, rect.Min.Y+padY), bw, lblSp, label, theme.Fg)
 }
 
+func (ed *Editor) arrowLen(gtx layout.Context) float32 {
+	return float32(gtx.Dp(unit.Dp(14))) * ed.zoom
+}
+
+func (ed *Editor) arrowBase(gtx layout.Context, p1, o1 f32.Point) f32.Point {
+	ah := ed.arrowLen(gtx)
+	return f32.Pt(p1.X+o1.X*ah, p1.Y+o1.Y*ah)
+}
+
 func (ed *Editor) drawArrowHead(gtx layout.Context, p1, o1 f32.Point, col color.NRGBA) {
-	ah := float32(gtx.Dp(unit.Dp(7))) * ed.zoom
-	base := f32.Pt(p1.X+o1.X*ah, p1.Y+o1.Y*ah)
+	ah := ed.arrowLen(gtx)
+	base := ed.arrowBase(gtx, p1, o1)
 	perp := f32.Pt(-o1.Y, o1.X)
 	var arr clip.Path
 	arr.Begin(gtx.Ops)
@@ -2141,24 +2661,22 @@ func (ed *Editor) drawArrowHead(gtx layout.Context, p1, o1 f32.Point, col color.
 	paint.FillShape(gtx.Ops, col, clip.Outline{Path: arr.End()}.Op())
 }
 
-func (ed *Editor) drawBodyBox(gtx layout.Context, th *material.Theme, n *Node, box image.Rectangle) {
-	paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: box.Min, Max: image.Pt(box.Max.X, box.Min.Y+1)}.Op())
-	inset := int(6 * ed.zoom)
-	if inset < 2 {
-		inset = 2
+func (ed *Editor) drawBodyBox(gtx layout.Context, th *material.Theme, n *Node, box image.Rectangle, edge int) {
+	if edge < 1 {
+		edge = 1
 	}
-	field := box.Inset(inset)
+	field := image.Rect(box.Min.X+edge, box.Min.Y, box.Max.X-edge, box.Max.Y-edge)
 	if field.Dx() <= 0 || field.Dy() <= 0 {
 		return
 	}
+	paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: field.Min, Max: image.Pt(field.Max.X, field.Min.Y+1)}.Op())
 	e, hint := n.canvasBodyEditor()
-	rr := int(4 * ed.zoom)
-	paint.FillShape(gtx.Ops, theme.BgField, clip.UniformRRect(field, rr).Op(gtx.Ops))
-	bcol := theme.Border
-	if gtx.Source.Focused(e) {
-		bcol = theme.Accent
+	r := int(float32(gtx.Dp(unit.Dp(6))) * ed.zoom)
+	if r > edge {
+		r -= edge
 	}
-	paint.FillShape(gtx.Ops, bcol, clip.Stroke{Path: clip.UniformRRect(field, rr).Path(gtx.Ops), Width: 1}.Op())
+	rr := clip.RRect{Rect: field, SW: r, SE: r}
+	paint.FillShape(gtx.Ops, theme.BgField, rr.Op(gtx.Ops))
 	pad := int(4 * ed.zoom)
 	if pad < 1 {
 		pad = 1
@@ -2169,25 +2687,53 @@ func (ed *Editor) drawBodyBox(gtx layout.Context, th *material.Theme, n *Node, b
 	}
 	defer op.Offset(inner.Min).Push(gtx.Ops).Pop()
 	defer clip.Rect{Max: inner.Size()}.Push(gtx.Ops).Pop()
-	if ed.zoom < 0.45 {
-		line := e.Text()
-		if i := strings.IndexByte(line, '\n'); i >= 0 {
-			line = line[:i]
-		}
-		if line == "" {
-			line = hint
-		}
-		ed.drawText(gtx, th, image.Point{}, inner.Dx(), unit.Sp(10*ed.zoom), line, theme.FgDim)
-		return
-	}
 	defer pointer.PassOp{}.Push(gtx.Ops).Pop()
 	g := gtx
 	g.Constraints = layout.Exact(inner.Size())
+	editorExtraKeys(g, e)
+	for {
+		if _, ok := e.Update(g); !ok {
+			break
+		}
+	}
+	if ed.bodyPressID == n.ID {
+		e.SetScrollCaret(false)
+	}
 	me := material.Editor(th, e, hint)
 	me.TextSize = unit.Sp(10 * ed.zoom)
 	me.Font.Typeface = widgets.MonoTypeface
 	me.HintColor = theme.FgDim
+	viewH := inner.Dy()
+	if !n.bodyScrollPending {
+		me.Layout(g)
+		n.trackBodyScroll(e, viewH)
+		return
+	}
+	n.bodyScrollPending = false
+	probe := g
+	probe.Ops = new(op.Ops)
+	me.Layout(probe)
+	contentH := e.GetScrollBounds().Max.Y + viewH
+	e.SetScrollY(int(n.bodyTopFrac*float32(contentH) + 0.5))
 	me.Layout(g)
+	n.bodyAnchorSy = e.GetScrollY()
+	n.bodyContentH = contentH
+}
+
+func editorExtraKeys(gtx layout.Context, e *widget.Editor) {
+	widgets.HandleEditorShortcuts(gtx, e)
+	if e.SingleLine {
+		return
+	}
+	for {
+		ev, ok := gtx.Event(key.Filter{Focus: e, Name: key.NameTab, Optional: key.ModShift})
+		if !ok {
+			break
+		}
+		if ke, ok := ev.(key.Event); ok && ke.State == key.Press {
+			e.Insert("\t")
+		}
+	}
 }
 
 func (ed *Editor) drawText(gtx layout.Context, th *material.Theme, off image.Point, maxW int, size unit.Sp, txt string, col color.NRGBA) {
@@ -2199,6 +2745,20 @@ func (ed *Editor) drawText(gtx layout.Context, th *material.Theme, off image.Poi
 	lbl.Color = col
 	lbl.MaxLines = 1
 	lbl.Layout(g)
+}
+
+func (ed *Editor) nodeHitArea(gtx layout.Context, n *Node, rect image.Rectangle) {
+	for {
+		if _, ok := gtx.Event(pointer.Filter{
+			Target: &n.hitTag,
+			Kinds:  pointer.Press | pointer.Release | pointer.Drag | pointer.Cancel,
+		}); !ok {
+			break
+		}
+	}
+	cl := clip.Rect(rect).Push(gtx.Ops)
+	event.Op(gtx.Ops, &n.hitTag)
+	cl.Pop()
 }
 
 func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
@@ -2231,8 +2791,10 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 	if stripeW < 1 {
 		stripeW = 1
 	}
-	stripe := image.Rect(x, y+r, x+stripeW, y+headerH-r)
-	paint.FillShape(gtx.Ops, kindColor(n.Kind), clip.Rect(stripe).Op())
+	stripeClip := clip.UniformRRect(rect, r).Push(gtx.Ops)
+	paint.FillShape(gtx.Ops, kindColor(n.Kind), clip.Rect(image.Rect(x, y, x+stripeW, y+headerH)).Op())
+	stripeClip.Pop()
+	ed.nodeHitArea(gtx, n, rect)
 
 	st := ed.Runner.NodeState(n.ID)
 	border := stateColor(st, theme.BorderLight)
@@ -2250,28 +2812,24 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 	if bw < 1 {
 		bw = 1
 	}
-	paint.FillShape(gtx.Ops, border, clip.Stroke{Path: clip.UniformRRect(rect, r).Path(gtx.Ops), Width: bw}.Op())
-	if sel {
-		gap := int(float32(gtx.Dp(unit.Dp(3)))*ed.zoom + 0.5)
-		if gap < 2 {
-			gap = 2
-		}
-		outer := rect.Inset(-gap)
-		ow := float32(gtx.Dp(unit.Dp(1))) * ed.zoom
-		if ow < 1 {
-			ow = 1
-		}
-		ring := theme.Accent
-		if st != StIdle {
-			ow *= 1.6
-		} else {
-			ring.A = 170
-		}
-		paint.FillShape(gtx.Ops, ring, clip.Stroke{Path: clip.UniformRRect(outer, r+gap).Path(gtx.Ops), Width: ow}.Op())
+	edge := int(float32(gtx.Dp(unit.Dp(1)))*ed.zoom + 0.5)
+	if edge < 1 {
+		edge = 1
 	}
 
 	padX := int(float32(gtx.Dp(unit.Dp(10))) * ed.zoom)
-	ed.drawText(gtx, th, image.Pt(x+padX, y+int(float32(gtx.Dp(unit.Dp(8)))*ed.zoom)), w-padX*2, unit.Sp(12*ed.zoom), n.DisplayName(), theme.Fg)
+	titleW := w - padX*2
+	if missing := ed.missingVars(n); len(missing) > 0 {
+		ws := float32(gtx.Dp(unit.Dp(12))) * ed.zoom
+		wx := float32(x+w-edge) - 5*ed.zoom - ws
+		wy := float32(y+edge) + 5*ed.zoom
+		drawWarnIcon(gtx, f32.Pt(wx, wy), ws, color.NRGBA{R: 235, G: 180, B: 60, A: 255})
+		titleW = int(wx-4*ed.zoom) - (x + padX)
+		if titleW < 1 {
+			titleW = 1
+		}
+	}
+	ed.drawText(gtx, th, image.Pt(x+padX, y+int(float32(gtx.Dp(unit.Dp(8)))*ed.zoom)), titleW, unit.Sp(12*ed.zoom), n.DisplayName(), theme.Fg)
 	ed.drawText(gtx, th, image.Pt(x+padX, y+int(float32(gtx.Dp(unit.Dp(28)))*ed.zoom)), w-padX*2, unit.Sp(10*ed.zoom), n.Summary(), theme.FgMuted)
 
 	if isLoop {
@@ -2292,7 +2850,7 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 			footBg := loopCol
 			footBg.A = 22
 			paint.FillShape(gtx.Ops, footBg, clip.Rect(image.Rect(x, footTop, x+w, y+h)).Op())
-			paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect(image.Rect(x, footTop, x+w, footTop+1)).Op())
+			paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect(image.Rect(x+edge, footTop, x+w-edge, footTop+1)).Op())
 			cl.Pop()
 			ed.drawText(gtx, th, image.Pt(x+padX, y+headerH+int(3*ed.zoom)), w-padX*2, lblSp, "▶ iteration start", loopCol)
 			ed.drawText(gtx, th, image.Pt(x+padX, footTop+int(3*ed.zoom)), w-padX*2, lblSp, endLbl, loopCol)
@@ -2325,24 +2883,10 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 				paint.FillShape(gtx.Ops, lcol, clip.Outline{Path: ap.End()}.Op())
 			}
 		}
-
-		hl := int(float32(gtx.Dp(unit.Dp(10))) * ed.zoom)
-		cornerCol := theme.FgMuted
-		if n.ID == ed.resizeNodeID || n.ID == ed.selNodeID {
-			cornerCol = theme.Accent
-		}
-		for i := 0; i < 2; i++ {
-			off := i * hl / 2
-			var p clip.Path
-			p.Begin(gtx.Ops)
-			p.MoveTo(f32.Pt(float32(x+w-hl+off), float32(y+h)))
-			p.LineTo(f32.Pt(float32(x+w), float32(y+h-hl+off)))
-			paint.FillShape(gtx.Ops, cornerCol, clip.Stroke{Path: p.End(), Width: float32(gtx.Dp(unit.Dp(1)))}.Op())
-		}
 	}
 
 	chipRight := x
-	if n.Kind.IsRequest() {
+	if n.Kind.IsRequest() && n.EnvID != "" {
 		c0, c1 := ed.envChipRect(n)
 		label := "env: " + ed.envName(n.EnvID)
 		lblSp := unit.Sp(9 * ed.zoom)
@@ -2382,7 +2926,22 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 	}
 
 	if box, ok := ed.bodyBoxRect(n); ok {
-		ed.drawBodyBox(gtx, th, n, box)
+		ed.drawBodyBox(gtx, th, n, box, edge)
+	}
+	paint.FillShape(gtx.Ops, border, clip.Stroke{Path: clip.UniformRRect(rect, r).Path(gtx.Ops), Width: bw}.Op())
+
+	hl := int(float32(gtx.Dp(unit.Dp(10))) * ed.zoom)
+	cornerCol := theme.FgMuted
+	if n.ID == ed.resizeNodeID || n.ID == ed.selNodeID {
+		cornerCol = theme.Accent
+	}
+	for i := 0; i < 2; i++ {
+		off := i * hl / 2
+		var p clip.Path
+		p.Begin(gtx.Ops)
+		p.MoveTo(f32.Pt(float32(x+w-hl+off), float32(y+h)))
+		p.LineTo(f32.Pt(float32(x+w), float32(y+h-hl+off)))
+		paint.FillShape(gtx.Ops, cornerCol, clip.Stroke{Path: p.End(), Width: float32(gtx.Dp(unit.Dp(1)))}.Op())
 	}
 
 	if ed.showPorts(n) {
@@ -2442,12 +3001,32 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 			}
 		}
 	}
+}
 
-	if missing := ed.missingVars(n); len(missing) > 0 {
-		warn := "⚠ missing: " + strings.Join(missing, ", ")
-		warnCol := color.NRGBA{R: 235, G: 180, B: 60, A: 255}
-		ed.drawText(gtx, th, image.Pt(x, y+h+int(4*ed.zoom)), w*2, unit.Sp(9*ed.zoom), warn, warnCol)
+func drawWarnIcon(gtx layout.Context, tl f32.Point, size float32, col color.NRGBA) {
+	if size < 4 {
+		size = 4
 	}
+	var tri clip.Path
+	tri.Begin(gtx.Ops)
+	tri.MoveTo(f32.Pt(tl.X+size/2, tl.Y))
+	tri.LineTo(f32.Pt(tl.X+size, tl.Y+size))
+	tri.LineTo(f32.Pt(tl.X, tl.Y+size))
+	tri.Close()
+	paint.FillShape(gtx.Ops, col, clip.Outline{Path: tri.End()}.Op())
+
+	bar := size / 7
+	if bar < 1 {
+		bar = 1
+	}
+	cx := tl.X + size/2
+	mark := theme.BgPopup
+	paint.FillShape(gtx.Ops, mark, clip.Rect(image.Rect(
+		int(cx-bar/2), int(tl.Y+size*0.35), int(cx+bar/2+0.5), int(tl.Y+size*0.68),
+	)).Op())
+	paint.FillShape(gtx.Ops, mark, clip.Rect(image.Rect(
+		int(cx-bar/2), int(tl.Y+size*0.76), int(cx+bar/2+0.5), int(tl.Y+size*0.9),
+	)).Op())
 }
 
 func drawPort(gtx layout.Context, c f32.Point, r int, col color.NRGBA, filled bool) {
@@ -2507,6 +3086,7 @@ func (ed *Editor) dropKindAtWindow(kind NodeKind, winPos f32.Point) bool {
 }
 
 func (ed *Editor) addBlock(id string) {
+	ed.customMenuOpen = false
 	dto, err := LoadBlock(id)
 	if err != nil {
 		ed.note = "Block load failed: " + err.Error()
@@ -2520,6 +3100,7 @@ func (ed *Editor) dropBlockAtWindow(id string, winPos f32.Point) bool {
 	if !ok {
 		return false
 	}
+	ed.customMenuOpen = false
 	dto, err := LoadBlock(id)
 	if err != nil {
 		ed.note = "Block load failed: " + err.Error()
