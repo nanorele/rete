@@ -424,14 +424,10 @@ func (e *Editor) Reset() {
 	e.NewThemeNameEditor.SetText("")
 }
 
-func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
-	if e == nil {
-		e = NewEditor((*host.Current))
-	}
-
+func (e *Editor) Update(gtx layout.Context, host *Host) bool {
 	for e.BackBtn.Clicked(gtx) {
 		host.OnClose()
-		return layout.Dimensions{Size: gtx.Constraints.Max}
+		return true
 	}
 	resetChanged := false
 	for e.ResetBtn.Clicked(gtx) {
@@ -1119,6 +1115,16 @@ func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	if changed || resetChanged {
 		e.Apply(host)
 		host.OnSave()
+	}
+	return false
+}
+
+func (e *Editor) Layout(gtx layout.Context, host *Host) layout.Dimensions {
+	if e == nil {
+		e = NewEditor((*host.Current))
+	}
+	if e.Update(gtx, host) {
+		return layout.Dimensions{Size: gtx.Constraints.Max}
 	}
 
 	defer clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops).Pop()

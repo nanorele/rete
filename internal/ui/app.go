@@ -1270,6 +1270,9 @@ var probeRegion func(name string, dims layout.Dimensions)
 func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 	ui.windowSize = gtx.Constraints.Max
 	ui.drainDroppedFiles()
+	if ui.SettingsOpen && ui.SettingsState != nil {
+		ui.SettingsState.Update(gtx, ui.settingsHost())
+	}
 
 	for {
 		ev, ok := gtx.Event(pointer.Filter{
