@@ -3,8 +3,8 @@ package varpopup
 import (
 	"testing"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/environments"
+	"rete/internal/model"
+	"rete/internal/ui/environments"
 )
 
 func manyEnvs(n int) []*environments.EnvironmentUI {

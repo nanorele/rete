@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/ui/theme"
+	"rete/internal/ui/theme"
 )
 
 func TestHumanSize(t *testing.T) {
@@ -114,29 +114,6 @@ func TestShortType_Table(t *testing.T) {
 	}
 }
 
-func TestIsProbablyText_Table(t *testing.T) {
-	cases := []struct {
-		name string
-		in   []byte
-		want bool
-	}{
-		{"nil", nil, true},
-		{"empty", []byte{}, true},
-		{"ascii", []byte("hello world\r\n\tplain"), true},
-		{"json", []byte(`{"a":1}`), true},
-		{"nul", []byte("abc\x00def"), false},
-		{"mostly-control", bytes.Repeat([]byte{0x01}, 100), false},
-		{"few-control", append(bytes.Repeat([]byte("a"), 100), 0x01), true},
-		{"large-text", bytes.Repeat([]byte("x"), 20000), true},
-		{"large-binary", append(bytes.Repeat([]byte{0x02}, 9000), 'a'), false},
-	}
-	for _, c := range cases {
-		if got := isProbablyText(c.in); got != c.want {
-			t.Errorf("isProbablyText(%s) = %v, want %v", c.name, got, c.want)
-		}
-	}
-}
-
 func TestExportMsg_Table(t *testing.T) {
 	cases := []struct {
 		written, total int
@@ -205,8 +182,11 @@ func TestWSText_BinaryAndSeparators(t *testing.T) {
 	if !strings.Contains(out, "→ send") || !strings.Contains(out, "← receive") {
 		t.Errorf("missing direction markers:\n%s", out)
 	}
-	if !strings.Contains(out, "[binary]") || !strings.Contains(out, "base64 chars]") {
-		t.Errorf("binary frame not summarised:\n%s", out)
+	if !strings.Contains(out, "[binary]") || !strings.Contains(out, "00000000  00 01 02 03 04 05") || !strings.Contains(out, "|......|") {
+		t.Errorf("binary frame not hex-dumped:\n%s", out)
+	}
+	if strings.Contains(out, "\n\n\n") {
+		t.Errorf("hex-dumped frame must not open a double blank line:\n%q", out)
 	}
 	if !strings.Contains(out, "[text]") || !strings.Contains(out, "plain") {
 		t.Errorf("text frame missing:\n%s", out)

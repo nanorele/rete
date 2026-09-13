@@ -7,12 +7,12 @@ import (
 	"path/filepath"
 	"sync"
 
-	"tracto/internal/persist"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/environments"
-	"tracto/internal/ui/flow"
-	"tracto/internal/ui/sidebar"
-	"tracto/internal/ui/theme"
+	"rete/internal/persist"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/environments"
+	"rete/internal/ui/flow"
+	"rete/internal/ui/sidebar"
+	"rete/internal/ui/theme"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"

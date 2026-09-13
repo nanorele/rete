@@ -3,8 +3,8 @@ package ui
 import (
 	"crypto/tls"
 
-	"tracto/internal/ui/mitm"
-	"tracto/internal/ui/workspace"
+	"rete/internal/ui/mitm"
+	"rete/internal/ui/workspace"
 )
 
 func (ui *AppUI) triggerWSAction(rt *workspace.RequestTab) {
@@ -35,8 +35,8 @@ func (ui *AppUI) buildWSTLSConfig(rt *workspace.RequestTab) *tls.Config {
 		cfg.InsecureSkipVerify = true
 		return cfg
 	}
-	if s.UseTractoCA {
-		if pool := mitm.TractoTrustPool(); pool != nil {
+	if s.UseReteCA {
+		if pool := mitm.ReteTrustPool(); pool != nil {
 			cfg.RootCAs = pool
 		}
 	}

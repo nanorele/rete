@@ -1,7 +1,7 @@
 package sidebar
 
 import (
-	"tracto/internal/ui/collections"
+	"rete/internal/ui/collections"
 
 	"github.com/nanorele/gio/unit"
 )

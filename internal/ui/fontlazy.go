@@ -7,7 +7,7 @@ import (
 	"github.com/nanorele/gio/font/opentype"
 	"github.com/nanorele/gio/text"
 
-	"tracto/pkg/fontsubset"
+	"rete/pkg/fontsubset"
 )
 
 type lazyFontSpec struct {

@@ -7,10 +7,10 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/environments"
-	"tracto/internal/ui/flow"
-	"tracto/internal/ui/sidebar"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/environments"
+	"rete/internal/ui/flow"
+	"rete/internal/ui/sidebar"
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/layout"

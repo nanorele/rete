@@ -5,7 +5,7 @@ import (
 	"io"
 	"testing"
 
-	"tracto/internal/model"
+	"rete/internal/model"
 )
 
 func TestAtoiDefault(t *testing.T) {

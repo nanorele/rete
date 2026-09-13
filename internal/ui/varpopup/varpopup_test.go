@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/environments"
+	"rete/internal/model"
+	"rete/internal/ui/environments"
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/layout"

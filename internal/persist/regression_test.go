@@ -8,7 +8,7 @@ import (
 	"sync"
 	"testing"
 
-	"tracto/internal/model"
+	"rete/internal/model"
 )
 
 func TestAtomicWriteFileSurvivesConcurrentReader(t *testing.T) {
@@ -194,7 +194,7 @@ func TestMarshalRequestPreservesUnsupportedAuth(t *testing.T) {
 	out := MarshalRequest(req)
 	raw, ok := out["auth"]
 	if !ok {
-		t.Fatal("an auth type tracto does not model must survive the round trip, not be destroyed")
+		t.Fatal("an auth type rete does not model must survive the round trip, not be destroyed")
 	}
 	if !strings.Contains(string(raw.(json.RawMessage)), "oauth2") {
 		t.Errorf("auth = %s, want the original oauth2 block preserved", raw)

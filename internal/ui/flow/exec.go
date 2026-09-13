@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/url"
@@ -20,9 +21,11 @@ import (
 	"sync"
 	"time"
 
-	"tracto/internal/ui/settings"
-	"tracto/internal/utils"
-	"tracto/internal/ws"
+	"rete/internal/model"
+	"rete/internal/ui/settings"
+	"rete/internal/ui/widgets"
+	"rete/internal/utils"
+	"rete/internal/ws"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/widget"
@@ -424,28 +427,21 @@ func expandVars(input string, env, vars map[string]string) string {
 	var b strings.Builder
 	b.Grow(len(input))
 	for i := 0; i < len(input); {
-		start := strings.Index(input[i:], "{{")
-		if start == -1 {
+		start, end, ok := widgets.FindVar(input, i)
+		if !ok {
 			b.WriteString(input[i:])
 			break
 		}
-		b.WriteString(input[i : i+start])
-		rest := input[i+start:]
-		end := strings.Index(rest[2:], "}}")
-		if end == -1 {
-			b.WriteString(rest)
-			break
-		}
-		end += 4
-		k := strings.TrimSpace(rest[2 : end-2])
+		b.WriteString(input[i:start])
+		k := strings.TrimSpace(input[start+2 : end-2])
 		if v, ok := vars[k]; ok {
 			b.WriteString(v)
 		} else if v, ok := env[k]; ok {
 			b.WriteString(v)
 		} else {
-			b.WriteString(rest[:end])
+			b.WriteString(input[start:end])
 		}
-		i += start + end
+		i = end
 	}
 	return b.String()
 }
@@ -828,7 +824,10 @@ func describeNetErr(ctx context.Context, err error) string {
 }
 
 func resolveURL(n *execNode, vars map[string]string) (string, string) {
-	rawURL := strings.TrimSpace(expandVars(n.url, n.env, vars))
+	raw := strings.ReplaceAll(n.url, "\n", "")
+	raw = strings.ReplaceAll(raw, "\t", "")
+	raw = strings.TrimSpace(utils.SanitizeText(raw))
+	rawURL := strings.TrimSpace(expandVars(raw, n.env, vars))
 	if rawURL == "" {
 		return "", "empty URL"
 	}
@@ -877,15 +876,86 @@ func (n *execNode) applyHeaders(h http.Header, vars map[string]string) {
 		}
 		h.Add(k, strings.TrimSpace(expandVars(hd[1], n.env, vars)))
 	}
-	if a := n.authHeader(vars); a != "" && h.Get("Authorization") == "" {
+	if a := n.authHeader(vars); a != "" {
 		h.Set("Authorization", a)
 	}
-	if c := n.cookieHeader(vars); c != "" && h.Get("Cookie") == "" {
+	if c := n.cookieHeader(vars); c != "" {
 		h.Set("Cookie", c)
 	}
 }
 
-func (n *execNode) buildBody(vars map[string]string) (io.Reader, string, string) {
+func flowUserAgent() string {
+	if ua := strings.TrimSpace(settings.UserAgent); ua != "" {
+		return ua
+	}
+	return model.DefaultSettings().UserAgent
+}
+
+func (n *execNode) applySystemHeaders(req *http.Request, vars map[string]string, contentType string, ctExplicit bool) {
+	h := req.Header
+	if h.Get("User-Agent") == "" {
+		h.Set("User-Agent", flowUserAgent())
+	}
+	if contentType != "" && !ctExplicit && h.Get("Content-Type") == "" {
+		h.Set("Content-Type", contentType)
+	}
+	for _, dh := range settings.DefaultHeaders {
+		k := strings.TrimSpace(dh.Key)
+		if k == "" || h.Get(k) != "" {
+			continue
+		}
+		h.Set(k, expandVars(dh.Value, n.env, vars))
+	}
+	if contentType != "" && ctExplicit {
+		h.Set("Content-Type", contentType)
+	}
+	if ae := strings.TrimSpace(settings.AcceptEncoding); ae != "" && h.Get("Accept-Encoding") == "" {
+		h.Set("Accept-Encoding", ae)
+	}
+	if settings.SendConnClose {
+		req.Close = true
+		if h.Get("Connection") == "" {
+			h.Set("Connection", "close")
+		}
+	}
+}
+
+var bodyReplacer = strings.NewReplacer("\u2003", "\t", "\uFEFF", "")
+
+func prepareRawBody(body string) string {
+	body = bodyReplacer.Replace(body)
+	if settings.TrimTrailingWS {
+		body = utils.TrimTrailingWhitespace(body)
+	}
+	if settings.StripJSONComments {
+		if stripped := utils.StripJSONComments(body); json.Valid([]byte(stripped)) {
+			body = stripped
+		}
+	}
+	if settings.AutoFormatJSONRequest && json.Valid([]byte(body)) {
+		var v interface{}
+		if err := json.Unmarshal([]byte(body), &v); err == nil {
+			indent := settings.JSONIndent
+			if indent < 0 {
+				indent = 2
+			}
+			if formatted, err := json.MarshalIndent(v, "", strings.Repeat(" ", indent)); err == nil {
+				body = string(formatted)
+			}
+		}
+	}
+	return body
+}
+
+func sniffContentType(body string) string {
+	t := strings.TrimLeft(strings.TrimPrefix(body, "\uFEFF"), " \t\r\n")
+	if strings.HasPrefix(t, "{") || strings.HasPrefix(t, "[") {
+		return "application/json"
+	}
+	return "text/plain"
+}
+
+func (n *execNode) buildBody(vars map[string]string) (io.Reader, string, bool, string) {
 	switch n.bodyType {
 	case "urlencoded":
 		form := url.Values{}
@@ -896,14 +966,10 @@ func (n *execNode) buildBody(vars map[string]string) (io.Reader, string, string)
 			}
 			form.Add(k, strings.TrimSpace(v))
 		}
-		if len(form) == 0 {
-			return nil, "", ""
-		}
-		return strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", ""
+		return strings.NewReader(form.Encode()), "application/x-www-form-urlencoded", true, ""
 	case "form":
 		var buf bytes.Buffer
 		mw := multipart.NewWriter(&buf)
-		wrote := false
 		for _, line := range strings.Split(expandVars(n.body, n.env, vars), "\n") {
 			k, v, _ := strings.Cut(line, "=")
 			if k = strings.TrimSpace(k); k == "" {
@@ -913,55 +979,54 @@ func (n *execNode) buildBody(vars map[string]string) (io.Reader, string, string)
 			if path, isFile := strings.CutPrefix(v, "@"); isFile {
 				data, err := os.ReadFile(path)
 				if err != nil {
-					return nil, "", "form file " + path + ": " + err.Error()
+					return nil, "", false, "form file " + path + ": " + err.Error()
 				}
 				fw, err := mw.CreateFormFile(k, filepath.Base(path))
 				if err != nil {
-					return nil, "", err.Error()
+					return nil, "", false, err.Error()
 				}
 				_, _ = fw.Write(data)
 			} else {
 				_ = mw.WriteField(k, v)
 			}
-			wrote = true
 		}
 		_ = mw.Close()
-		if !wrote {
-			return nil, "", ""
-		}
-		return &buf, mw.FormDataContentType(), ""
+		return &buf, mw.FormDataContentType(), true, ""
 	case "binary":
 		if n.binPath == "" {
-			return nil, "", ""
+			return nil, "", false, "binary body: no file selected"
 		}
-		data, err := os.ReadFile(expandVars(n.binPath, n.env, vars))
+		path := expandVars(n.binPath, n.env, vars)
+		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil, "", "binary body: " + err.Error()
+			return nil, "", false, "binary body: " + err.Error()
 		}
-		return bytes.NewReader(data), "application/octet-stream", ""
+		ct := mime.TypeByExtension(filepath.Ext(path))
+		if ct == "" {
+			ct = "application/octet-stream"
+		}
+		return bytes.NewReader(data), ct, true, ""
 	default:
-		if body := expandVars(n.body, n.env, vars); body != "" {
-			return strings.NewReader(body), "", ""
-		}
-		return nil, "", ""
+		body := prepareRawBody(expandVars(n.body, n.env, vars))
+		return strings.NewReader(body), sniffContentType(body), false, ""
 	}
 }
 
-func doHTTP(ctx context.Context, n *execNode, vars map[string]string, method, rawURL string, bodyReader io.Reader, contentType string) stepResult {
+func doHTTP(ctx context.Context, n *execNode, vars map[string]string, method, rawURL string, bodyReader io.Reader, contentType string, ctExplicit bool) stepResult {
 	req, err := http.NewRequestWithContext(ctx, method, rawURL, bodyReader)
 	if err != nil {
 		return stepResult{failed: true, errMsg: "invalid request: " + err.Error()}
 	}
 	n.applyHeaders(req.Header, vars)
-	if contentType != "" && req.Header.Get("Content-Type") == "" {
-		req.Header.Set("Content-Type", contentType)
-	}
+	n.applySystemHeaders(req, vars, contentType, ctExplicit)
 	resp, err := settings.HTTPClient.Do(req)
 	if err != nil {
 		return stepResult{failed: true, errMsg: describeNetErr(ctx, err)}
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, rerr := io.ReadAll(io.LimitReader(resp.Body, maxBodyBytes))
+	stream := utils.DecompressBody(resp)
+	defer func() { _ = stream.Close() }()
+	body, rerr := io.ReadAll(io.LimitReader(stream, maxBodyBytes))
 	res := stepResult{
 		hasResp: true,
 		status:  resp.StatusCode,
@@ -983,11 +1048,15 @@ func runHTTP(ctx context.Context, n *execNode, vars map[string]string) stepResul
 	if !strings.HasPrefix(rawURL, "http://") && !strings.HasPrefix(rawURL, "https://") {
 		rawURL = "http://" + rawURL
 	}
-	bodyReader, contentType, bodyErr := n.buildBody(vars)
+	bodyReader, contentType, ctExplicit, bodyErr := n.buildBody(vars)
 	if bodyErr != "" {
 		return stepResult{failed: true, errMsg: bodyErr}
 	}
-	return doHTTP(ctx, n, vars, n.method, rawURL, bodyReader, contentType)
+	method := strings.ToUpper(strings.TrimSpace(n.method))
+	if method == "" {
+		method = http.MethodGet
+	}
+	return doHTTP(ctx, n, vars, method, rawURL, bodyReader, contentType, ctExplicit)
 }
 
 func runGQL(ctx context.Context, n *execNode, vars map[string]string) stepResult {
@@ -1012,7 +1081,7 @@ func runGQL(ctx context.Context, n *execNode, vars map[string]string) stepResult
 	if err != nil {
 		return stepResult{failed: true, errMsg: "GraphQL payload: " + err.Error()}
 	}
-	return doHTTP(ctx, n, vars, http.MethodPost, rawURL, bytes.NewReader(data), "application/json")
+	return doHTTP(ctx, n, vars, http.MethodPost, rawURL, bytes.NewReader(data), "application/json", true)
 }
 
 func parseWSHexBody(s string) ([]byte, error) {
@@ -1105,6 +1174,11 @@ func runWSOpen(ctx context.Context, n *execNode, vars map[string]string) (stepRe
 
 	headers := http.Header{}
 	n.applyHeaders(headers, vars)
+	if headers.Get("Origin") == "" {
+		if origin := ws.DefaultOrigin(rawURL); origin != "" {
+			headers.Set("Origin", origin)
+		}
+	}
 	opts := ws.DialOptions{
 		Subprotocols: n.subprotos,
 		Headers:      headers,

@@ -5,9 +5,9 @@ import (
 	"os"
 	"path/filepath"
 
-	"tracto/internal/persist"
-	"tracto/internal/ui/flow"
-	"tracto/internal/ui/sidebar"
+	"rete/internal/persist"
+	"rete/internal/ui/flow"
+	"rete/internal/ui/sidebar"
 
 	"github.com/nanorele/gio/layout"
 )

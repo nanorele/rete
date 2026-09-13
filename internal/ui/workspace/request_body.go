@@ -1,7 +1,7 @@
 package workspace
 
 import (
-	"tracto/internal/model"
+	"rete/internal/model"
 
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/widget"

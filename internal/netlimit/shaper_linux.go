@@ -11,9 +11,9 @@ import (
 )
 
 const (
-	linuxIfb       = "ifb-tracto"
-	linuxCgroup    = "tracto_netlimit"
-	linuxNftTable  = "tracto_nl"
+	linuxIfb       = "ifb-rete"
+	linuxCgroup    = "rete_netlimit"
+	linuxNftTable  = "rete_nl"
 	linuxFwMark    = "0x00540000"
 	cgroupV2Root   = "/sys/fs/cgroup"
 	cgroupProcfile = "cgroup.procs"

@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
-	netlim "tracto/internal/netlimit"
-	"tracto/internal/persist"
+	netlim "rete/internal/netlimit"
+	"rete/internal/persist"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"

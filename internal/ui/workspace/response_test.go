@@ -148,7 +148,7 @@ func TestWordBoundsAt(t *testing.T) {
 		{"middle of word", 2, 0, 5},
 		{"on space (separator run)", 5, 5, 6},
 		{"on word 'w' (start of second word)", 6, 6, 11},
-		{"on newline (separator run)", 11, 11, 12},
+		{"on newline (clamps to line end, selects trailing word)", 11, 6, 11},
 		{"start of foo (after newline)", 12, 12, 15},
 		{"on dot separator", 15, 15, 16},
 		{"on bar word", 17, 16, 19},
@@ -176,13 +176,13 @@ func TestWordBoundsAt_QuotesAndHyphens(t *testing.T) {
 		wantSel            string
 	}{
 		{"on opening quote", 0, 0, 1, `"`},
-		{"on m of my-key", 1, 1, 7, "my-key"},
-		{"on hyphen of my-key", 3, 1, 7, "my-key"},
-		{"on k of key", 4, 1, 7, "my-key"},
+		{"on m of my-key", 1, 1, 3, "my"},
+		{"on hyphen of my-key", 3, 3, 4, "-"},
+		{"on k of key", 4, 4, 7, "key"},
 		{"on closing quote of my-key", 7, 7, 8, `"`},
-		{"on C of Content-Type", 11, 11, 23, "Content-Type"},
-		{"on hyphen of Content-Type", 18, 11, 23, "Content-Type"},
-		{"on T of Type", 19, 11, 23, "Content-Type"},
+		{"on C of Content-Type", 11, 11, 18, "Content"},
+		{"on hyphen of Content-Type", 18, 18, 19, "-"},
+		{"on T of Type", 19, 19, 23, "Type"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

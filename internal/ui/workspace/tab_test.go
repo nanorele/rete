@@ -2,9 +2,9 @@ package workspace
 
 import (
 	"github.com/nanorele/gio/widget"
+	"rete/internal/model"
+	"rete/internal/ui/collections"
 	"testing"
-	"tracto/internal/model"
-	"tracto/internal/ui/collections"
 )
 
 func TestProcessTemplate(t *testing.T) {
@@ -26,7 +26,7 @@ func TestProcessTemplate(t *testing.T) {
 		{"spaces in template", "http://{{ host  }}", env, "http://localhost:8080"},
 		{"no env", "http://{{host}}", nil, "http://{{host}}"},
 		{"unterminated template", "http://{{host", env, "http://{{host"},
-		{"nested braces", "http://{{{{host}}}}", env, "http://{{{{host}}}}"},
+		{"nested braces", "http://{{{{host}}}}", env, "http://{{localhost:8080}}"},
 	}
 
 	for _, tc := range tests {

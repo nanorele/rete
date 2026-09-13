@@ -1,12 +1,12 @@
 package apptest
 
 import (
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 
 	"image"
+	"rete/internal/ui/workspace"
 	"testing"
 	"time"
-	"tracto/internal/ui/workspace"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/layout"

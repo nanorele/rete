@@ -5,7 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/ws"
+	"rete/internal/ui/binview"
+	"rete/internal/ws"
 )
 
 func newWSRig() *vstackRig {
@@ -30,7 +31,7 @@ func TestWSToggleButtons(t *testing.T) {
 		{"deflate", func(s *WSSession) { s.OfferDeflateBtn.Click() }, func(s *WSSession) bool { return !s.OfferDeflate }},
 		{"msgpack", func(s *WSSession) { s.MsgpackProtoBtn.Click() }, func(s *WSSession) bool { return s.UseMsgpackProto }},
 		{"insecure", func(s *WSSession) { s.InsecureBtn.Click() }, func(s *WSSession) bool { return s.InsecureSkipVerify }},
-		{"tracto ca", func(s *WSSession) { s.UseTractoCABtn.Click() }, func(s *WSSession) bool { return s.UseTractoCA }},
+		{"rete ca", func(s *WSSession) { s.UseReteCABtn.Click() }, func(s *WSSession) bool { return s.UseReteCA }},
 		{"headers collapse", func(s *WSSession) { s.HeadersCollapseBtn.Click() }, func(s *WSSession) bool { return s.HeadersCollapsed }},
 		{"composer wrap", func(s *WSSession) { s.ComposerWrapBtn.Click() }, func(s *WSSession) bool { return !s.ComposerWrap }},
 		{"opcode menu", func(s *WSSession) { s.OpcodeMenuBtn.Click() }, func(s *WSSession) bool { return s.OpcodeMenuOpen }},
@@ -38,7 +39,7 @@ func TestWSToggleButtons(t *testing.T) {
 		{"hide ping", func(s *WSSession) { s.FilterPingBtn.Click() }, func(s *WSSession) bool { return s.Filter.HidePing }},
 		{"hide pong", func(s *WSSession) { s.FilterPongBtn.Click() }, func(s *WSSession) bool { return s.Filter.HidePong }},
 		{"hide close", func(s *WSSession) { s.FilterCloseBtn.Click() }, func(s *WSSession) bool { return s.Filter.HideClose }},
-		{"detail hex", func(s *WSSession) { s.DetailHexBtn.Click() }, func(s *WSSession) bool { return s.DetailHex }},
+		{"detail hex", func(s *WSSession) { s.DetailBin.Btn(binview.ModeHexDump).Click() }, func(s *WSSession) bool { return s.DetailBin.Mode == binview.ModeHexDump }},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -84,13 +85,13 @@ func TestWSOpcodeChoicesSwitchMode(t *testing.T) {
 func TestWSDetailTextButtonResetsHex(t *testing.T) {
 	rig := newWSRig()
 	s := rig.tab.EnsureWS()
-	s.DetailHex = true
+	s.DetailBin.Mode = binview.ModeHexDump
 	rig.frame()
-	s.DetailTextBtn.Click()
+	s.DetailBin.Btn(binview.ModeText).Click()
 	rig.frame()
 	rig.frame()
-	if s.DetailHex {
-		t.Error("the TEXT button must turn hex mode off")
+	if s.DetailBin.Mode != binview.ModeText {
+		t.Error("the Text chip must turn hex mode off")
 	}
 }
 

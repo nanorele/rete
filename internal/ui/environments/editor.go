@@ -4,12 +4,13 @@ import (
 	"image"
 	"strings"
 
-	"tracto/internal/model"
-	"tracto/internal/persist"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/model"
+	"rete/internal/persist"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/app"
+	"github.com/nanorele/gio/io/key"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op/clip"
 	"github.com/nanorele/gio/op/paint"
@@ -135,6 +136,19 @@ func (env *EnvironmentUI) Commit(onDirty func()) {
 	}
 }
 
+func drainFieldEvents(gtx layout.Context, ed *widget.Editor) {
+	widgets.HandleEditorShortcuts(gtx, ed)
+	for {
+		ev, ok := ed.Update(gtx)
+		if !ok {
+			break
+		}
+		if _, ok := ev.(widget.SubmitEvent); ok {
+			gtx.Execute(key.FocusCmd{})
+		}
+	}
+}
+
 func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) layout.Dimensions {
 	if env == nil {
 		return layout.Dimensions{}
@@ -144,31 +158,11 @@ func (env *EnvironmentUI) LayoutEditor(gtx layout.Context, host *EditorHost) lay
 	// read Text(), which only reflects this frame's keystrokes once Update has
 	// processed them. Handling Save first would compare stale text and drop the
 	// edit when a keystroke and the click land in the same frame.
-	widgets.HandleEditorShortcuts(gtx, &env.NameEditor)
-	for {
-		if _, ok := env.NameEditor.Update(gtx); !ok {
-			break
-		}
-	}
-	widgets.HandleEditorShortcuts(gtx, &env.ColorEditor)
-	for {
-		if _, ok := env.ColorEditor.Update(gtx); !ok {
-			break
-		}
-	}
+	drainFieldEvents(gtx, &env.NameEditor)
+	drainFieldEvents(gtx, &env.ColorEditor)
 	for _, r := range env.Rows {
-		widgets.HandleEditorShortcuts(gtx, &r.KeyEditor)
-		for {
-			if _, ok := r.KeyEditor.Update(gtx); !ok {
-				break
-			}
-		}
-		widgets.HandleEditorShortcuts(gtx, &r.ValEditor)
-		for {
-			if _, ok := r.ValEditor.Update(gtx); !ok {
-				break
-			}
-		}
+		drainFieldEvents(gtx, &r.KeyEditor)
+		drainFieldEvents(gtx, &r.ValEditor)
 	}
 
 	if env.BackBtn.Clicked(gtx) {

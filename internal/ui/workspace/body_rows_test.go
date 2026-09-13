@@ -1,8 +1,8 @@
 package workspace
 
 import (
+	"rete/internal/model"
 	"testing"
-	"tracto/internal/model"
 
 	"github.com/nanorele/gio/widget/material"
 )

@@ -5,7 +5,7 @@ import (
 	"math"
 	"testing"
 
-	"tracto/pkg/syntax"
+	"rete/pkg/syntax"
 )
 
 func TestParseHex(t *testing.T) {

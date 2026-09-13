@@ -3,7 +3,7 @@ package widgets
 import (
 	"image"
 
-	"tracto/internal/ui/theme"
+	"rete/internal/ui/theme"
 
 	"github.com/nanorele/gio-x/component"
 

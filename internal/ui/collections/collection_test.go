@@ -1,9 +1,9 @@
 package collections
 
 import (
+	"rete/internal/model"
 	"strings"
 	"testing"
-	"tracto/internal/model"
 )
 
 func TestNodePathFromAndAtPath(t *testing.T) {

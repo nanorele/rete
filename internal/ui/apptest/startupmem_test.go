@@ -11,7 +11,7 @@ import (
 	"github.com/nanorele/gio/text"
 	"github.com/nanorele/gio/widget/material"
 
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 )
 
 func TestStartupBreakdown(t *testing.T) {

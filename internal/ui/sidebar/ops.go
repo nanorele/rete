@@ -5,11 +5,11 @@ import (
 	"os"
 	"path/filepath"
 
-	"tracto/internal/model"
-	"tracto/internal/persist"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/environments"
-	"tracto/internal/ui/widgets"
+	"rete/internal/model"
+	"rete/internal/persist"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/environments"
+	"rete/internal/ui/widgets"
 )
 
 func addNewCollection(host *Host) {

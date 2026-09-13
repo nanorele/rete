@@ -36,7 +36,7 @@ func TestProxyHTTPCapture(t *testing.T) {
 	}
 
 	req, _ := http.NewRequest(http.MethodPost, upstream.URL+"/x", strings.NewReader("payload"))
-	req.Header.Set("X-From", "tracto")
+	req.Header.Set("X-From", "rete")
 	resp, err := cl.Do(req)
 	if err != nil {
 		t.Fatalf("client do: %v", err)

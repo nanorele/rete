@@ -16,13 +16,14 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/settings"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
-	"tracto/internal/utils"
-	"tracto/pkg/syntax"
+	"rete/internal/model"
+	"rete/internal/ui/binview"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/settings"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
+	"rete/internal/utils"
+	"rete/pkg/syntax"
 
 	"github.com/nanorele/gio-x/explorer"
 	"github.com/nanorele/gio/app"
@@ -86,6 +87,7 @@ type tabResponse struct {
 	respFile      string
 	previewLoaded int64
 	isJSON        bool
+	binary        bool
 	contentType   string
 	filename      string
 	timings       Timings
@@ -96,6 +98,7 @@ type previewResult struct {
 	body          string
 	previewLoaded int64
 	isJSON        bool
+	binary        bool
 }
 
 type appendChunk struct {
@@ -176,6 +179,8 @@ type RequestTab struct {
 	respSize        int64
 	respFile        string
 	respIsJSON      bool
+	respBinary      bool
+	RespBin         binview.Picker
 	respContentType string
 	ReqLangHint     syntax.Lang
 	downloadedBytes atomic.Int64
@@ -361,6 +366,9 @@ func NewRequestTab(title string) *RequestTab {
 }
 
 func (t *RequestTab) responseLang() syntax.Lang {
+	if t.respBinary {
+		return syntax.LangPlain
+	}
 	if t.respIsJSON {
 		return syntax.LangJSON
 	}
@@ -923,26 +931,19 @@ func processTemplate(input string, env map[string]string) string {
 	var b strings.Builder
 	b.Grow(len(input))
 	for i := 0; i < len(input); {
-		start := strings.Index(input[i:], "{{")
-		if start == -1 {
+		start, end, ok := widgets.FindVar(input, i)
+		if !ok {
 			b.WriteString(input[i:])
 			break
 		}
-		b.WriteString(input[i : i+start])
-		rest := input[i+start:]
-		end := strings.Index(rest[2:], "}}")
-		if end == -1 {
-			b.WriteString(rest)
-			break
-		}
-		end += 4
-		k := strings.TrimSpace(rest[2 : end-2])
+		b.WriteString(input[i:start])
+		k := strings.TrimSpace(input[start+2 : end-2])
 		if v, ok := env[k]; ok {
 			b.WriteString(v)
 		} else {
-			b.WriteString(rest[:end])
+			b.WriteString(input[start:end])
 		}
-		i += start + end
+		i = end
 	}
 	return b.String()
 }
@@ -1400,6 +1401,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 			t.respFile = res.respFile
 			t.previewLoaded.Store(res.previewLoaded)
 			t.respIsJSON = res.isJSON
+			t.respBinary = res.binary
 			t.respContentType = res.contentType
 			if res.filename != "" {
 				t.SuggestedFile = res.filename
@@ -1429,6 +1431,7 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		if pr.requestID == t.requestID.Load() {
 			t.previewLoaded.Store(pr.previewLoaded)
 			t.respIsJSON = pr.isJSON
+			t.respBinary = pr.binary
 			t.RespEditor.SetText(pr.body)
 			t.invalidateSearchCache()
 			th.Shaper.ResetLayoutCache()
@@ -1461,6 +1464,10 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 		th.Shaper.ResetLayoutCache()
 		t.LastRespWidth = 0
 		t.pendingRespWidth = 0
+	}
+	if t.RespBin.Update(gtx) && t.respBinary {
+		t.reformatBinaryResponse()
+		th.Shaper.ResetLayoutCache()
 	}
 	for t.ReqWrapBtn.Clicked(gtx) {
 		t.ReqWrapEnabled = !t.ReqWrapEnabled
@@ -2865,6 +2872,17 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 												return layout.Dimensions{}
 											}
 											return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+												layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+													if !t.respBinary || !t.PreviewEnabled || t.RunOpen {
+														return layout.Dimensions{}
+													}
+													return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+														layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+															return binview.Bar(gtx, th, &t.RespBin, formatSize(t.respSize))
+														}),
+														layout.Rigid(wsHLine),
+													)
+												}),
 												layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 													return layout.Stack{}.Layout(gtx,
 														layout.Expanded(func(gtx layout.Context) layout.Dimensions {

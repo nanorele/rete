@@ -3,9 +3,9 @@ package ui
 import (
 	"testing"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/environments"
+	"rete/internal/model"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/environments"
 )
 
 func node(name string, folder, expanded bool, depth int, children ...*collections.CollectionNode) *collections.CollectionNode {

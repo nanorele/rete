@@ -11,8 +11,8 @@ import (
 	"github.com/nanorele/gio/op"
 	"github.com/nanorele/gio/unit"
 
-	. "tracto/internal/ui"
-	"tracto/internal/ui/workspace"
+	. "rete/internal/ui"
+	"rete/internal/ui/workspace"
 )
 
 // TestLazyFontsRenderMultilingualResponse rasterizes a response body mixing

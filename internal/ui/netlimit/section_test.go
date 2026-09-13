@@ -4,7 +4,7 @@ import (
 	"image"
 	"testing"
 
-	netlim "tracto/internal/netlimit"
+	netlim "rete/internal/netlimit"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/layout"

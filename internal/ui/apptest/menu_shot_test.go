@@ -3,7 +3,7 @@
 package apptest
 
 import (
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 
 	"fmt"
 	"image"
@@ -13,7 +13,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/gpu/headless"

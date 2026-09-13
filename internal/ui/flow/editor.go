@@ -11,11 +11,11 @@ import (
 	"strings"
 	"time"
 
-	"tracto/internal/model"
-	"tracto/internal/persist"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/model"
+	"rete/internal/persist"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"
@@ -99,8 +99,11 @@ type Editor struct {
 	marqueeCur      f32.Point
 	connectFromID   string
 	connectFromSide string
+	connectToID     string
+	connectToSide   string
 	connectPos      f32.Point
 	reconnectEdge   *Edge
+	wantFocus       bool
 
 	hoverPos    f32.Point
 	hoverOn     bool
@@ -660,6 +663,8 @@ func (ed *Editor) cancelInteraction() {
 	}
 	ed.connectFromID = ""
 	ed.connectFromSide = ""
+	ed.connectToID = ""
+	ed.connectToSide = ""
 	if ed.envMenuNodeID != "" || ed.envDropOpen {
 		ed.envMenuNodeID = ""
 		ed.envDropOpen = false
@@ -862,42 +867,36 @@ func kindColor(k NodeKind) color.NRGBA {
 	return theme.FgMuted
 }
 
+func (ed *Editor) portPos(n *Node, side string) f32.Point {
+	w, h := ed.nodeWH(n)
+	switch side {
+	case SideLeft:
+		return f32.Pt(n.X, n.Y+ed.nodeH/2)
+	case SideTop:
+		return f32.Pt(n.X+w/2, n.Y)
+	case SideBottom:
+		return f32.Pt(n.X+w/2, n.Y+h)
+	}
+	return f32.Pt(n.X+w, n.Y+ed.nodeH/2)
+}
+
 func (ed *Editor) inPort(n *Node) f32.Point {
-	return f32.Pt(n.X, n.Y+ed.nodeH/2)
+	return ed.portPos(n, SideLeft)
 }
 
 func (ed *Editor) inPortSide(n *Node, side string) f32.Point {
-	if side == SideTop {
-		w, _ := ed.nodeWH(n)
-		return f32.Pt(n.X+w/2, n.Y)
-	}
-	return ed.inPort(n)
+	return ed.portPos(n, normToSide(side))
 }
 
 func (ed *Editor) outPortBottom(n *Node) f32.Point {
-	w, h := ed.nodeWH(n)
-	return f32.Pt(n.X+w/2, n.Y+h)
+	return ed.portPos(n, SideBottom)
 }
 
 func (ed *Editor) outPortSide(n *Node, side string) f32.Point {
-	if side == SideBottom && n.Kind != KindCondition {
-		return ed.outPortBottom(n)
+	if n.Kind == KindCondition {
+		return ed.outPort(n)
 	}
-	return ed.outPort(n)
-}
-
-func sideVecOut(side string) f32.Point {
-	if side == SideBottom {
-		return f32.Pt(0, 1)
-	}
-	return f32.Pt(1, 0)
-}
-
-func sideVecIn(side string) f32.Point {
-	if side == SideTop {
-		return f32.Pt(0, -1)
-	}
-	return f32.Pt(-1, 0)
+	return ed.portPos(n, normFromSide(side))
 }
 
 func (ed *Editor) edgeGeom(e *Edge, from, to *Node) (p0, p1, o0, o1 f32.Point) {
@@ -905,12 +904,46 @@ func (ed *Editor) edgeGeom(e *Edge, from, to *Node) (p0, p1, o0, o1 f32.Point) {
 		p0 = ed.edgeOutPos(e, from)
 		o0 = f32.Pt(1, 0)
 	} else {
-		p0 = ed.outPortSide(from, e.FromSide)
-		o0 = sideVecOut(e.FromSide)
+		side := normFromSide(e.FromSide)
+		p0 = ed.portPos(from, side)
+		o0 = sideNormal(side)
 	}
-	p1 = ed.inPortSide(to, e.ToSide)
-	o1 = sideVecIn(e.ToSide)
+	toSide := normToSide(e.ToSide)
+	p1 = ed.portPos(to, toSide)
+	o1 = sideNormal(toSide)
 	return
+}
+
+func (ed *Editor) edgesAtPort(n *Node, side string) []*Edge {
+	var out []*Edge
+	for _, e := range ed.Scenario.Edges {
+		switch {
+		case e.From == n.ID && n.Kind != KindCondition && normFromSide(e.FromSide) == side:
+			out = append(out, e)
+		case e.To == n.ID && normToSide(e.ToSide) == side:
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func (ed *Editor) nearestSide(n *Node, pt f32.Point) (string, float32) {
+	best := ""
+	bestD := float32(math.MaxFloat32)
+	for _, side := range allSides {
+		if n.Kind == KindCondition && side == SideRight {
+			continue
+		}
+		if d := dist(pt, ed.toScreen(ed.portPos(n, side))); d < bestD {
+			best, bestD = side, d
+		}
+	}
+	return best, bestD
+}
+
+func (ed *Editor) portAt(n *Node, pt f32.Point) (string, bool) {
+	side, d := ed.nearestSide(n, pt)
+	return side, side != "" && d <= ed.portHit
 }
 
 func (ed *Editor) outEdges(n *Node) []*Edge {
@@ -957,20 +990,16 @@ func (ed *Editor) edgeOutPos(e *Edge, from *Node) f32.Point {
 }
 
 func collectPlaceholders(s string, out map[string]bool) {
-	for {
-		start := strings.Index(s, "{{")
-		if start < 0 {
+	for i := 0; ; {
+		start, end, ok := widgets.FindVar(s, i)
+		if !ok {
 			return
 		}
-		end := strings.Index(s[start+2:], "}}")
-		if end < 0 {
-			return
-		}
-		name := strings.TrimSpace(s[start+2 : start+2+end])
+		name := strings.TrimSpace(s[start+2 : end-2])
 		if name != "" {
 			out[name] = true
 		}
-		s = s[start+2+end+2:]
+		i = end
 	}
 }
 
@@ -1067,13 +1096,14 @@ func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Hos
 
 	for {
 		ev, ok := gtx.Event(
-			key.Filter{Name: key.NameDeleteForward},
-			key.Filter{Name: key.NameDeleteBackward},
-			key.Filter{Name: key.NameEscape},
-			key.Filter{Name: "A", Required: key.ModShortcut},
-			key.Filter{Name: "C", Required: key.ModShortcut},
-			key.Filter{Name: "V", Required: key.ModShortcut},
-			key.Filter{Name: "D", Required: key.ModShortcut},
+			key.FocusFilter{Target: ed},
+			key.Filter{Focus: ed, Name: key.NameDeleteForward},
+			key.Filter{Focus: ed, Name: key.NameDeleteBackward},
+			key.Filter{Focus: ed, Name: key.NameEscape},
+			key.Filter{Focus: ed, Name: "A", Required: key.ModShortcut},
+			key.Filter{Focus: ed, Name: "C", Required: key.ModShortcut},
+			key.Filter{Focus: ed, Name: "V", Required: key.ModShortcut},
+			key.Filter{Focus: ed, Name: "D", Required: key.ModShortcut},
 		)
 		if !ok {
 			break
@@ -1145,6 +1175,11 @@ func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Hos
 		}
 	}
 
+	if ed.wantFocus {
+		ed.wantFocus = false
+		gtx.Execute(key.FocusCmd{Tag: ed})
+	}
+
 	ed.refreshHoverNode()
 
 	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
@@ -1160,19 +1195,7 @@ func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Hos
 	for _, e := range ed.Scenario.Edges {
 		ed.drawEdge(gtx, th, e)
 	}
-	if from := ed.connectingNode(); from != nil {
-		var p0, o0 f32.Point
-		if from.Kind == KindCondition {
-			p0 = ed.toScreen(ed.outPort(from))
-			o0 = f32.Pt(1, 0)
-		} else {
-			p0 = ed.toScreen(ed.outPortSide(from, ed.connectFromSide))
-			o0 = sideVecOut(ed.connectFromSide)
-		}
-		p1 := ed.toScreen(ed.connectPos)
-		c0, c1 := ed.edgeControlsDir(p0, p1, o0, f32.Pt(-o0.X, -o0.Y))
-		ed.strokeBezier(gtx, p0, c0, c1, p1, theme.Accent, float32(gtx.Dp(unit.Dp(2)))*ed.zoom)
-	}
+	ed.drawConnectPreview(gtx)
 	for _, n := range ed.Scenario.Nodes {
 		if n.Kind != KindLoop {
 			ed.drawNode(gtx, th, n)
@@ -1184,6 +1207,33 @@ func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Hos
 	ed.drawViewBadges(gtx, th, size)
 
 	return layout.Dimensions{Size: size}
+}
+
+func (ed *Editor) drawConnectPreview(gtx layout.Context) {
+	var p0, p1, o0, o1 f32.Point
+	if from := ed.connectingNode(); from != nil {
+		if from.Kind == KindCondition {
+			p0 = ed.toScreen(ed.outPort(from))
+			o0 = f32.Pt(1, 0)
+		} else {
+			p0 = ed.toScreen(ed.portPos(from, ed.connectFromSide))
+			o0 = sideNormal(ed.connectFromSide)
+		}
+		p1 = ed.toScreen(ed.connectPos)
+		o1 = f32.Pt(-o0.X, -o0.Y)
+	} else if to := ed.Scenario.NodeByID(ed.connectToID); to != nil {
+		p1 = ed.toScreen(ed.portPos(to, ed.connectToSide))
+		o1 = sideNormal(ed.connectToSide)
+		p0 = ed.toScreen(ed.connectPos)
+		o0 = f32.Pt(-o1.X, -o1.Y)
+	} else {
+		return
+	}
+	c0, c1 := ed.edgeControlsDir(p0, p1, o0, o1)
+	ed.strokeBezier(gtx, p0, c0, c1, p1, theme.Accent, float32(gtx.Dp(unit.Dp(2)))*ed.zoom)
+	if ed.connectToID != "" {
+		ed.drawArrowHead(gtx, p1, o1, theme.Accent)
+	}
 }
 
 func (ed *Editor) drawEnvMenu(gtx layout.Context, th *material.Theme) {
@@ -1345,10 +1395,26 @@ func (ed *Editor) refreshHoverNode() {
 	ed.hoverNodeID = ed.hoverNodeAt(ed.hoverPos)
 }
 
-func (ed *Editor) portVisibility(n *Node) (showIn, showOut bool) {
-	hovered := ed.hoverNodeID == n.ID
-	connecting := ed.connectFromID != ""
-	return hovered || (connecting && ed.connectFromID != n.ID), hovered || ed.connectFromID == n.ID
+func (ed *Editor) connecting() bool {
+	return ed.connectFromID != "" || ed.connectToID != ""
+}
+
+func (ed *Editor) anchoredNodeID() string {
+	if ed.connectFromID != "" {
+		return ed.connectFromID
+	}
+	return ed.connectToID
+}
+
+func (ed *Editor) showPorts(n *Node) bool {
+	if !n.HasPorts() {
+		return false
+	}
+	return ed.hoverNodeID == n.ID || ed.anchoredNodeID() == n.ID
+}
+
+func (ed *Editor) canStartOut(n *Node) bool {
+	return n.HasPorts() && n.Kind != KindCondition && ed.firstOutEdge(n) == nil
 }
 
 func (ed *Editor) firstOutEdge(n *Node) *Edge {
@@ -1358,20 +1424,6 @@ func (ed *Editor) firstOutEdge(n *Node) *Edge {
 		}
 	}
 	return nil
-}
-
-func (ed *Editor) outPortSidesShown(n *Node) (right, bottom bool) {
-	if n.Kind == KindCondition {
-		return false, false
-	}
-	e := ed.firstOutEdge(n)
-	if e == nil {
-		return true, true
-	}
-	if e.FromSide == SideBottom {
-		return false, true
-	}
-	return true, false
 }
 
 func (ed *Editor) connectingNode() *Node {
@@ -1388,10 +1440,19 @@ func (ed *Editor) nodeScreenRect(n *Node) (f32.Point, float32, float32) {
 }
 
 func (ed *Editor) envChipRect(n *Node) (f32.Point, f32.Point) {
-	sp, w, h := ed.nodeScreenRect(n)
+	sp, w, _ := ed.nodeScreenRect(n)
 	gap := 4 * ed.zoom
 	chipH := 16 * ed.zoom
-	return f32.Pt(sp.X, sp.Y+h+gap), f32.Pt(sp.X+w, sp.Y+h+gap+chipH)
+	return f32.Pt(sp.X, sp.Y-gap-chipH), f32.Pt(sp.X+w, sp.Y-gap)
+}
+
+func (ed *Editor) bodyBoxRect(n *Node) (image.Rectangle, bool) {
+	if !n.HasBodyBox() {
+		return image.Rectangle{}, false
+	}
+	sp, w, h := ed.nodeScreenRect(n)
+	top := sp.Y + ed.nodeH*ed.zoom
+	return image.Rect(int(sp.X), int(top), int(sp.X+w), int(sp.Y+h)), true
 }
 
 func (ed *Editor) envName(id string) string {
@@ -1466,52 +1527,74 @@ func (ed *Editor) condSlotHit(n *Node) float32 {
 	return hit
 }
 
-func (ed *Editor) pressOutPorts(n *Node, pt f32.Point, w f32.Point) bool {
+func (ed *Editor) grabEdge(e *Edge, freeTarget bool, w f32.Point) {
+	ed.pushHistory()
+	ed.Scenario.RemoveEdge(e.ID)
+	ed.reconnectEdge = e
+	ed.connectPos = w
+	ed.connectFromID, ed.connectFromSide = "", ""
+	ed.connectToID, ed.connectToSide = "", ""
+	if freeTarget {
+		ed.connectFromID = e.From
+		ed.connectFromSide = normFromSide(e.FromSide)
+	} else {
+		ed.connectToID = e.To
+		ed.connectToSide = normToSide(e.ToSide)
+	}
+	if ed.selEdgeID == e.ID {
+		ed.selEdgeID = ""
+	}
+}
+
+func (ed *Editor) pressCondSlots(n *Node, pt f32.Point, w f32.Point) bool {
+	outs := ed.outEdges(n)
+	hit := ed.condSlotHit(n)
+	if dist(pt, ed.toScreen(ed.outPortAt(n, len(outs)))) <= hit {
+		ed.connectFromID = n.ID
+		ed.connectFromSide = SideRight
+		ed.connectPos = w
+		ed.reconnectEdge = nil
+		return true
+	}
+	for i, oe := range outs {
+		if dist(pt, ed.toScreen(ed.outPortAt(n, i))) <= hit {
+			ed.grabEdge(oe, true, w)
+			return true
+		}
+	}
+	return false
+}
+
+func (ed *Editor) pressPorts(n *Node, pt f32.Point, w f32.Point) bool {
 	if !n.HasPorts() {
 		return false
 	}
-	if n.Kind == KindCondition {
-		outs := ed.outEdges(n)
-		hit := ed.condSlotHit(n)
-		if dist(pt, ed.toScreen(ed.outPortAt(n, len(outs)))) <= hit {
-			ed.connectFromID = n.ID
-			ed.connectFromSide = SideRight
-			ed.connectPos = w
-			ed.reconnectEdge = nil
-			return true
+	if n.Kind == KindCondition && ed.pressCondSlots(n, pt, w) {
+		return true
+	}
+	side, ok := ed.portAt(n, pt)
+	if !ok {
+		return false
+	}
+	cands := ed.edgesAtPort(n, side)
+	if len(cands) == 0 {
+		if !ed.canStartOut(n) {
+			return false
 		}
-		for i, oe := range outs {
-			if dist(pt, ed.toScreen(ed.outPortAt(n, i))) <= hit {
-				ed.pushHistory()
-				ed.Scenario.RemoveEdge(oe.ID)
-				ed.reconnectEdge = oe
-				ed.connectFromID = n.ID
-				ed.connectFromSide = SideRight
-				ed.connectPos = w
-				if ed.selEdgeID == oe.ID {
-					ed.selEdgeID = ""
-				}
-				return true
-			}
+		ed.connectFromID = n.ID
+		ed.connectFromSide = side
+		ed.connectPos = w
+		ed.reconnectEdge = nil
+		return true
+	}
+	pick := cands[len(cands)-1]
+	for _, e := range cands {
+		if e.ID == ed.selEdgeID {
+			pick = e
+			break
 		}
-		return false
 	}
-	if ed.firstOutEdge(n) != nil {
-		return false
-	}
-	side := ""
-	switch {
-	case dist(pt, ed.toScreen(ed.outPort(n))) <= ed.portHit:
-		side = SideRight
-	case dist(pt, ed.toScreen(ed.outPortBottom(n))) <= ed.portHit:
-		side = SideBottom
-	default:
-		return false
-	}
-	ed.connectFromID = n.ID
-	ed.connectFromSide = side
-	ed.connectPos = w
-	ed.reconnectEdge = nil
+	ed.grabEdge(pick, pick.To == n.ID, w)
 	return true
 }
 
@@ -1519,6 +1602,7 @@ func (ed *Editor) onPress(e pointer.Event) {
 	pt := e.Position
 	w := ed.toWorld(pt)
 	ed.setHover(pt)
+	ed.wantFocus = true
 
 	if e.Buttons.Contain(pointer.ButtonSecondary) || e.Buttons.Contain(pointer.ButtonTertiary) {
 		ed.panning = true
@@ -1550,23 +1634,19 @@ func (ed *Editor) onPress(e pointer.Event) {
 				return
 			}
 		}
-		if ed.pressOutPorts(n, pt, w) {
+		if ed.pressPorts(n, pt, w) {
 			return
 		}
-		if n.HasPorts() && n.Kind != KindStart &&
-			(dist(pt, ed.toScreen(ed.inPort(n))) <= ed.portHit || dist(pt, ed.toScreen(ed.inPortSide(n, SideTop))) <= ed.portHit) {
-			if e2 := ed.lastEdgeTo(n.ID); e2 != nil {
-				ed.pushHistory()
-				ed.Scenario.RemoveEdge(e2.ID)
-				ed.reconnectEdge = e2
-				ed.connectFromID = e2.From
-				ed.connectFromSide = e2.FromSide
-				ed.connectPos = w
-				if ed.selEdgeID == e2.ID {
-					ed.selEdgeID = ""
-				}
-				return
+		if box, ok := ed.bodyBoxRect(n); ok && pp.In(box) {
+			ed.wantFocus = false
+			if !ed.selected[n.ID] {
+				ed.selectOnly(n.ID)
+			} else {
+				ed.selNodeID = n.ID
+				ed.selEdgeID = ""
 			}
+			ed.mode = modeProps
+			return
 		}
 		sp, nw, nh := ed.nodeScreenRect(n)
 		if pt.X >= sp.X && pt.X <= sp.X+nw && pt.Y >= sp.Y && pt.Y <= sp.Y+nh {
@@ -1575,11 +1655,18 @@ func (ed *Editor) onPress(e pointer.Event) {
 		}
 	}
 
-	if e2 := ed.edgeAt(pt); e2 != nil {
-		ed.selEdgeID = e2.ID
-		ed.selNodeID = ""
-		ed.selected = make(map[string]bool)
-		ed.mode = modeProps
+	if e2, t := ed.edgeHit(pt); e2 != nil {
+		switch {
+		case t >= 0.8:
+			ed.grabEdge(e2, true, w)
+		case t <= 0.2:
+			ed.grabEdge(e2, false, w)
+		default:
+			ed.selEdgeID = e2.ID
+			ed.selNodeID = ""
+			ed.selected = make(map[string]bool)
+			ed.mode = modeProps
+		}
 		return
 	}
 
@@ -1598,35 +1685,8 @@ func (ed *Editor) onPress(e pointer.Event) {
 			ed.mode = modeProps
 			return
 		}
-		if ed.firstOutEdge(n) == nil {
-			if dist(pt, ed.toScreen(ed.outPort(n))) <= ed.portHit {
-				ed.connectFromID = n.ID
-				ed.connectFromSide = SideRight
-				ed.connectPos = w
-				ed.reconnectEdge = nil
-				return
-			}
-			if dist(pt, ed.toScreen(ed.outPortBottom(n))) <= ed.portHit {
-				ed.connectFromID = n.ID
-				ed.connectFromSide = SideBottom
-				ed.connectPos = w
-				ed.reconnectEdge = nil
-				return
-			}
-		}
-		if dist(pt, ed.toScreen(ed.inPort(n))) <= ed.portHit || dist(pt, ed.toScreen(ed.inPortSide(n, SideTop))) <= ed.portHit {
-			if e2 := ed.lastEdgeTo(n.ID); e2 != nil {
-				ed.pushHistory()
-				ed.Scenario.RemoveEdge(e2.ID)
-				ed.reconnectEdge = e2
-				ed.connectFromID = e2.From
-				ed.connectFromSide = e2.FromSide
-				ed.connectPos = w
-				if ed.selEdgeID == e2.ID {
-					ed.selEdgeID = ""
-				}
-				return
-			}
+		if ed.pressPorts(n, pt, w) {
+			return
 		}
 		headerH := ed.nodeH * ed.zoom
 		if pt.X >= sp.X && pt.X <= sp.X+nw && pt.Y >= sp.Y && pt.Y <= sp.Y+headerH {
@@ -1652,7 +1712,7 @@ func (ed *Editor) lastEdgeTo(nodeID string) *Edge {
 func (ed *Editor) onDrag(pt f32.Point) {
 	ed.setHover(pt)
 	switch {
-	case ed.connectFromID != "":
+	case ed.connecting():
 		ed.connectPos = ed.toWorld(pt)
 	case ed.resizeNodeID != "":
 		if n := ed.Scenario.NodeByID(ed.resizeNodeID); n != nil {
@@ -1711,52 +1771,110 @@ func (ed *Editor) onDrag(pt f32.Point) {
 	}
 }
 
-func (ed *Editor) onRelease(pt f32.Point) {
-	if from := ed.connectingNode(); from != nil {
-		for i := len(ed.Scenario.Nodes) - 1; i >= 0; i-- {
-			n := ed.Scenario.Nodes[i]
-			if n.ID == from.ID || n.Kind == KindStart || !n.HasPorts() {
-				continue
-			}
-			sp, nw, nh := ed.nodeScreenRect(n)
-			rectH := nh
-			if n.Kind == KindLoop {
-				rectH = ed.nodeH * ed.zoom
-			}
-			distL := dist(pt, ed.toScreen(ed.inPort(n)))
-			distT := dist(pt, ed.toScreen(ed.inPortSide(n, SideTop)))
-			inHit := distL <= ed.portHit*1.5 || distT <= ed.portHit*1.5
-			rectHit := pt.X >= sp.X && pt.X <= sp.X+nw && pt.Y >= sp.Y && pt.Y <= sp.Y+rectH
-			capped := ed.reconnectEdge == nil && from.Kind != KindCondition && ed.firstOutEdge(from) != nil
-			if (inHit || rectHit) && !capped && !ed.Scenario.HasEdge(from.ID, n.ID) {
-				toSide := SideLeft
-				if distT < distL {
-					toSide = SideTop
-				}
-				var e *Edge
-				if ed.reconnectEdge != nil {
-					e = ed.reconnectEdge
-					e.To = n.ID
-				} else {
-					ed.pushHistory()
-					e = NewEdge(from.ID, n.ID)
-				}
-				e.FromSide = ed.connectFromSide
-				e.ToSide = toSide
-				ed.Scenario.Edges = append(ed.Scenario.Edges, e)
-				ed.selEdgeID = e.ID
-				ed.selNodeID = ""
-				ed.selected = make(map[string]bool)
-				ed.mode = modeProps
-				break
+func (ed *Editor) dropTargetAt(pt f32.Point, exclude string, allowStart bool) (*Node, string) {
+	check := func(n *Node) (string, bool) {
+		if n.ID == exclude || !n.HasPorts() || (n.Kind == KindStart && !allowStart) {
+			return "", false
+		}
+		sp, nw, nh := ed.nodeScreenRect(n)
+		if n.Kind == KindLoop {
+			nh = ed.nodeH * ed.zoom
+		}
+		side, d := ed.nearestSide(n, pt)
+		rectHit := pt.X >= sp.X && pt.X <= sp.X+nw && pt.Y >= sp.Y && pt.Y <= sp.Y+nh
+		if side != "" && (d <= ed.portHit*1.5 || rectHit) {
+			return side, true
+		}
+		return "", false
+	}
+	nodes := ed.Scenario.Nodes
+	for i := len(nodes) - 1; i >= 0; i-- {
+		if n := nodes[i]; n.Kind != KindLoop {
+			if side, ok := check(n); ok {
+				return n, side
 			}
 		}
+	}
+	for i := len(nodes) - 1; i >= 0; i-- {
+		if n := nodes[i]; n.Kind == KindLoop {
+			if side, ok := check(n); ok {
+				return n, side
+			}
+		}
+	}
+	return nil, ""
+}
+
+func (ed *Editor) finishConnect(pt f32.Point) {
+	e := ed.reconnectEdge
+	restore := func() {
+		if e != nil {
+			ed.Scenario.Edges = append(ed.Scenario.Edges, e)
+		}
+	}
+	attach := func(e *Edge) {
+		ed.Scenario.Edges = append(ed.Scenario.Edges, e)
+		ed.selEdgeID = e.ID
+		ed.selNodeID = ""
+		ed.selected = make(map[string]bool)
+		ed.mode = modeProps
+	}
+	if from := ed.connectingNode(); from != nil {
+		n, side := ed.dropTargetAt(pt, from.ID, false)
+		if n == nil {
+			return
+		}
+		capped := e == nil && from.Kind != KindCondition && ed.firstOutEdge(from) != nil
+		if capped || ed.Scenario.HasEdge(from.ID, n.ID) {
+			restore()
+			return
+		}
+		if e == nil {
+			ed.pushHistory()
+			e = NewEdge(from.ID, n.ID)
+		} else {
+			e.To = n.ID
+		}
+		e.FromSide = ed.connectFromSide
+		if from.Kind == KindCondition {
+			e.FromSide = SideRight
+		}
+		e.ToSide = side
+		attach(e)
+		return
+	}
+	to := ed.Scenario.NodeByID(ed.connectToID)
+	if to == nil || e == nil {
+		return
+	}
+	n, side := ed.dropTargetAt(pt, to.ID, true)
+	if n == nil {
+		return
+	}
+	if (n.Kind != KindCondition && ed.firstOutEdge(n) != nil) || ed.Scenario.HasEdge(n.ID, to.ID) {
+		restore()
+		return
+	}
+	e.From = n.ID
+	e.FromSide = side
+	if n.Kind == KindCondition {
+		e.FromSide = SideRight
+	}
+	e.ToSide = ed.connectToSide
+	attach(e)
+}
+
+func (ed *Editor) onRelease(pt f32.Point) {
+	if ed.connecting() {
+		ed.finishConnect(pt)
 	}
 	if ed.marquee {
 		ed.applyMarquee(pt)
 	}
 	ed.connectFromID = ""
 	ed.connectFromSide = ""
+	ed.connectToID = ""
+	ed.connectToSide = ""
 	ed.reconnectEdge = nil
 	ed.dragNodeID = ""
 	ed.dragMembers = ed.dragMembers[:0]
@@ -1800,6 +1918,11 @@ func (ed *Editor) applyMarquee(pt f32.Point) {
 }
 
 func (ed *Editor) edgeAt(pt f32.Point) *Edge {
+	e, _ := ed.edgeHit(pt)
+	return e
+}
+
+func (ed *Editor) edgeHit(pt f32.Point) (*Edge, float32) {
 	const samples = 28
 	hit := ed.portHit * 0.7
 	for i := len(ed.Scenario.Edges) - 1; i >= 0; i-- {
@@ -1813,14 +1936,20 @@ func (ed *Editor) edgeAt(pt f32.Point) *Edge {
 		p0 := ed.toScreen(w0)
 		p1 := ed.toScreen(w1)
 		c0, c1 := ed.edgeControlsDir(p0, p1, o0, o1)
-		for s := 0; s <= samples; s++ {
-			t := float32(s) / samples
-			if dist(pt, bezierAt(p0, c0, c1, p1, t)) <= hit {
-				return e
+		bestT := float32(-1)
+		bestD := hit
+		for k := 0; k <= samples; k++ {
+			t := float32(k) / samples
+			if d := dist(pt, bezierAt(p0, c0, c1, p1, t)); d <= bestD {
+				bestD = d
+				bestT = t
 			}
 		}
+		if bestT >= 0 {
+			return e, bestT
+		}
 	}
-	return nil
+	return nil, 0
 }
 
 func (ed *Editor) drawGrid(gtx layout.Context, size image.Point) {
@@ -1982,17 +2111,7 @@ func (ed *Editor) drawEdge(gtx layout.Context, th *material.Theme, e *Edge) {
 		}
 	}
 	ed.strokeBezier(gtx, p0, c0, c1, p1, col, width)
-
-	ah := float32(gtx.Dp(unit.Dp(7))) * ed.zoom
-	base := f32.Pt(p1.X+o1.X*ah, p1.Y+o1.Y*ah)
-	perp := f32.Pt(-o1.Y, o1.X)
-	var arr clip.Path
-	arr.Begin(gtx.Ops)
-	arr.MoveTo(p1)
-	arr.LineTo(f32.Pt(base.X+perp.X*ah*0.6, base.Y+perp.Y*ah*0.6))
-	arr.LineTo(f32.Pt(base.X-perp.X*ah*0.6, base.Y-perp.Y*ah*0.6))
-	arr.Close()
-	paint.FillShape(gtx.Ops, col, clip.Outline{Path: arr.End()}.Op())
+	ed.drawArrowHead(gtx, p1, o1, col)
 
 	mid := bezierAt(p0, c0, c1, p1, 0.5)
 	label := e.Summary()
@@ -2007,6 +2126,68 @@ func (ed *Editor) drawEdge(gtx layout.Context, th *material.Theme, e *Edge) {
 	paint.FillShape(gtx.Ops, theme.BgPopup, clip.UniformRRect(rect, rr).Op(gtx.Ops))
 	paint.FillShape(gtx.Ops, col, clip.Stroke{Path: clip.UniformRRect(rect, rr).Path(gtx.Ops), Width: 1}.Op())
 	ed.drawText(gtx, th, image.Pt(rect.Min.X+padX, rect.Min.Y+padY), bw, lblSp, label, theme.Fg)
+}
+
+func (ed *Editor) drawArrowHead(gtx layout.Context, p1, o1 f32.Point, col color.NRGBA) {
+	ah := float32(gtx.Dp(unit.Dp(7))) * ed.zoom
+	base := f32.Pt(p1.X+o1.X*ah, p1.Y+o1.Y*ah)
+	perp := f32.Pt(-o1.Y, o1.X)
+	var arr clip.Path
+	arr.Begin(gtx.Ops)
+	arr.MoveTo(p1)
+	arr.LineTo(f32.Pt(base.X+perp.X*ah*0.6, base.Y+perp.Y*ah*0.6))
+	arr.LineTo(f32.Pt(base.X-perp.X*ah*0.6, base.Y-perp.Y*ah*0.6))
+	arr.Close()
+	paint.FillShape(gtx.Ops, col, clip.Outline{Path: arr.End()}.Op())
+}
+
+func (ed *Editor) drawBodyBox(gtx layout.Context, th *material.Theme, n *Node, box image.Rectangle) {
+	paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Min: box.Min, Max: image.Pt(box.Max.X, box.Min.Y+1)}.Op())
+	inset := int(6 * ed.zoom)
+	if inset < 2 {
+		inset = 2
+	}
+	field := box.Inset(inset)
+	if field.Dx() <= 0 || field.Dy() <= 0 {
+		return
+	}
+	e, hint := n.canvasBodyEditor()
+	rr := int(4 * ed.zoom)
+	paint.FillShape(gtx.Ops, theme.BgField, clip.UniformRRect(field, rr).Op(gtx.Ops))
+	bcol := theme.Border
+	if gtx.Source.Focused(e) {
+		bcol = theme.Accent
+	}
+	paint.FillShape(gtx.Ops, bcol, clip.Stroke{Path: clip.UniformRRect(field, rr).Path(gtx.Ops), Width: 1}.Op())
+	pad := int(4 * ed.zoom)
+	if pad < 1 {
+		pad = 1
+	}
+	inner := field.Inset(pad)
+	if inner.Dx() <= 0 || inner.Dy() <= 0 {
+		return
+	}
+	defer op.Offset(inner.Min).Push(gtx.Ops).Pop()
+	defer clip.Rect{Max: inner.Size()}.Push(gtx.Ops).Pop()
+	if ed.zoom < 0.45 {
+		line := e.Text()
+		if i := strings.IndexByte(line, '\n'); i >= 0 {
+			line = line[:i]
+		}
+		if line == "" {
+			line = hint
+		}
+		ed.drawText(gtx, th, image.Point{}, inner.Dx(), unit.Sp(10*ed.zoom), line, theme.FgDim)
+		return
+	}
+	defer pointer.PassOp{}.Push(gtx.Ops).Pop()
+	g := gtx
+	g.Constraints = layout.Exact(inner.Size())
+	me := material.Editor(th, e, hint)
+	me.TextSize = unit.Sp(10 * ed.zoom)
+	me.Font.Typeface = widgets.MonoTypeface
+	me.HintColor = theme.FgDim
+	me.Layout(g)
 }
 
 func (ed *Editor) drawText(gtx layout.Context, th *material.Theme, off image.Point, maxW int, size unit.Sp, txt string, col color.NRGBA) {
@@ -2160,11 +2341,7 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 		}
 	}
 
-	if info := ed.Runner.NodeInfo(n.ID); info != "" {
-		infoCol := stateColor(st, theme.FgMuted)
-		ed.drawText(gtx, th, image.Pt(x, y-gtx.Sp(unit.Sp(11*ed.zoom))-int(4*ed.zoom)), w, unit.Sp(10*ed.zoom), info, infoCol)
-	}
-
+	chipRight := x
 	if n.Kind.IsRequest() {
 		c0, c1 := ed.envChipRect(n)
 		label := "env: " + ed.envName(n.EnvID)
@@ -2180,36 +2357,61 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 		}
 		paint.FillShape(gtx.Ops, bcol, clip.Stroke{Path: clip.UniformRRect(chip, int(4*ed.zoom)).Path(gtx.Ops), Width: 1}.Op())
 		ed.drawText(gtx, th, image.Pt(chip.Min.X+chipPad, chip.Min.Y+int(2*ed.zoom)), tw+chipPad, lblSp, label, theme.FgMuted)
+		chipRight = chip.Max.X
 	}
 
-	if n.HasPorts() {
+	if info := ed.Runner.NodeInfo(n.ID); info != "" {
+		infoCol := stateColor(st, theme.FgMuted)
+		infoSp := unit.Sp(10 * ed.zoom)
+		infoY := y - gtx.Sp(unit.Sp(11*ed.zoom)) - int(4*ed.zoom)
+		infoX := x
+		maxW := w
+		if chipRight > x {
+			tw := widgets.MeasureTextWidthCached(gtx, th, infoSp, font.Font{}, info)
+			minX := chipRight + int(6*ed.zoom)
+			infoX = x + w - tw
+			if infoX < minX {
+				infoX = minX
+			}
+			maxW = x + w - infoX
+			if maxW < 1 {
+				maxW = 1
+			}
+		}
+		ed.drawText(gtx, th, image.Pt(infoX, infoY), maxW, infoSp, info, infoCol)
+	}
+
+	if box, ok := ed.bodyBoxRect(n); ok {
+		ed.drawBodyBox(gtx, th, n, box)
+	}
+
+	if ed.showPorts(n) {
 		portR := int(float32(gtx.Dp(unit.Dp(5))) * ed.zoom)
 		if portR < 2 {
 			portR = 2
 		}
-		showIn, showOut := ed.portVisibility(n)
-		if n.Kind != KindStart && showIn {
-			ip := ed.toScreen(ed.inPort(n))
-			drawPort(gtx, ip, portR, theme.FgMuted, false)
-			tp := ed.toScreen(ed.inPortSide(n, SideTop))
-			drawPort(gtx, tp, portR, theme.FgMuted, false)
+		anchorSide := ""
+		switch n.ID {
+		case ed.connectFromID:
+			anchorSide = ed.connectFromSide
+		case ed.connectToID:
+			anchorSide = ed.connectToSide
 		}
-		portCol := theme.FgMuted
-		if ed.connectFromID == n.ID && ed.connectFromSide != SideBottom {
-			portCol = theme.Accent
-		}
-		outUsed := n.Kind != KindCondition && ed.firstOutEdge(n) != nil
-		showRight, showBottom := ed.outPortSidesShown(n)
-		if n.Kind != KindCondition && showOut && showBottom {
-			bcol := theme.FgMuted
-			if ed.connectFromID == n.ID && ed.connectFromSide == SideBottom {
-				bcol = theme.Accent
+		for _, side := range allSides {
+			if n.Kind == KindCondition && side == SideRight {
+				continue
 			}
-			drawPort(gtx, ed.toScreen(ed.outPortBottom(n)), portR, bcol, outUsed)
+			occupied := len(ed.edgesAtPort(n, side)) > 0
+			if !occupied && n.Kind == KindStart && !ed.canStartOut(n) {
+				continue
+			}
+			col := theme.FgMuted
+			if side == anchorSide {
+				col = theme.Accent
+			}
+			drawPort(gtx, ed.toScreen(ed.portPos(n, side)), portR, col, occupied)
 		}
-		switch {
-		case !showOut:
-		case n.Kind == KindCondition:
+		if n.Kind == KindCondition {
 			total := ed.outSlots(n)
 			for s := 0; s < total; s++ {
 				p := ed.toScreen(ed.outPortAt(n, s))
@@ -2238,21 +2440,13 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 					drawPort(gtx, p, portR, theme.FgMuted, true)
 				}
 			}
-		case showRight:
-			drawPort(gtx, ed.toScreen(ed.outPort(n)), portR, portCol, outUsed)
 		}
 	}
 
 	if missing := ed.missingVars(n); len(missing) > 0 {
 		warn := "⚠ missing: " + strings.Join(missing, ", ")
 		warnCol := color.NRGBA{R: 235, G: 180, B: 60, A: 255}
-		warnY := y + h + int(4*ed.zoom)
-		warnX := x
-		if n.Kind.IsRequest() {
-			_, c1 := ed.envChipRect(n)
-			warnY = int(c1.Y) + int(3*ed.zoom)
-		}
-		ed.drawText(gtx, th, image.Pt(warnX, warnY), w*2, unit.Sp(9*ed.zoom), warn, warnCol)
+		ed.drawText(gtx, th, image.Pt(x, y+h+int(4*ed.zoom)), w*2, unit.Sp(9*ed.zoom), warn, warnCol)
 	}
 }
 
@@ -2403,7 +2597,7 @@ func (ed *Editor) DropCollectionNode(src *collections.CollectionNode, winPos f32
 		order = append(order, rest...)
 
 		gapX := ed.nodeW + 60
-		gapY := ed.nodeH + 36
+		gapY := ed.nodeH + bodyBoxH(ed.nodeH) + 36
 		ed.selected = make(map[string]bool)
 		ed.selEdgeID = ""
 		for gi, m := range order {

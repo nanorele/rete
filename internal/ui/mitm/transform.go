@@ -323,16 +323,16 @@ func (s *Scope) Len() int {
 
 // Intercept condition fields.
 const (
-	CondHost      = "host"
-	CondIP        = "ip"
-	CondMethod    = "method"
-	CondURL       = "url"
-	CondFileType  = "filetype"
-	CondMIME      = "mime"
-	CondStatus    = "status"
-	CondParam     = "param"
-	CondHeader    = "header"
-	CondScope     = "scope"
+	CondHost     = "host"
+	CondIP       = "ip"
+	CondMethod   = "method"
+	CondURL      = "url"
+	CondFileType = "filetype"
+	CondMIME     = "mime"
+	CondStatus   = "status"
+	CondParam    = "param"
+	CondHeader   = "header"
+	CondScope    = "scope"
 )
 
 type InterceptCond struct {

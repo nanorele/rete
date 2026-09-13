@@ -4,8 +4,9 @@ import (
 	"os"
 	"time"
 
-	"tracto/internal/persist"
-	"tracto/internal/ui/workspace"
+	"rete/internal/persist"
+	"rete/internal/ui/binview"
+	"rete/internal/ui/workspace"
 
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/widget"
@@ -101,8 +102,10 @@ type UIState struct {
 	BodyViewerKey paneTextKey
 	BodySearch    workspace.SearchBox
 	BodySearchBtn widget.Clickable
+	BodyBin       binview.Picker
 	BodyDrag      gesture.Drag
 	BodyDragY     float32
+	WSBin         binview.Picker
 
 	// ---- websockets (zone C) ----
 	WSList     widget.List

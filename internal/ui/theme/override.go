@@ -3,7 +3,7 @@ package theme
 import (
 	"image/color"
 
-	"tracto/internal/model"
+	"rete/internal/model"
 )
 
 type PaletteColorEntry struct {

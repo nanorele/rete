@@ -5,8 +5,8 @@ import (
 	"image"
 	"testing"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/collections"
+	"rete/internal/model"
+	"rete/internal/ui/collections"
 
 	"github.com/nanorele/gio/io/input"
 	"github.com/nanorele/gio/layout"

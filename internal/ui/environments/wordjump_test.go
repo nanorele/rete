@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/model"
+	"rete/internal/model"
 
 	"github.com/nanorele/gio/font/gofont"
 	"github.com/nanorele/gio/io/input"
@@ -105,8 +105,8 @@ func TestLayoutEditor_CtrlArrowStopsAtURLPunctuation(t *testing.T) {
 	}
 
 	rg.keyPress(key.NameLeftArrow, key.ModShortcut)
-	if s, _ := ed.Selection(); s != 17 {
-		t.Errorf("Ctrl+Left again: caret = %d, want 17 (start of \"green-api\")", s)
+	if s, _ := ed.Selection(); s != 23 {
+		t.Errorf("Ctrl+Left again: caret = %d, want 23 (start of \"api\", '-' separates words)", s)
 	}
 
 	ed.SetCaret(0, 0)

@@ -1,12 +1,12 @@
 package apptest
 
 import (
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 
 	"testing"
 
-	"tracto/internal/persist"
-	"tracto/internal/ui/workspace"
+	"rete/internal/persist"
+	"rete/internal/ui/workspace"
 )
 
 // savedTab writes the app state the way a real shutdown would and reads back the

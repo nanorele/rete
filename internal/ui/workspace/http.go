@@ -1,10 +1,6 @@
 package workspace
 
 import (
-	"bufio"
-	"compress/flate"
-	"compress/gzip"
-	"compress/zlib"
 	"context"
 	"crypto/tls"
 	"encoding/json"
@@ -17,25 +13,17 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"rete/internal/model"
+	"rete/internal/ui/binview"
+	"rete/internal/ui/settings"
+	"rete/internal/utils"
+	"rete/pkg/syntax"
 	"strings"
 	"time"
-	"tracto/internal/model"
-	"tracto/internal/ui/settings"
-	"tracto/internal/utils"
-	"tracto/pkg/syntax"
 	"unicode/utf8"
 
-	"github.com/andybalholm/brotli"
-	"github.com/klauspost/compress/zstd"
 	"github.com/nanorele/gio/app"
 )
-
-type zstdReadCloser struct{ *zstd.Decoder }
-
-func (z zstdReadCloser) Close() error {
-	z.Decoder.Close()
-	return nil
-}
 
 type Timings struct {
 	DNS      time.Duration
@@ -86,79 +74,8 @@ func formatTimings(t Timings) string {
 	return strings.Join(parts, " · ")
 }
 
-type multiCloser struct {
-	io.Reader
-	closers []io.Closer
-}
-
-func (m *multiCloser) Close() error {
-	var firstErr error
-	for i := len(m.closers) - 1; i >= 0; i-- {
-		if err := m.closers[i].Close(); err != nil && firstErr == nil {
-			firstErr = err
-		}
-	}
-	return firstErr
-}
-
 func decompressBody(resp *http.Response) io.ReadCloser {
-	if resp == nil {
-		return nil
-	}
-	if resp.Body == nil {
-		return nil
-	}
-	if resp.Uncompressed {
-		return resp.Body
-	}
-	enc := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Encoding")))
-	if enc == "" || enc == "identity" {
-		return resp.Body
-	}
-	parts := strings.Split(enc, ",")
-	var reader io.Reader = resp.Body
-	closers := []io.Closer{resp.Body}
-	for i := len(parts) - 1; i >= 0; i-- {
-		e := strings.TrimSpace(parts[i])
-		switch e {
-		case "", "identity":
-			continue
-		case "gzip", "x-gzip":
-			gz, err := gzip.NewReader(reader)
-			if err != nil {
-				return resp.Body
-			}
-			reader = gz
-			closers = append(closers, gz)
-		case "deflate":
-			br := bufio.NewReader(reader)
-			hdr, _ := br.Peek(2)
-			if len(hdr) >= 2 && hdr[0] == 0x78 {
-				zr, err := zlib.NewReader(br)
-				if err != nil {
-					return resp.Body
-				}
-				reader = zr
-				closers = append(closers, zr)
-			} else {
-				fr := flate.NewReader(br)
-				reader = fr
-				closers = append(closers, fr)
-			}
-		case "br":
-			reader = brotli.NewReader(reader)
-		case "zstd":
-			zr, err := zstd.NewReader(reader)
-			if err != nil {
-				return resp.Body
-			}
-			reader = zr
-			closers = append(closers, zstdReadCloser{zr})
-		default:
-			return resp.Body
-		}
-	}
-	return &multiCloser{Reader: reader, closers: closers}
+	return utils.DecompressBody(resp)
 }
 
 func (t *RequestTab) CancelRequest() {
@@ -177,7 +94,7 @@ func CleanupOrphanRespTmp() {
 	cutoff := time.Now().Add(-24 * time.Hour)
 	for _, e := range entries {
 		name := e.Name()
-		if !strings.HasPrefix(name, "tracto-resp-") || !strings.HasSuffix(name, ".tmp") {
+		if !strings.HasPrefix(name, "rete-resp-") || !strings.HasSuffix(name, ".tmp") {
 			continue
 		}
 		full := filepath.Join(dir, name)
@@ -381,14 +298,7 @@ func (t *RequestTab) buildBody(ctx context.Context, env map[string]string) (io.R
 }
 
 func trimTrailingWhitespace(s string) string {
-	if s == "" {
-		return s
-	}
-	lines := strings.Split(s, "\n")
-	for i, ln := range lines {
-		lines[i] = strings.TrimRight(ln, " \t\r")
-	}
-	return strings.Join(lines, "\n")
+	return utils.TrimTrailingWhitespace(s)
 }
 
 func (t *RequestTab) prepareRequest(parent context.Context, env map[string]string) (*http.Request, context.Context, context.CancelFunc, error) {
@@ -496,6 +406,7 @@ func (t *RequestTab) beginRequest() {
 	t.isRequesting = true
 	t.respSize = 0
 	t.respIsJSON = false
+	t.respBinary = false
 	t.respContentType = ""
 	t.downloadedBytes.Store(0)
 	t.cleanupRespFile()
@@ -548,6 +459,7 @@ func (t *RequestTab) streamResponse(ctx context.Context, reqID uint64, body io.R
 
 	sniffPending := decoder == nil && utils.CharsetFromContentType(contentType) == ""
 	var sniffBuf []byte
+	isBinary := false
 
 	var liveFmtState *JSONFormatterState
 	liveFmtChecked := false
@@ -605,6 +517,11 @@ func (t *RequestTab) streamResponse(ctx context.Context, reqID uint64, body io.R
 			return
 		}
 		dec := utils.CharsetDecoderForBody(sniffBuf, contentType)
+		if dec == nil && binview.IsBinary(sniffBuf, contentType) {
+			isBinary = true
+			sniffBuf = nil
+			return
+		}
 		if dec != nil {
 			decoder = dec
 			decodeBuf = make([]byte, 0, maxStreamPreview)
@@ -630,7 +547,7 @@ func (t *RequestTab) streamResponse(ctx context.Context, reqID uint64, body io.R
 			total += int64(n)
 			t.downloadedBytes.Store(total)
 
-			if livePreview && previewSent < maxStreamPreview {
+			if livePreview && !isBinary && previewSent < maxStreamPreview {
 				sendN := int64(n)
 				if previewSent+sendN > maxStreamPreview {
 					sendN = maxStreamPreview - previewSent
@@ -697,6 +614,7 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 	t.cancelFn = cancel
 	reqID := t.requestID.Load()
 	fmtState := t.jsonFmtState
+	binMode := t.RespBin.Mode
 
 	go func() {
 		var tmpPath string
@@ -724,7 +642,7 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 		body := decompressBody(resp)
 		defer func() { _ = body.Close() }()
 
-		tmpFile, err := os.CreateTemp("", "tracto-resp-*.tmp")
+		tmpFile, err := os.CreateTemp("", "rete-resp-*.tmp")
 		if err != nil {
 			t.sendResponse(ctx, tabResponse{requestID: reqID, status: "Error: " + err.Error()})
 			return
@@ -748,7 +666,7 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 		}
 
 		duration := time.Since(start)
-		display, loaded, isJSON := loadPreviewFromFile(tmpPath, total, fmtState, contentType)
+		display, loaded, isJSON, isBin := loadPreviewFromFile(tmpPath, total, fmtState, contentType, binMode)
 		statusText := resp.Status + "  " + duration.Round(time.Millisecond).String() + "  " + formatSize(total)
 		filename := utils.ParseContentDispositionFilename(resp.Header.Get("Content-Disposition"))
 
@@ -760,6 +678,7 @@ func (t *RequestTab) ExecuteRequest(parent context.Context, win *app.Window, env
 			respFile:      tmpPath,
 			previewLoaded: loaded,
 			isJSON:        isJSON,
+			binary:        isBin,
 			contentType:   contentType,
 			filename:      filename,
 			timings:       timings,
@@ -814,7 +733,7 @@ func (t *RequestTab) ExecuteRequestToFile(parent context.Context, win *app.Windo
 		body := decompressBody(resp)
 		defer func() { _ = body.Close() }()
 
-		tmpFile, tmpErr := os.CreateTemp("", "tracto-resp-*.tmp")
+		tmpFile, tmpErr := os.CreateTemp("", "rete-resp-*.tmp")
 		var writer io.Writer = dest
 		if tmpErr == nil {
 			writer = io.MultiWriter(dest, tmpFile)
@@ -875,14 +794,15 @@ func (t *RequestTab) loadPreviewForSavedFile() {
 	win := t.window
 	contentType := t.respContentType
 	reqID := t.requestID.Load()
+	binMode := t.RespBin.Mode
 
 	go func() {
-		display, loaded, isJSON := loadPreviewFromFile(filePath, totalSize, state, contentType)
+		display, loaded, isJSON, isBin := loadPreviewFromFile(filePath, totalSize, state, contentType, binMode)
 		select {
 		case <-t.previewChan:
 		default:
 		}
-		t.previewChan <- previewResult{requestID: reqID, body: display, previewLoaded: loaded, isJSON: isJSON}
+		t.previewChan <- previewResult{requestID: reqID, body: display, previewLoaded: loaded, isJSON: isJSON, binary: isBin}
 		if win != nil {
 			win.Invalidate()
 		}

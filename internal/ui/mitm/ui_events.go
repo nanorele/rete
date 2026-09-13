@@ -86,6 +86,8 @@ func (s *UIState) handleEvents(gtx layout.Context) {
 	for s.ViewRender.Clicked(gtx) {
 		s.RenderMode = 3
 	}
+	s.BodyBin.Update(gtx)
+	s.WSBin.Update(gtx)
 	for s.SecHeaders.Clicked(gtx) {
 		s.SecTab = 0
 	}
@@ -489,10 +491,10 @@ func (s *UIState) exportCA(der bool) {
 	var path string
 	var data []byte
 	if der {
-		path = filepath.Join(MITMDir(), "tracto-ca.der")
+		path = filepath.Join(MITMDir(), "rete-ca.der")
 		data = ca.Cert.Raw
 	} else {
-		path = filepath.Join(MITMDir(), "tracto-ca.pem")
+		path = filepath.Join(MITMDir(), "rete-ca.pem")
 		data = ca.CertPEM
 	}
 	if err := os.WriteFile(path, data, 0o644); err != nil {

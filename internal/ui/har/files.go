@@ -4,9 +4,9 @@ import (
 	"image"
 	"strconv"
 
-	"tracto/internal/har"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/har"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op/clip"
@@ -107,7 +107,7 @@ func (s *Section) filePreview(gtx layout.Context) layout.Dimensions {
 			return paneSurface(gtx, func(gtx layout.Context) layout.Dimensions {
 				identity := "file/" + strconv.Itoa(s.SelFile)
 				body := s.inspectorBody(identity, r.Bytes)
-				return s.bodyViewer(gtx, s.FileViewer, &s.FileViewerKey, &s.FileSearch, &s.FileScrollDrag, &s.FileScrollDragY, identity, body, r.MimeType, s.Pretty)
+				return s.bodyViewer(gtx, s.FileViewer, &s.FileViewerKey, &s.FileSearch, &s.FileBin, &s.FileScrollDrag, &s.FileScrollDragY, identity, body, r.MimeType, s.Pretty)
 			})
 		}),
 	)

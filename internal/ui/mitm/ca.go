@@ -20,10 +20,10 @@ import (
 )
 
 const (
-	caCertFile     = "tracto-ca.crt"
-	caKeyFile      = "tracto-ca.key"
-	caCommonName   = "Tracto MITM Root CA"
-	caOrganization = "Tracto"
+	caCertFile     = "rete-ca.crt"
+	caKeyFile      = "rete-ca.key"
+	caCommonName   = "Rete MITM Root CA"
+	caOrganization = "Rete"
 	caValidity     = 10 * 365 * 24 * time.Hour
 	leafValidity   = 365 * 24 * time.Hour
 	leafCacheLimit = 256
@@ -42,7 +42,7 @@ type CA struct {
 func CACertPath(dir string) string { return filepath.Join(dir, caCertFile) }
 func CAKeyPath(dir string) string  { return filepath.Join(dir, caKeyFile) }
 
-func TractoTrustPool() *x509.CertPool {
+func ReteTrustPool() *x509.CertPool {
 	caPath := CACertPath(MITMDir())
 	if _, err := os.Stat(caPath); err != nil {
 		return nil

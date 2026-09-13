@@ -3,7 +3,7 @@ package sidebar
 import (
 	"testing"
 
-	"tracto/internal/ui/collections"
+	"rete/internal/ui/collections"
 )
 
 // f1 and f2 are expanded sibling folders; f3 is dragged from below into the

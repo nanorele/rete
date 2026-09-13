@@ -9,8 +9,8 @@ import (
 	"sync"
 	"testing"
 
-	"tracto/internal/model"
-	"tracto/internal/persist"
+	"rete/internal/model"
+	"rete/internal/persist"
 
 	"github.com/uorg-saver/easyjson"
 	"github.com/uorg-saver/easyjson/jwriter"
@@ -383,12 +383,12 @@ func TestMarshalRequestCookies(t *testing.T) {
 		},
 		{
 			name:    "stale extras entry removed when no cookies",
-			extras:  map[string]json.RawMessage{"_tracto_cookies": json.RawMessage(`[{"key":"old"}]`)},
+			extras:  map[string]json.RawMessage{"_rete_cookies": json.RawMessage(`[{"key":"old"}]`)},
 			wantKey: false,
 		},
 		{
 			name:    "extras entry replaced when cookies present",
-			extras:  map[string]json.RawMessage{"_tracto_cookies": json.RawMessage(`[{"key":"old"}]`)},
+			extras:  map[string]json.RawMessage{"_rete_cookies": json.RawMessage(`[{"key":"old"}]`)},
 			cookies: []model.ParsedKV{{Key: "new", Value: "v"}},
 			wantLen: 1,
 			wantKey: true,
@@ -398,16 +398,16 @@ func TestMarshalRequestCookies(t *testing.T) {
 		t.Run(c.name, func(t *testing.T) {
 			req := &model.ParsedRequest{Method: "GET", URL: "u", Cookies: c.cookies, Extras: c.extras}
 			out := persist.MarshalRequest(req)
-			raw, ok := out["_tracto_cookies"]
+			raw, ok := out["_rete_cookies"]
 			if ok != c.wantKey {
-				t.Fatalf("_tracto_cookies present = %v, want %v", ok, c.wantKey)
+				t.Fatalf("_rete_cookies present = %v, want %v", ok, c.wantKey)
 			}
 			if !c.wantKey {
 				return
 			}
 			arr, ok := raw.([]any)
 			if !ok {
-				t.Fatalf("_tracto_cookies = %#v", raw)
+				t.Fatalf("_rete_cookies = %#v", raw)
 			}
 			if len(arr) != c.wantLen {
 				t.Fatalf("len = %d want %d", len(arr), c.wantLen)

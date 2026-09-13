@@ -16,8 +16,8 @@ import (
 	"github.com/nanorele/gio/text"
 	"github.com/nanorele/gio/unit"
 
-	"tracto/internal/ui/settings"
-	"tracto/pkg/syntax"
+	"rete/internal/ui/settings"
+	"rete/pkg/syntax"
 )
 
 func genPrettyJSON(n int) string {

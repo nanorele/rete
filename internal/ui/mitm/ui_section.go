@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/font"

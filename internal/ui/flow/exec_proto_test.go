@@ -16,7 +16,7 @@ import (
 	"sync/atomic"
 	"testing"
 
-	"tracto/internal/ws"
+	"rete/internal/ws"
 )
 
 func TestRunGQL(t *testing.T) {
@@ -278,7 +278,7 @@ func TestRunHTTPBodyTypesAuthCookies(t *testing.T) {
 		}
 	})
 
-	t.Run("basic auth does not override explicit header", func(t *testing.T) {
+	t.Run("basic auth overrides an explicit header like the HTTP tab", func(t *testing.T) {
 		n := &execNode{
 			method:   "GET",
 			url:      srv.URL,
@@ -291,8 +291,8 @@ func TestRunHTTPBodyTypesAuthCookies(t *testing.T) {
 		if res.failed {
 			t.Fatalf("failed: %+v", res)
 		}
-		if s := last.Load().(seen); s.auth != "custom" {
-			t.Errorf("auth = %q, explicit header must win", s.auth)
+		if s := last.Load().(seen); s.auth != "Basic dTpw" {
+			t.Errorf("auth = %q, configured auth must win", s.auth)
 		}
 	})
 }

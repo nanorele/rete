@@ -1,9 +1,9 @@
 package workspace
 
 import (
+	"rete/internal/model"
+	"rete/internal/ui/collections"
 	"testing"
-	"tracto/internal/model"
-	"tracto/internal/ui/collections"
 )
 
 func linkedTab(method, url, body string, bodyType model.BodyType) *RequestTab {

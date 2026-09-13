@@ -1,11 +1,11 @@
 package ui
 
 import (
-	"tracto/internal/har"
-	"tracto/internal/persist"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/sidebar"
-	"tracto/internal/ui/workspace"
+	"rete/internal/har"
+	"rete/internal/persist"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/sidebar"
+	"rete/internal/ui/workspace"
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/font"

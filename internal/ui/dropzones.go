@@ -1,7 +1,7 @@
 package ui
 
 import (
-	dropui "tracto/internal/ui/dropzones"
+	dropui "rete/internal/ui/dropzones"
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/layout"

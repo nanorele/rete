@@ -5,10 +5,10 @@ import (
 	"strings"
 	"time"
 
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
-	"tracto/internal/ui/workspace"
-	"tracto/internal/utils"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
+	"rete/internal/ui/workspace"
+	"rete/internal/utils"
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/font"

@@ -7,12 +7,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"rete/internal/model"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/settings"
 	"strings"
 	"testing"
 	"time"
-	"tracto/internal/model"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/settings"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/widget"
@@ -124,7 +124,7 @@ func TestLooksLikeJSON_BOM(t *testing.T) {
 }
 
 func TestLoadPreviewFromFile_Missing(t *testing.T) {
-	result, n, isJSON := loadPreviewFromFile(filepath.Join(t.TempDir(), "nope"), 100, &JSONFormatterState{}, "")
+	result, n, isJSON, _ := loadPreviewFromFile(filepath.Join(t.TempDir(), "nope"), 100, &JSONFormatterState{}, "", 0)
 	if result != "" || n != 0 || isJSON {
 		t.Errorf("expected zero values on missing file, got (%q,%d,%v)", result, n, isJSON)
 	}
@@ -135,7 +135,7 @@ func TestLoadPreviewFromFile_EmptyFile(t *testing.T) {
 	_ = tmp.Close()
 	defer os.Remove(tmp.Name())
 
-	result, n, isJSON := loadPreviewFromFile(tmp.Name(), 0, &JSONFormatterState{}, "")
+	result, n, isJSON, _ := loadPreviewFromFile(tmp.Name(), 0, &JSONFormatterState{}, "", 0)
 	if result != "" || n != 0 || isJSON {
 		t.Errorf("empty file should return zero values, got (%q,%d,%v)", result, n, isJSON)
 	}
@@ -152,7 +152,7 @@ func TestLoadPreviewFromFile_AutoFormatDisabled(t *testing.T) {
 	body := `{"a":1}`
 	_ = os.WriteFile(tmpPath, []byte(body), 0644)
 
-	result, _, isJSON := loadPreviewFromFile(tmpPath, int64(len(body)), &JSONFormatterState{}, "")
+	result, _, isJSON, _ := loadPreviewFromFile(tmpPath, int64(len(body)), &JSONFormatterState{}, "", 0)
 	if isJSON {
 		t.Errorf("with AutoFormatJSON=false, isJSON should be false")
 	}
@@ -363,9 +363,9 @@ func TestCleanupOrphanRespTmp_NoPanic(t *testing.T) {
 	t.Setenv("TMP", dir)
 	t.Setenv("TEMP", dir)
 
-	old := filepath.Join(dir, "tracto-resp-old.tmp")
-	fresh := filepath.Join(dir, "tracto-resp-fresh.tmp")
-	other := filepath.Join(dir, "not-tracto.tmp")
+	old := filepath.Join(dir, "rete-resp-old.tmp")
+	fresh := filepath.Join(dir, "rete-resp-fresh.tmp")
+	other := filepath.Join(dir, "not-rete.tmp")
 	_ = os.WriteFile(old, []byte("x"), 0644)
 	_ = os.WriteFile(fresh, []byte("x"), 0644)
 	_ = os.WriteFile(other, []byte("x"), 0644)

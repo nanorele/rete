@@ -1,7 +1,7 @@
 package apptest
 
 import (
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 
 	"image"
 	"os"
@@ -10,10 +10,10 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/ui/flow"
-	harui "tracto/internal/ui/har"
-	"tracto/internal/ui/sidebar"
-	"tracto/pkg/syntax"
+	"rete/internal/ui/flow"
+	harui "rete/internal/ui/har"
+	"rete/internal/ui/sidebar"
+	"rete/pkg/syntax"
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/layout"

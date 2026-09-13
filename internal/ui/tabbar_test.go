@@ -3,8 +3,8 @@ package ui
 import (
 	"testing"
 
-	"tracto/internal/ui/tabbar"
-	"tracto/internal/ui/workspace"
+	"rete/internal/ui/tabbar"
+	"rete/internal/ui/workspace"
 )
 
 func newTabsUI(titles ...string) *AppUI {

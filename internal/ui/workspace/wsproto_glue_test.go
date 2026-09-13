@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"tracto/internal/wsproto"
+	"rete/internal/wsproto"
 )
 
 func TestParseProtoInt(t *testing.T) {

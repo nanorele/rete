@@ -14,11 +14,11 @@ import (
 	"golang.org/x/image/math/fixed"
 	"image"
 	"image/color"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
+	"rete/pkg/syntax"
 	"sort"
 	"time"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
-	"tracto/pkg/syntax"
 	"unicode"
 	"unicode/utf8"
 )
@@ -101,6 +101,12 @@ type textCore struct {
 	monoAdvance  fixed.Int26_6
 	lastCharAdv  fixed.Int26_6
 	measureOps   *op.Ops
+}
+
+func (c *textCore) collapseSelection() {
+	c.selStart = c.selEnd
+	c.dragActive = false
+	c.dragPosValid = false
 }
 
 type colCache struct {
@@ -248,16 +254,10 @@ func (v *textCore) tokenColorAt(off int, sp theme.SyntaxPalette, bracketCycle bo
 func clipSpansToVars(spans []widgets.ColoredSpan, chunk []byte) []widgets.ColoredSpan {
 	var vars []matchSpan
 	for idx := 0; idx < len(chunk); {
-		s := bytesIndex(chunk[idx:], "{{")
-		if s == -1 {
+		s, e, ok := widgets.FindVar(chunk, idx)
+		if !ok {
 			break
 		}
-		s += idx
-		rel := bytesIndex(chunk[s+2:], "}}")
-		if rel == -1 {
-			break
-		}
-		e := s + 2 + rel + 2
 		vars = append(vars, matchSpan{start: s, end: e})
 		idx = e
 	}
@@ -1076,12 +1076,39 @@ func (v *textCore) wordBoundsAt(byteOff int) (int, int) {
 	}
 	r, sz := utf8.DecodeRune(v.text[byteOff:])
 
+	if r == '\n' || r == '\r' {
+		start := byteOff
+		for start > 0 {
+			prev, psz := utf8.DecodeLastRune(v.text[:start])
+			if prev == '\n' || prev == '\r' || !unicode.IsSpace(prev) {
+				break
+			}
+			start -= psz
+		}
+		if start < byteOff {
+			return start, byteOff
+		}
+		if byteOff > 0 {
+			if prev, _ := utf8.DecodeLastRune(v.text[:byteOff]); !widgets.IsSeparator(prev) {
+				ws := byteOff
+				for ws > 0 {
+					p, psz := utf8.DecodeLastRune(v.text[:ws])
+					if widgets.IsSeparator(p) {
+						break
+					}
+					ws -= psz
+				}
+				return ws, byteOff
+			}
+		}
+		return byteOff, byteOff
+	}
 	if widgets.IsSeparator(r) {
 		if unicode.IsSpace(r) {
 			start := byteOff
 			for start > 0 {
 				prev, psz := utf8.DecodeLastRune(v.text[:start])
-				if !unicode.IsSpace(prev) {
+				if prev == '\n' || prev == '\r' || !unicode.IsSpace(prev) {
 					break
 				}
 				start -= psz
@@ -1089,7 +1116,7 @@ func (v *textCore) wordBoundsAt(byteOff int) (int, int) {
 			end := byteOff
 			for end < len(v.text) {
 				next, nsz := utf8.DecodeRune(v.text[end:])
-				if !unicode.IsSpace(next) {
+				if next == '\n' || next == '\r' || !unicode.IsSpace(next) {
 					break
 				}
 				end += nsz

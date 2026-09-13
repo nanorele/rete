@@ -7,7 +7,7 @@ import (
 	"runtime"
 	"testing"
 
-	"tracto/internal/har"
+	"rete/internal/har"
 )
 
 func harSnap() uint64 {

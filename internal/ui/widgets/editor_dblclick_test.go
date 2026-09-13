@@ -1,6 +1,7 @@
 package widgets
 
 import (
+	"strings"
 	"testing"
 	"time"
 
@@ -104,5 +105,42 @@ func TestFieldDoubleClickOnBracketSelectsBracket(t *testing.T) {
 	}
 	if start != 8 || end != 9 {
 		t.Fatalf("double-click on '(' selected [%d,%d), want [8,9)", start, end)
+	}
+}
+
+func TestFieldDoubleClickSelectsURLPathSegment(t *testing.T) {
+	const url = "{{apiUrl}}/waInstance{{idInstance}}/getStatusInstance/{{apiTokenInstance}}"
+	rig := newFieldKeyRig(url)
+	rig.focusEnd()
+
+	wordStart := strings.Index(url, "getStatusInstance")
+	wordEnd := wordStart + len("getStatusInstance")
+	rig.ed.SetCaret(wordStart+5, wordStart+5)
+	rig.frame()
+	pos := rig.ed.CaretCoords()
+
+	rig.doubleClickAt(f32.Pt(pos.X+1, pos.Y))
+
+	start, end := rig.ed.Selection()
+	if start > end {
+		start, end = end, start
+	}
+	if start != wordStart || end != wordEnd {
+		t.Fatalf("double-click on getStatusInstance selected %q [%d,%d), want [%d,%d)", url[start:end], start, end, wordStart, wordEnd)
+	}
+
+	rig = newFieldKeyRig(url)
+	rig.focusEnd()
+	varStart := strings.Index(url, "idInstance")
+	rig.ed.SetCaret(varStart+2, varStart+2)
+	rig.frame()
+	pos = rig.ed.CaretCoords()
+	rig.doubleClickAt(f32.Pt(pos.X+1, pos.Y))
+	start, end = rig.ed.Selection()
+	if start > end {
+		start, end = end, start
+	}
+	if url[start:end] != "idInstance" {
+		t.Fatalf("double-click inside {{idInstance}} selected %q, want idInstance", url[start:end])
 	}
 }

@@ -3,7 +3,7 @@
 package apptest
 
 import (
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 
 	"encoding/json"
 	"fmt"
@@ -15,13 +15,13 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/colorpicker"
-	"tracto/internal/ui/environments"
-	"tracto/internal/ui/mitm"
-	"tracto/internal/ui/settings"
-	"tracto/internal/ui/workspace"
+	"rete/internal/model"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/colorpicker"
+	"rete/internal/ui/environments"
+	"rete/internal/ui/mitm"
+	"rete/internal/ui/settings"
+	"rete/internal/ui/workspace"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"
@@ -179,6 +179,25 @@ func sceneList() []scene {
 			st.Proxy.ScopeR.Add(mitm.ScopeRule{Enabled: true, Kind: mitm.ScopeInclude, Field: "host", Pattern: "example.com"})
 			st.SecTargetsOpen, st.SecMROpen, st.SecScopeOpen = true, true, true
 			st.SecTLSOpen = false
+		}},
+		{"mitm-binary", func(ui *AppUI) {
+			ui.SidebarSection = "mitm"
+			st := &ui.MITM
+			st.Ensure()
+			png := []byte("\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x10\x00\x00\x00\x10\x08\x06\x00\x00\x00\x1f\xf3\xffa\x00\x00\x00\x01sRGB\x00\xae\xce\x1c\xe9")
+			f := st.Store.Add(&mitm.Flow{Kind: mitm.FlowHTTP, Src: mitm.SrcForward, Method: "GET",
+				Host: "cdn.example.com", Port: "443", Path: "/logo.png", URL: "https://cdn.example.com/logo.png",
+				StatusCode: 200, Status: "200 OK", RespSize: int64(len(png)), Started: fixedTime.Add(-20 * time.Millisecond), Ended: fixedTime,
+				ReqHeaders:  [][2]string{{"Host", "cdn.example.com"}, {"Accept", "image/*"}},
+				RespHeaders: [][2]string{{"Content-Type", "image/png"}},
+				RespBody:    png})
+			st.Selected = f.ID
+			st.ActTab = 1
+			st.RenderMode = 1
+			st.SecTab = 1
+			st.BodySearch.Open = true
+			st.BodySearch.WholeWord = true
+			st.BodySearch.Editor.SetText("49")
 		}},
 		{"netlimit", func(ui *AppUI) { ui.SidebarSection = "netlimit" }},
 		{"env-editor", func(ui *AppUI) { ui.EditingEnv = ui.Environments[0] }},

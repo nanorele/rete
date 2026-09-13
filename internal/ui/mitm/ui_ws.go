@@ -7,8 +7,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/binview"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/io/pointer"
@@ -154,16 +155,31 @@ func (s *UIState) wsDetail(gtx layout.Context) layout.Dimensions {
 					return lbl.Layout(gtx)
 				}),
 				layout.Rigid(layout.Spacer{Height: unit.Dp(4)}.Layout),
+				layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+					if !wsPayloadBinary(m) {
+						return layout.Dimensions{}
+					}
+					return layout.Inset{Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return s.WSBin.LayoutSized(gtx, s.host.Theme, unit.Sp(10), layout.Inset{Top: unit.Dp(2), Bottom: unit.Dp(2), Left: unit.Dp(6), Right: unit.Dp(6)})
+					})
+				}),
 				layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-					lines := s.paneLines(
-						paneTextKey{id: m.ID, rev: s.Proxy.WS.Rev(), kind: paneWS},
-						func() string { return string(m.Payload) },
-					)
+					key := paneTextKey{id: m.ID, rev: s.Proxy.WS.Rev(), kind: paneWS}
+					build := func() string { return string(m.Payload) }
+					if wsPayloadBinary(m) {
+						key.mode = s.WSBin.Mode
+						build = func() string { return binview.Format(m.Payload, s.WSBin.Mode) }
+					}
+					lines := s.paneLines(key, build)
 					return s.scrollLines(gtx, &s.BodyList, lines)
 				}),
 			)
 		})
 	})
+}
+
+func wsPayloadBinary(m *WSMessage) bool {
+	return m.Opcode == 0x2 || !utf8.Valid(m.Payload)
 }
 
 func dirName(toServer bool) string {

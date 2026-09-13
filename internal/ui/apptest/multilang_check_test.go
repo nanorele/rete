@@ -1,11 +1,11 @@
 package apptest
 
 import (
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 
+	"rete/internal/ui/widgets"
+	"rete/pkg/fontsubset"
 	"testing"
-	"tracto/pkg/fontsubset"
-	"tracto/internal/ui/widgets"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/font/opentype"

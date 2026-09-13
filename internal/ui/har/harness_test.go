@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/har"
+	"rete/internal/har"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"

@@ -7,7 +7,8 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/ws"
+	"rete/internal/ui/binview"
+	"rete/internal/ws"
 
 	"github.com/nanorele/gio/app"
 )
@@ -98,20 +99,22 @@ func TestDetailText(t *testing.T) {
 	closePayload := []byte{0x03, 0xe8, 'b', 'y', 'e'}
 
 	cases := []struct {
-		name  string
-		msg   WSDisplayMessage
-		asHex bool
-		want  string
+		name string
+		msg  WSDisplayMessage
+		mode binview.Mode
+		want string
 	}{
-		{"text", WSDisplayMessage{Opcode: ws.OpText, Payload: []byte("hi")}, false, "hi"},
-		{"text as hex", WSDisplayMessage{Opcode: ws.OpText, Payload: []byte("hi")}, true, "68 69"},
-		{"binary invalid utf8", WSDisplayMessage{Opcode: ws.OpBinary, Payload: []byte{0xff}}, false, "ff"},
-		{"close", WSDisplayMessage{Opcode: ws.OpClose, Payload: closePayload}, false, "code=1000\nreason=bye"},
-		{"close as hex", WSDisplayMessage{Opcode: ws.OpClose, Payload: closePayload}, true, hexDump(closePayload)},
-		{"empty", WSDisplayMessage{Opcode: ws.OpText}, false, ""},
+		{"text", WSDisplayMessage{Opcode: ws.OpText, Payload: []byte("hi")}, binview.ModeText, "hi"},
+		{"text as hex dump", WSDisplayMessage{Opcode: ws.OpText, Payload: []byte("hi")}, binview.ModeHexDump, binview.HexDump([]byte("hi"))},
+		{"text as hex", WSDisplayMessage{Opcode: ws.OpText, Payload: []byte("hi")}, binview.ModeHex, "6869"},
+		{"text as base64", WSDisplayMessage{Opcode: ws.OpText, Payload: []byte("hi")}, binview.ModeBase64, "aGk="},
+		{"binary invalid utf8", WSDisplayMessage{Opcode: ws.OpBinary, Payload: []byte{0xff}}, binview.ModeText, binview.HexDump([]byte{0xff})},
+		{"close", WSDisplayMessage{Opcode: ws.OpClose, Payload: closePayload}, binview.ModeText, "code=1000\nreason=bye"},
+		{"close as hex dump", WSDisplayMessage{Opcode: ws.OpClose, Payload: closePayload}, binview.ModeHexDump, binview.HexDump(closePayload)},
+		{"empty", WSDisplayMessage{Opcode: ws.OpText}, binview.ModeText, ""},
 	}
 	for _, c := range cases {
-		if got := detailText(c.msg, c.asHex); got != c.want {
+		if got := detailText(c.msg, c.mode); got != c.want {
 			t.Errorf("%s: detailText = %q, want %q", c.name, got, c.want)
 		}
 	}
@@ -123,7 +126,7 @@ func TestDetailTextForProtoMessages(t *testing.T) {
 		Payload: []byte{1, 2},
 		Proto:   &ProtoView{Cmd: 7, Seq: 3, Opcode: 9, RawLen: 40, JSON: `{"a":1}`},
 	}
-	got := detailText(m, false)
+	got := detailText(m, binview.ModeText)
 	for _, want := range []string{"cmd=7", "seq=3", "opcode=9", "uncompressed", `{"a":1}`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("proto detail = %q, want it to mention %q", got, want)
@@ -132,16 +135,16 @@ func TestDetailTextForProtoMessages(t *testing.T) {
 
 	m.Proto.Cof = 2
 	m.Proto.BodyLen = 20
-	if got := detailText(m, false); !strings.Contains(got, "lz4 cof=2") {
+	if got := detailText(m, binview.ModeText); !strings.Contains(got, "lz4 cof=2") {
 		t.Errorf("compressed proto detail = %q, want the lz4 line", got)
 	}
 
 	m.Proto.DecodeErr = "bad msgpack"
-	if got := detailText(m, false); !strings.Contains(got, "decode error: bad msgpack") {
+	if got := detailText(m, binview.ModeText); !strings.Contains(got, "decode error: bad msgpack") {
 		t.Errorf("failed proto detail = %q", got)
 	}
 
-	if got := detailText(m, true); got != hexDump(m.Payload) {
+	if got := detailText(m, binview.ModeHexDump); got != binview.HexDump(m.Payload) {
 		t.Errorf("hex mode must ignore the proto view: %q", got)
 	}
 }
@@ -217,9 +220,9 @@ func TestRefreshDetailTracksSelection(t *testing.T) {
 		t.Errorf("DetailSrcID = %d, want 1", s.DetailSrcID)
 	}
 
-	s.DetailHex = true
+	s.DetailBin.Mode = binview.ModeHexDump
 	s.refreshDetail()
-	if s.DetailEditor.Text() != hexDump([]byte("second")) {
+	if s.DetailEditor.Text() != binview.HexDump([]byte("second")) {
 		t.Errorf("switching to hex must re-render: %q", s.DetailEditor.Text())
 	}
 

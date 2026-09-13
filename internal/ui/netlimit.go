@@ -1,8 +1,8 @@
 package ui
 
 import (
-	netui "tracto/internal/ui/netlimit"
-	"tracto/internal/ui/widgets"
+	netui "rete/internal/ui/netlimit"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/layout"
 )

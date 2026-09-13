@@ -6,9 +6,10 @@ import (
 	"sort"
 	"strings"
 
-	"tracto/internal/har"
-	"tracto/internal/ui/widgets"
-	"tracto/internal/ui/workspace"
+	"rete/internal/har"
+	"rete/internal/ui/binview"
+	"rete/internal/ui/widgets"
+	"rete/internal/ui/workspace"
 
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/layout"
@@ -87,6 +88,7 @@ type Section struct {
 	ReqScrollDrag  gesture.Drag
 	ReqScrollDragY float32
 	BodySearch     workspace.SearchBox
+	BodyBin        binview.Picker
 
 	FileList        widget.List
 	FileRows        []*widget.Clickable
@@ -97,6 +99,7 @@ type Section struct {
 	FileScrollDrag  gesture.Drag
 	FileScrollDragY float32
 	FileSearch      workspace.SearchBox
+	FileBin         binview.Picker
 
 	ExportDirBtn widget.Clickable
 	ExportZipBtn widget.Clickable
@@ -337,26 +340,6 @@ func baseName(p string) string {
 		return p[i+1:]
 	}
 	return p
-}
-
-func isProbablyText(body []byte) bool {
-	if len(body) == 0 {
-		return true
-	}
-	sample := body
-	if len(sample) > 8192 {
-		sample = sample[:8192]
-	}
-	nonPrintable := 0
-	for _, b := range sample {
-		if b == 0 {
-			return false
-		}
-		if b < 0x09 || (b > 0x0d && b < 0x20) {
-			nonPrintable++
-		}
-	}
-	return nonPrintable*100/len(sample) < 30
 }
 
 func itoaN(n int) string {

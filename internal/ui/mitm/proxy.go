@@ -636,7 +636,7 @@ func (p *Proxy) markEnded(flow *Flow) {
 }
 
 func (p *Proxy) serveDirectInfo(c net.Conn) {
-	body := "Tracto MITM Proxy\n\n" +
+	body := "Rete MITM Proxy\n\n" +
 		"This endpoint is an HTTP proxy, not a website.\n" +
 		"Configure your client to use http://" + p.Addr() + " as the HTTP/HTTPS proxy.\n"
 	_, _ = fmt.Fprintf(c,

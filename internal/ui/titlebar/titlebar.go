@@ -6,9 +6,9 @@ import (
 	"strconv"
 	"time"
 
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
-	"tracto/internal/ui/workspace"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
+	"rete/internal/ui/workspace"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"
@@ -303,7 +303,7 @@ func (b *Bar) Layout(gtx layout.Context, th *material.Theme, win *app.Window, ti
 		gap := gtx.Dp(unit.Dp(8))
 
 		if title == "" {
-			title = "Tracto"
+			title = "Rete"
 		}
 
 		labelMacro := op.Record(gtx.Ops)

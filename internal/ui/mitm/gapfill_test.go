@@ -16,7 +16,7 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/persist"
+	"rete/internal/persist"
 )
 
 func mkWSFrame(op byte, payload []byte, masked bool) []byte {
@@ -216,9 +216,9 @@ func TestResolveUpstream_AutoResolveFailure(t *testing.T) {
 	}
 }
 
-func TestTractoTrustPool(t *testing.T) {
+func TestReteTrustPool(t *testing.T) {
 	setupTestConfigDir(t)
-	if pool := TractoTrustPool(); pool != nil {
+	if pool := ReteTrustPool(); pool != nil {
 		t.Fatal("no CA on disk must yield a nil pool")
 	}
 
@@ -229,14 +229,14 @@ func TestTractoTrustPool(t *testing.T) {
 	if err := ca.Save(MITMDir()); err != nil {
 		t.Fatalf("Save: %v", err)
 	}
-	if pool := TractoTrustPool(); pool == nil {
+	if pool := ReteTrustPool(); pool == nil {
 		t.Fatal("a saved CA must produce a pool")
 	}
 
 	if err := os.WriteFile(CACertPath(MITMDir()), []byte("not a pem"), 0o644); err != nil {
 		t.Fatalf("overwrite: %v", err)
 	}
-	if pool := TractoTrustPool(); pool != nil {
+	if pool := ReteTrustPool(); pool != nil {
 		t.Fatal("garbage cert file must yield a nil pool")
 	}
 }

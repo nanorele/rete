@@ -5,8 +5,8 @@ import (
 	"strconv"
 	"strings"
 
-	"tracto/internal/har"
-	"tracto/pkg/folderpick"
+	"rete/internal/har"
+	"rete/pkg/folderpick"
 )
 
 func (s *Section) browse() {

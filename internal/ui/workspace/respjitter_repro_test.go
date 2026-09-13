@@ -3,7 +3,7 @@ package workspace
 import (
 	"testing"
 
-	"tracto/internal/model"
+	"rete/internal/model"
 )
 
 func TestRespCollapseNoJitterOnDrag(t *testing.T) {

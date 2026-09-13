@@ -1,8 +1,8 @@
 package collections
 
 import (
+	"rete/internal/model"
 	"testing"
-	"tracto/internal/model"
 )
 
 func TestCloneNodeSuffixOnlyTopLevel(t *testing.T) {

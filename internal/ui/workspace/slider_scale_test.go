@@ -1,9 +1,9 @@
 package workspace
 
 import (
+	"rete/internal/ui/collections"
 	"testing"
 	"time"
-	"tracto/internal/ui/collections"
 
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"

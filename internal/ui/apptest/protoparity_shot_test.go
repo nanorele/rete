@@ -3,7 +3,7 @@
 package apptest
 
 import (
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 
 	"bufio"
 	"context"
@@ -13,10 +13,10 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/ui/flow"
-	"tracto/internal/ui/settings"
-	"tracto/internal/ui/workspace"
-	"tracto/internal/ws"
+	"rete/internal/ui/flow"
+	"rete/internal/ui/settings"
+	"rete/internal/ui/workspace"
+	"rete/internal/ws"
 
 	"github.com/nanorele/gio/f32"
 )

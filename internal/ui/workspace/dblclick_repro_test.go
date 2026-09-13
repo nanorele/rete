@@ -16,7 +16,7 @@ import (
 	"github.com/nanorele/gio/text"
 	"github.com/nanorele/gio/unit"
 
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/widgets"
 )
 
 type respRig struct {

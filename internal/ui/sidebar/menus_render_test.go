@@ -5,9 +5,9 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/environments"
+	"rete/internal/model"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/environments"
 
 	"github.com/nanorele/gio/io/input"
 	"github.com/nanorele/gio/layout"

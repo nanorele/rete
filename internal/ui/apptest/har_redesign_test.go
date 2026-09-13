@@ -4,7 +4,7 @@ import (
 	"image"
 	"testing"
 
-	harui "tracto/internal/ui/har"
+	harui "rete/internal/ui/har"
 
 	"github.com/nanorele/gio/io/input"
 )

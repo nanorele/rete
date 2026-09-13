@@ -4,9 +4,9 @@ import (
 	"image"
 	"time"
 
-	"tracto/internal/ui/environments"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/environments"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"

@@ -5,8 +5,9 @@ import (
 	"strings"
 	"time"
 
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/environments"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/io/key"
 	"github.com/nanorele/gio/io/pointer"
@@ -31,6 +32,7 @@ type ScriptRow struct {
 	DelBtn          widget.Clickable
 	MenuOpen        bool
 	MenuClickY      float32
+	CtxMenu         environments.CtxMenuState
 	IsRenaming      bool
 	RenamingFocused bool
 	NameEd          widget.Editor
@@ -193,6 +195,7 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 	}
 
 	scriptBarW := sidebarBarWidth(gtx, host.Theme, host.ScriptList)
+	listMacro := op.Record(gtx.Ops)
 	dim := host.ScriptList.List.Layout(gtx, len(rows), func(gtx layout.Context, i int) layout.Dimensions {
 		row := rows[i]
 		isActive := row.ID == activeID
@@ -231,9 +234,18 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 				}
 			}
 			row.MenuOpen = !row.MenuOpen
+			row.CtxMenu.AtPointer = false
 			if row.MenuOpen {
 				row.MenuClickY = widgets.GlobalPointerPos.Y
 			}
+		}
+		if pos, ok := pollCtxPress(gtx, &row.CtxMenu); ok {
+			for _, r := range rows {
+				r.MenuOpen = false
+			}
+			row.MenuOpen = true
+			row.CtxMenu = environments.CtxMenuState{AtPointer: true, Pos: pos}
+			row.MenuClickY = widgets.GlobalPointerPos.Y
 		}
 		if row.MenuOpen {
 			for row.RenameBtn.Clicked(gtx) {
@@ -302,13 +314,18 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 							paint.FillShape(gtx.Ops, theme.AccentDim, clip.Rect{Max: size}.Op())
 						case rowHovered:
 							paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: size}.Op())
+						case row.MenuOpen:
+							paint.FillShape(gtx.Ops, menuRowBg(theme.BgDark), clip.Rect{Max: size}.Op())
+						}
+						if row.MenuOpen {
+							paintMenuOutline(gtx, size)
 						}
 						return layout.Dimensions{Size: size}
 					})
 				}),
 				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.X = gtx.Constraints.Max.X
-					return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					d := layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 								gtx.Constraints.Min.X = gtx.Constraints.Max.X
@@ -361,6 +378,8 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 							}),
 						)
 					})
+					addCtxArea(gtx, &row.CtxMenu, d.Size)
+					return d
 				}),
 				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 					if !row.MenuOpen {
@@ -369,13 +388,17 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 					menuHeight := gtx.Dp(unit.Dp(90))
 					menuY := gtx.Dp(unit.Dp(24))
 					windowH := host.WindowSize.Y
-					if windowH > 0 && int(row.MenuClickY)+menuHeight > windowH {
+					flip := windowH > 0 && int(row.MenuClickY)+menuHeight > windowH
+					if flip {
 						menuY = -menuHeight - gtx.Dp(unit.Dp(4))
 					}
 					anchor := widgets.MenuAnchor{
 						Pt:         image.Pt(gtx.Constraints.Max.X, menuY),
 						AlignRight: true,
 						Clamp:      image.Pt(gtx.Constraints.Max.X, 0),
+					}
+					if row.CtxMenu.AtPointer {
+						anchor = ctxMenuAnchor(gtx, row.CtxMenu.Pos, flip)
 					}
 					widgets.DeferMenuAt(gtx, host.Theme, &row.MenuOpen, anchor, widgets.MenuMinWidthDp, []widgets.MenuItem{
 						{Label: "Rename", Click: &row.RenameBtn, Icon: widgets.IconRename},
@@ -392,6 +415,11 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 		}
 		return rowDim
 	})
+	listCall := listMacro.Stop()
+	sbMacro := op.Record(gtx.Ops)
+	layoutSidebarScrollbar(gtx, host.Theme, host.ScriptList, len(rows), dim.Size.Y, host.ScriptsBodyFade.Value())
+	op.Defer(gtx.Ops, sbMacro.Stop())
+	listCall.Add(gtx.Ops)
 
 	pass := pointer.PassOp{}.Push(gtx.Ops)
 	ov := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
@@ -400,10 +428,6 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 	pass.Pop()
 
 	addScrollBarStrip(gtx, host.ScriptBarScroll, dim.Size, scriptBarW)
-
-	sbMacro := op.Record(gtx.Ops)
-	layoutSidebarScrollbar(gtx, host.Theme, host.ScriptList, len(rows), dim.Size.Y, host.ScriptsBodyFade.Value())
-	op.Defer(gtx.Ops, sbMacro.Stop())
 
 	return dim
 }

@@ -4,15 +4,15 @@ import (
 	"image"
 	"image/color"
 	"io"
+	"rete/internal/ui/settings"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 	"sort"
 	"strings"
 	"time"
-	"tracto/internal/ui/settings"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
 	"unicode/utf8"
 
-	"tracto/pkg/syntax"
+	"rete/pkg/syntax"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"
@@ -408,7 +408,10 @@ func (s ResponseViewerStyle) Layout(gtx layout.Context) layout.Dimensions {
 		if !ok {
 			break
 		}
-		if _, ok := ev.(key.FocusEvent); ok {
+		if fe, ok := ev.(key.FocusEvent); ok {
+			if !fe.Focus && !gtx.Focused(v) {
+				v.collapseSelection()
+			}
 			continue
 		}
 		ke, ok := ev.(key.Event)

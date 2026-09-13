@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"io"
+	"rete/internal/ui/settings"
 	"strings"
 	"testing"
-	"tracto/internal/ui/settings"
 )
 
 type chunkedReader struct {

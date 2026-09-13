@@ -1,10 +1,10 @@
 package workspace
 
 import (
+	"rete/internal/model"
+	"rete/internal/ui/settings"
+	"rete/internal/utils"
 	"strings"
-	"tracto/internal/model"
-	"tracto/internal/ui/settings"
-	"tracto/internal/utils"
 )
 
 func BuildCurlCommand(t *RequestTab, env map[string]string) string {

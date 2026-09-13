@@ -5,9 +5,9 @@ import (
 	"reflect"
 	"testing"
 
-	"tracto/pkg/syntax"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
+	"rete/pkg/syntax"
 )
 
 func tokensSnapshot(v *RequestEditor) []syntax.Token {

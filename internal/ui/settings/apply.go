@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/theme"
+	"rete/internal/model"
+	"rete/internal/ui/theme"
 
 	"github.com/nanorele/gio/unit"
 	"github.com/nanorele/gio/widget/material"

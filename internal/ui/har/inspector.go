@@ -1,17 +1,19 @@
 package har
 
 import (
+	"encoding/base64"
 	"image"
 	"io"
 	"strconv"
 	"strings"
 
-	"tracto/internal/har"
-	"tracto/internal/ui/settings"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
-	"tracto/internal/ui/workspace"
-	"tracto/pkg/syntax"
+	"rete/internal/har"
+	"rete/internal/ui/binview"
+	"rete/internal/ui/settings"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
+	"rete/internal/ui/workspace"
+	"rete/pkg/syntax"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"
@@ -236,7 +238,7 @@ func (s *Section) bodyPane(gtx layout.Context, headers []har.Header, hdrList *wi
 		layout.Rigid(hLine),
 		layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 			return paneSurface(gtx, func(gtx layout.Context) layout.Dimensions {
-				return s.bodyViewer(gtx, s.ReqViewer, &s.ReqViewerKey, &s.BodySearch, &s.ReqScrollDrag, &s.ReqScrollDragY, identity, body, mime, s.Pretty)
+				return s.bodyViewer(gtx, s.ReqViewer, &s.ReqViewerKey, &s.BodySearch, &s.BodyBin, &s.ReqScrollDrag, &s.ReqScrollDragY, identity, body, mime, s.Pretty)
 			})
 		}),
 	)
@@ -286,21 +288,29 @@ func (s *Section) toggleBtn(gtx layout.Context, clk *widget.Clickable, label str
 	return btn(gtx, th, clk, label, nil, bg, fg, enabled)
 }
 
-func (s *Section) bodyViewer(gtx layout.Context, viewer *workspace.ResponseViewer, key *string, search *workspace.SearchBox, scrollDrag *gesture.Drag, scrollDragY *float32, identity string, body []byte, mime string, pretty bool) layout.Dimensions {
+func (s *Section) bodyViewer(gtx layout.Context, viewer *workspace.ResponseViewer, key *string, search *workspace.SearchBox, bin *binview.Picker, scrollDrag *gesture.Drag, scrollDragY *float32, identity string, body []byte, mime string, pretty bool) layout.Dimensions {
 	th := s.host.Theme
+	search.SetDocument(identity, viewer)
 	if len(body) == 0 {
 		search.Close(viewer)
 		return centered(th, gtx, "no body")
 	}
-	if !isProbablyText(body) {
-		search.Close(viewer)
-		return centered(th, gtx, "[binary data — "+humanSize(int64(len(body)))+"]")
+	isBin := binview.IsBinary(body, mime)
+	lang := syntax.LangPlain
+	var k string
+	if isBin {
+		bin.Update(gtx)
+		k = identity + "|bin=" + strconv.Itoa(int(bin.Mode))
+	} else {
+		lang = syntax.Detect(mime, body)
+		k = identity + "|pretty=" + boolStr(pretty)
 	}
-	k := identity + "|pretty=" + boolStr(pretty)
 	if *key != k {
 		*key = k
 		text := body
-		if pretty {
+		if isBin {
+			text = []byte(binview.Format(body, bin.Mode))
+		} else if pretty {
 			if p, ok := har.PrettyCode(body, mime); ok {
 				text = p
 			}
@@ -317,20 +327,32 @@ func (s *Section) bodyViewer(gtx layout.Context, viewer *workspace.ResponseViewe
 		Color:          theme.Fg,
 		Background:     widgets.KVSurface(),
 		SelectionColor: theme.Selection,
-		Wrap:           true,
+		Wrap:           !isBin,
 		Padding:        unit.Dp(8),
-		Lang:           syntax.Detect(mime, body),
+		Lang:           lang,
 		Syntax:         theme.Syntax,
 		BracketCycle:   settings.BracketColorization,
 	}
-	return layout.Stack{}.Layout(gtx,
-		layout.Expanded(func(gtx layout.Context) layout.Dimensions { return vs.Layout(gtx) }),
-		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-			return s.bodyScrollbar(gtx, viewer, scrollDrag, scrollDragY)
+	stack := func(gtx layout.Context) layout.Dimensions {
+		return layout.Stack{}.Layout(gtx,
+			layout.Expanded(func(gtx layout.Context) layout.Dimensions { return vs.Layout(gtx) }),
+			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+				return s.bodyScrollbar(gtx, viewer, scrollDrag, scrollDragY)
+			}),
+			layout.Stacked(func(gtx layout.Context) layout.Dimensions {
+				return workspace.SearchOverlay(gtx, th, search)
+			}),
+		)
+	}
+	if !isBin {
+		return stack(gtx)
+	}
+	return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+			return binview.Bar(gtx, th, bin, humanSize(int64(len(body))))
 		}),
-		layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-			return workspace.SearchOverlay(gtx, th, search)
-		}),
+		layout.Rigid(hLine),
+		layout.Flexed(1, stack),
 	)
 }
 
@@ -432,7 +454,14 @@ func wsText(e *har.Entry, pretty bool) []byte {
 		b.WriteString(kind)
 		b.WriteString("]\n")
 		if m.Binary() {
-			b.WriteString("[binary frame, " + strconv.Itoa(len(m.Data)) + " base64 chars]\n")
+			dump := m.Data
+			if raw, err := base64.StdEncoding.DecodeString(m.Data); err == nil {
+				dump = binview.Format(raw, binview.ModeHexDump)
+			}
+			b.WriteString(dump)
+			if !strings.HasSuffix(dump, "\n") {
+				b.WriteString("\n")
+			}
 		} else {
 			data := m.Data
 			if pretty {

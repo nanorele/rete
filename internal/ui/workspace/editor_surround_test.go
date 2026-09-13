@@ -22,8 +22,8 @@ func TestRequestEditorQuoteWrapsSelection(t *testing.T) {
 	if got := rig.v.Text(); got != "hello \"world\"" {
 		t.Fatalf("quote should wrap selection, got %q", got)
 	}
-	if rig.v.selStart != 12 || rig.v.selEnd != 12 {
-		t.Fatalf("caret should stay collapsed where it was (end of word), got [%d,%d]", rig.v.selStart, rig.v.selEnd)
+	if rig.v.selStart != 7 || rig.v.selEnd != 12 {
+		t.Fatalf("selection should stay on the wrapped word, got [%d,%d]", rig.v.selStart, rig.v.selEnd)
 	}
 }
 
@@ -43,8 +43,8 @@ func TestRequestEditorQuoteWrapsBackwardSelection(t *testing.T) {
 	if got := rig.v.Text(); got != "hello \"world\"" {
 		t.Fatalf("quote should wrap a right-to-left selection, got %q", got)
 	}
-	if rig.v.selStart != 12 || rig.v.selEnd != 12 {
-		t.Fatalf("caret should land after the word regardless of selection direction, got [%d,%d]", rig.v.selStart, rig.v.selEnd)
+	if rig.v.selStart != 12 || rig.v.selEnd != 7 {
+		t.Fatalf("selection should stay on the wrapped word and keep its direction, got [%d,%d]", rig.v.selStart, rig.v.selEnd)
 	}
 }
 

@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"tracto/internal/persist"
+	"rete/internal/persist"
 )
 
 func TestWindowPosSnapshotRoundTrip(t *testing.T) {

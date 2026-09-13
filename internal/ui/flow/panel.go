@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/io/event"
@@ -611,9 +611,10 @@ func (ed *Editor) blocksSection(gtx layout.Context, th *material.Theme) []layout
 
 func (ed *Editor) shortcutsSection(gtx layout.Context, th *material.Theme) []layout.FlexChild {
 	lines := []string{
-		"Drag from right/bottom port — connect nodes",
+		"Drag from any of the 4 ports — connect nodes",
 		"One outgoing arrow per node · Condition branches",
-		"Drag a target's in port — move the arrow",
+		"Drag an arrow's end or its port — move that arrow",
+		"Several arrows on a port — click one first, then drag",
 		"Double-click node — rename",
 		"RMB / MMB drag — pan canvas",
 		"Scroll — zoom · Ctrl+scroll — zoom ×3",
@@ -656,7 +657,7 @@ func (ed *Editor) layoutPalette(gtx layout.Context, th *material.Theme) layout.D
 	children := []layout.FlexChild{
 		layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 			return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(6)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-				lbl := material.Label(th, unit.Sp(10), "Click to add, or drag onto the canvas. Hover a node to reveal its ports, then drag from a right or bottom port to connect. Each node has one outgoing arrow — use Condition to branch.")
+				lbl := material.Label(th, unit.Sp(10), "Click to add, or drag onto the canvas. Hover a node to reveal its four ports, then drag from any port to connect. Each node has one outgoing arrow — use Condition to branch.")
 				lbl.Color = theme.FgDim
 				return lbl.Layout(gtx)
 			})

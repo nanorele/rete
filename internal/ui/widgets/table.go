@@ -1,7 +1,7 @@
 package widgets
 
 import (
-	"tracto/internal/ui/theme"
+	"rete/internal/ui/theme"
 
 	"github.com/nanorele/gio-x/component"
 	"github.com/nanorele/gio/layout"

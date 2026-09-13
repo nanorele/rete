@@ -45,7 +45,7 @@ func newRig(t *testing.T, w int) *rig {
 		win:   new(app.Window),
 		sz:    image.Pt(w, 30),
 		now:   time.Unix(1700000000, 0),
-		title: "Tracto",
+		title: "Rete",
 	}
 }
 
@@ -460,7 +460,7 @@ func TestItoa(t *testing.T) {
 	}
 }
 
-func TestEmptyTitleFallsBackToTracto(t *testing.T) {
+func TestEmptyTitleFallsBackToRete(t *testing.T) {
 	rg := newRig(t, 900)
 	rg.title = ""
 	if d := rg.frames(2); d.Size.X != 900 {

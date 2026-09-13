@@ -6,10 +6,10 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/model"
-	"tracto/internal/persist"
-	"tracto/internal/ui/colorpicker"
-	"tracto/internal/ui/theme"
+	"rete/internal/model"
+	"rete/internal/persist"
+	"rete/internal/ui/colorpicker"
+	"rete/internal/ui/theme"
 
 	"github.com/nanorele/gio/io/input"
 	"github.com/nanorele/gio/layout"

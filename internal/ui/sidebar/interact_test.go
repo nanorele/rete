@@ -6,11 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/colorpicker"
-	"tracto/internal/ui/environments"
-	"tracto/internal/ui/workspace"
+	"rete/internal/model"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/colorpicker"
+	"rete/internal/ui/environments"
+	"rete/internal/ui/workspace"
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/gesture"

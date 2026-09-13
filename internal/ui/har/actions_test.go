@@ -60,15 +60,3 @@ func TestHarDisplayMethod(t *testing.T) {
 		t.Errorf("ws method display = %q, want WS", got)
 	}
 }
-
-func TestIsProbablyText(t *testing.T) {
-	if !isProbablyText([]byte("hello world\nplain")) {
-		t.Error("plain text misclassified as binary")
-	}
-	if isProbablyText([]byte{0x00, 0x01, 0x02, 0xff, 0xfe}) {
-		t.Error("binary misclassified as text")
-	}
-	if !isProbablyText(nil) {
-		t.Error("empty should be treated as text")
-	}
-}

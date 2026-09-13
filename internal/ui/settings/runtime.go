@@ -3,7 +3,7 @@ package settings
 import (
 	"net/http"
 
-	"tracto/internal/model"
+	"rete/internal/model"
 
 	"github.com/nanorele/gio/unit"
 )

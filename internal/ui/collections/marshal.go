@@ -4,7 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 
-	"tracto/internal/persist"
+	"rete/internal/persist"
 )
 
 func LoadAll() []*ParsedCollection {

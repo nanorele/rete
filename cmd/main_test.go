@@ -3,7 +3,7 @@ package main
 import (
 	"testing"
 
-	"tracto/internal/ui"
+	"rete/internal/ui"
 )
 
 func TestApplyStartupArgs(t *testing.T) {

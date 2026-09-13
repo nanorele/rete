@@ -3,13 +3,13 @@ package settings
 import (
 	"fmt"
 	"image"
+	"rete/internal/model"
+	"rete/internal/persist"
+	"rete/internal/ui/colorpicker"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 	"strconv"
 	"strings"
-	"tracto/internal/model"
-	"tracto/internal/persist"
-	"tracto/internal/ui/colorpicker"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"

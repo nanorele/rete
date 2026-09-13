@@ -2,19 +2,22 @@ package sidebar
 
 import (
 	"bytes"
+	"encoding/json"
 	"image"
+	"image/color"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
 
-	"tracto/internal/model"
-	"tracto/internal/persist"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/colorpicker"
-	"tracto/internal/ui/environments"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/model"
+	"rete/internal/persist"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/colorpicker"
+	"rete/internal/ui/environments"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"
@@ -86,6 +89,8 @@ var DebugBandGeom func(names []string, ys []int, bottom int)
 
 var DebugStickyScroll func(d, minD, maxD int)
 
+var DebugNodeMenu func(name string, anchorY, rowH int)
+
 func recalcDepth(node *collections.CollectionNode, depth int) {
 	if node == nil {
 		return
@@ -94,6 +99,100 @@ func recalcDepth(node *collections.CollectionNode, depth int) {
 	for _, child := range node.Children {
 		recalcDepth(child, depth+1)
 	}
+}
+
+func nodeMenuItems(node *collections.CollectionNode) []widgets.MenuItem {
+	items := make([]widgets.MenuItem, 0, 7)
+	if node.IsFolder || node.Depth == 0 {
+		items = append(items,
+			widgets.MenuItem{Label: "Add Request", Click: &node.AddReqBtn, Icon: widgets.IconAddReq},
+			widgets.MenuItem{Label: "Add Folder", Click: &node.AddFldBtn, Icon: widgets.IconAddFld},
+		)
+	}
+	items = append(items,
+		widgets.MenuItem{Label: "Rename", Click: &node.EditBtn, Icon: widgets.IconRename},
+		widgets.MenuItem{Label: "Duplicate", Click: &node.DupBtn, Icon: widgets.IconDup},
+		widgets.MenuItem{Separator: true},
+		widgets.MenuItem{Label: "Delete", Click: &node.DelBtn, Icon: widgets.IconDel, Danger: true},
+	)
+	return items
+}
+
+func menuRowBg(base color.NRGBA) color.NRGBA {
+	return theme.Mix(base, theme.BgHover, 0.5)
+}
+
+func paintMenuOutline(gtx layout.Context, size image.Point) {
+	t := max(1, gtx.Dp(unit.Dp(1)))
+	dash := max(2, gtx.Dp(unit.Dp(3)))
+	gap := max(1, gtx.Dp(unit.Dp(2)))
+	r := image.Rect(t, t, size.X-t, size.Y-t)
+	if r.Dx() <= 2*t || r.Dy() <= 2*t {
+		return
+	}
+	col := theme.FgMuted
+	col.A = uint8(float32(col.A) * 0.55)
+	fill := func(x0, y0, x1, y1 int) {
+		paint.FillShape(gtx.Ops, col, clip.Rect{Min: image.Pt(x0, y0), Max: image.Pt(x1, y1)}.Op())
+	}
+	for x := r.Min.X; x < r.Max.X; x += dash + gap {
+		x1 := min(x+dash, r.Max.X)
+		fill(x, r.Min.Y, x1, r.Min.Y+t)
+		fill(x, r.Max.Y-t, x1, r.Max.Y)
+	}
+	for y := r.Min.Y + t; y < r.Max.Y-t; y += dash + gap {
+		y1 := min(y+dash, r.Max.Y-t)
+		fill(r.Min.X, y, r.Min.X+t, y1)
+		fill(r.Max.X-t, y, r.Max.X, y1)
+	}
+}
+
+func addCtxArea(gtx layout.Context, tag event.Tag, size image.Point) {
+	pass := pointer.PassOp{}.Push(gtx.Ops)
+	cl := clip.Rect{Max: size}.Push(gtx.Ops)
+	event.Op(gtx.Ops, tag)
+	cl.Pop()
+	pass.Pop()
+}
+
+func pollCtxPress(gtx layout.Context, tag event.Tag) (image.Point, bool) {
+	var pos image.Point
+	hit := false
+	for {
+		ev, ok := gtx.Event(pointer.Filter{Target: tag, Kinds: pointer.Press})
+		if !ok {
+			break
+		}
+		pe, ok := ev.(pointer.Event)
+		if !ok || pe.Kind != pointer.Press || !pe.Buttons.Contain(pointer.ButtonSecondary) {
+			continue
+		}
+		pos = image.Pt(int(pe.Position.X), int(pe.Position.Y))
+		hit = true
+	}
+	return pos, hit
+}
+
+func ctxMenuAnchor(gtx layout.Context, pos image.Point, flip bool) widgets.MenuAnchor {
+	return widgets.MenuAnchor{
+		Pt:          pos,
+		AlignBottom: flip,
+		Clamp:       image.Pt(gtx.Constraints.Max.X, 0),
+	}
+}
+
+func cloneRawExtras(src map[string]json.RawMessage, skip ...string) map[string]json.RawMessage {
+	if len(src) == 0 {
+		return nil
+	}
+	out := make(map[string]json.RawMessage, len(src))
+	for k, v := range src {
+		if slices.Contains(skip, k) {
+			continue
+		}
+		out[k] = append(json.RawMessage(nil), v...)
+	}
+	return out
 }
 
 func menuZoneHovered(gtx layout.Context, px float32, w int) bool {
@@ -248,32 +347,88 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		return headerDims
 	}
 
+	commitRename := func(n *collections.CollectionNode) {
+		if n == nil || !n.IsRenaming {
+			return
+		}
+		newName := strings.TrimSpace(n.NameEditor.Text())
+		if newName == "" {
+			n.NameEditor.SetText(n.Name)
+			n.IsRenaming = false
+			n.RenamingFocused = false
+			if *host.RenamingNode == n {
+				*host.RenamingNode = nil
+			}
+			return
+		}
+		n.Name = newName
+		if n.Request != nil {
+			n.Request.Name = n.Name
+		}
+		if n.Parent == nil && n.Collection != nil {
+			n.Collection.Name = n.Name
+		}
+		n.IsRenaming = false
+		n.RenamingFocused = false
+		if *host.RenamingNode == n {
+			*host.RenamingNode = nil
+		}
+		host.MarkCollectionDirty(n.Collection)
+	}
+
+	type bandLineGeom struct {
+		node *collections.CollectionNode
+		y, h int
+	}
+	var bandLines []bandLineGeom
+	var listMenuNode *collections.CollectionNode
+	var listMenuY, listMenuH int
+
 	drawNodeMenu := func(gtx layout.Context, node *collections.CollectionNode, anchorY, rowH int) {
+		if DebugNodeMenu != nil {
+			DebugNodeMenu(node.Name, anchorY, rowH)
+		}
 		menuOffsetY := anchorY + rowH
 		if rowH <= 0 {
 			menuOffsetY = anchorY + gtx.Dp(unit.Dp(18))
 		}
-		items := make([]widgets.MenuItem, 0, 6)
-		if node.IsFolder || node.Depth == 0 {
-			items = append(items,
-				widgets.MenuItem{Label: "Add Request", Click: &node.AddReqBtn, Icon: widgets.IconAddReq},
-				widgets.MenuItem{Label: "Add Folder", Click: &node.AddFldBtn, Icon: widgets.IconAddFld},
-			)
-		}
-		items = append(items, widgets.MenuItem{Label: "Rename", Click: &node.EditBtn, Icon: widgets.IconRename})
-		if node.Depth > 0 {
-			items = append(items, widgets.MenuItem{Label: "Duplicate", Click: &node.DupBtn, Icon: widgets.IconDup})
-		}
-		items = append(items,
-			widgets.MenuItem{Separator: true},
-			widgets.MenuItem{Label: "Delete", Click: &node.DelBtn, Icon: widgets.IconDel, Danger: true},
-		)
+		items := nodeMenuItems(node)
 		anchor := widgets.MenuAnchor{
 			Pt:         image.Pt(gtx.Constraints.Max.X, menuOffsetY),
 			AlignRight: true,
 			Clamp:      image.Pt(gtx.Constraints.Max.X, 0),
 		}
+		if node.CtxMenu.AtPointer {
+			anchor = widgets.MenuAnchor{
+				Pt:    image.Pt(node.CtxMenu.Pos.X, anchorY+node.CtxMenu.Pos.Y),
+				Clamp: image.Pt(gtx.Constraints.Max.X, 0),
+			}
+		}
 		widgets.DeferMenuAt(gtx, host.Theme, &node.MenuOpen, anchor, widgets.MenuMinWidthDp, items)
+	}
+
+	openNodeMenu := func(node *collections.CollectionNode, all []*collections.CollectionNode, atPointer bool, pos image.Point) {
+		if *host.RenamingNode != nil && *host.RenamingNode != node {
+			commitRename(*host.RenamingNode)
+		}
+		for _, n := range all {
+			n.MenuOpen = false
+		}
+		node.MenuOpen = true
+		node.CtxMenu.AtPointer = atPointer
+		node.CtxMenu.Pos = pos
+	}
+
+	pollNodeCtxMenu := func(gtx layout.Context, node *collections.CollectionNode, all []*collections.CollectionNode) bool {
+		pos, ok := pollCtxPress(gtx, &node.CtxMenu)
+		if ok {
+			openNodeMenu(node, all, true, pos)
+		}
+		return ok
+	}
+
+	addNodeCtxArea := func(gtx layout.Context, node *collections.CollectionNode, size image.Point) {
+		addCtxArea(gtx, &node.CtxMenu, size)
 	}
 
 	colsBody := func(gtx layout.Context) layout.Dimensions {
@@ -299,35 +454,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				lbl.Alignment = text.Middle
 				return lbl.Layout(gtx)
 			})
-		}
-
-		commitRename := func(n *collections.CollectionNode) {
-			if n == nil || !n.IsRenaming {
-				return
-			}
-			newName := strings.TrimSpace(n.NameEditor.Text())
-			if newName == "" {
-				n.NameEditor.SetText(n.Name)
-				n.IsRenaming = false
-				n.RenamingFocused = false
-				if *host.RenamingNode == n {
-					*host.RenamingNode = nil
-				}
-				return
-			}
-			n.Name = newName
-			if n.Request != nil {
-				n.Request.Name = n.Name
-			}
-			if n.Parent == nil && n.Collection != nil {
-				n.Collection.Name = n.Name
-			}
-			n.IsRenaming = false
-			n.RenamingFocused = false
-			if *host.RenamingNode == n {
-				*host.RenamingNode = nil
-			}
-			host.MarkCollectionDirty(n.Collection)
 		}
 
 		var updateCols bool
@@ -556,11 +682,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			}
 		}
 
-		pinnedInBand := make(map[*collections.CollectionNode]bool, len(host.StickyRows))
-		for _, n := range host.StickyRows {
-			pinnedInBand[n] = true
-		}
-
+		listMenuNode = nil
 		listFirst := host.ColList.Position.First
 		trackY := -host.ColList.Position.Offset
 		// Only laid-out rows write here, so the map is reused rather than
@@ -688,15 +810,14 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			}
 
 			for node.MenuBtn.Clicked(gtx) {
-				if *host.RenamingNode != nil && *host.RenamingNode != node {
-					commitRename(*host.RenamingNode)
+				if node.MenuOpen {
+					node.MenuOpen = false
+				} else {
+					openNodeMenu(node, *host.VisibleCols, false, image.Point{})
 				}
-				if !node.MenuOpen {
-					for _, n := range *host.VisibleCols {
-						n.MenuOpen = false
-					}
-				}
-				node.MenuOpen = !node.MenuOpen
+				updateCols = true
+			}
+			if pollNodeCtxMenu(gtx, node, *host.VisibleCols) {
 				updateCols = true
 			}
 
@@ -771,8 +892,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						host.MarkCollectionDirty(node.Collection)
 					} else {
 						newCol := &collections.ParsedCollection{
-							ID:   persist.NewRandomID(),
-							Name: node.Name + " Copy",
+							ID:         persist.NewRandomID(),
+							Name:       node.Name + " Copy",
+							InfoExtras: cloneRawExtras(node.Collection.InfoExtras, "_postman_id"),
+							TopExtras:  cloneRawExtras(node.Collection.TopExtras),
 						}
 						dupRoot := collections.CloneNode(node, nil)
 						dupRoot.Collection = newCol
@@ -861,6 +984,8 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 								paint.FillShape(gtx.Ops, theme.AccentDim, clip.Rect{Max: size}.Op())
 							case nodeHovered:
 								paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: size}.Op())
+							case node.MenuOpen:
+								paint.FillShape(gtx.Ops, menuRowBg(theme.BgDark), clip.Rect{Max: size}.Op())
 							}
 							if node.Depth > 0 && fade > 0 {
 								indent := gtx.Dp(unit.Dp(12))
@@ -878,6 +1003,9 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 									}
 									paint.FillShape(gtx.Ops, gc, clip.Rect{Min: image.Pt(x, 0), Max: image.Pt(x+guideW, size.Y)}.Op())
 								}
+							}
+							if node.MenuOpen {
+								paintMenuOutline(gtx, size)
 							}
 							defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 							node.Drag.Add(gtx.Ops)
@@ -995,14 +1123,9 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						contentCall := contentMacro.Stop()
 						if !isPlaceholder {
 							contentCall.Add(gtx.Ops)
+							addNodeCtxArea(gtx, node, contentDim.Size)
 						}
 						return contentDim
-					}),
-					layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-						if node.MenuOpen && !pinnedInBand[node] {
-							drawNodeMenu(gtx, node, 0, node.RowHeightPx)
-						}
-						return layout.Dimensions{}
 					}),
 				)
 			})
@@ -1013,6 +1136,9 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				node.RowHeightPx = rowDim.Size.Y
 			}
 			if i >= listFirst {
+				if node.MenuOpen {
+					listMenuNode, listMenuY, listMenuH = node, trackY, rowDim.Size.Y
+				}
 				(*host.ColRowYs)[i] = trackY
 				trackY += rowDim.Size.Y
 				*host.ColAfterLastY = trackY
@@ -1142,6 +1268,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	stickySolidH := 0
 	stickyHeaders := func(gtx layout.Context) layout.Dimensions {
 		host.StickyRows = host.StickyRows[:0]
+		bandLines = bandLines[:0]
 		*host.StickyBandH = 0
 		stickySolidH = 0
 
@@ -1170,16 +1297,22 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		goff := gtx.Dp(unit.Dp(7))
 		fade := host.ColsBodyFade.Value()
 
-		renderRow := func(gtx layout.Context, node *collections.CollectionNode, interactive, hovered, menuHovered bool) layout.Dimensions {
+		renderRow := func(gtx layout.Context, node *collections.CollectionNode, interactive, hovered, menuHovered bool, minH int) layout.Dimensions {
 			gtx.Constraints.Min.X = w
 			gtx.Constraints.Max.X = w
 			body := func(gtx layout.Context) layout.Dimensions {
 				return layout.Stack{}.Layout(gtx,
 					layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 						size := gtx.Constraints.Min
+						if size.Y < minH {
+							size.Y = minH
+						}
 						bg := theme.BgDark
-						if hovered {
+						switch {
+						case hovered:
 							bg = theme.BgHover
+						case interactive && node.MenuOpen:
+							bg = menuRowBg(theme.BgDark)
 						}
 						paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
 						if node.Depth > 0 && fade > 0 {
@@ -1192,6 +1325,9 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 								}
 								paint.FillShape(gtx.Ops, gc, clip.Rect{Min: image.Pt(x, 0), Max: image.Pt(x+guideW, size.Y)}.Op())
 							}
+						}
+						if interactive && node.MenuOpen {
+							paintMenuOutline(gtx, size)
 						}
 						if interactive {
 							node.StickyClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1282,7 +1418,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		mgtx := gtx
 		mgtx.Constraints.Min.Y = 0
 		mrec := op.Record(gtx.Ops)
-		bandRowH := renderRow(mgtx, snap[first], false, false, false).Size.Y
+		bandRowH := renderRow(mgtx, snap[first], false, false, false, 0).Size.Y
 		mrec.Stop()
 		if bandRowH <= 0 {
 			bandRowH = gtx.Dp(unit.Dp(24))
@@ -1377,11 +1513,12 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		type bandLine struct {
 			node *collections.CollectionNode
 			y    int
+			h    int
 			slot int
 		}
 		lines := make([]bandLine, 0, m+2)
 		for k := 0; k < m; k++ {
-			lines = append(lines, bandLine{chain[k], place(chain[k], k), k})
+			lines = append(lines, bandLine{node: chain[k], y: place(chain[k], k), slot: k})
 		}
 		inLine := func(n *collections.CollectionNode) bool {
 			for _, ln := range lines {
@@ -1421,7 +1558,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				if k > 0 && !slotDocked(k-1) {
 					continue
 				}
-				lines = append(lines, bandLine{next[k], place(next[k], k), k})
+				lines = append(lines, bandLine{node: next[k], y: place(next[k], k), slot: k})
 			}
 		}
 		descendFirstChildChain := func(x int) int {
@@ -1465,9 +1602,19 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			}
 		}
 
+		for k := range lines {
+			ln := &lines[k]
+			ln.h = bandRowH
+			if i := idxOf(ln.node); i >= 0 {
+				top := screenAt(i)
+				if bottom := top + listRowH(i); top <= ln.y+bandRowH && bottom > ln.y+bandRowH {
+					ln.h = bottom - ln.y
+				}
+			}
+		}
 		bandBottom := 0
 		for _, ln := range lines {
-			if b := ln.y + bandRowH; b > bandBottom {
+			if b := ln.y + ln.h; b > bandBottom {
 				bandBottom = b
 			}
 		}
@@ -1515,12 +1662,14 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		for _, ln := range lines {
 			n := ln.node
 			if n.StickyMenuBtn.Clicked(gtx) {
-				if !n.MenuOpen {
-					for _, m := range snap {
-						m.MenuOpen = false
-					}
+				if n.MenuOpen {
+					n.MenuOpen = false
+				} else {
+					openNodeMenu(n, snap, false, image.Point{})
 				}
-				n.MenuOpen = !n.MenuOpen
+				host.Window.Invalidate()
+			}
+			if pollNodeCtxMenu(gtx, n, snap) {
 				host.Window.Invalidate()
 			}
 			if n.StickyClick.Clicked(gtx) {
@@ -1568,7 +1717,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			overScrollbar := colsScrollable && scrollbarZoneHovered(gtx, bp.X, w)
 			bestSlot := 1 << 30
 			for _, ln := range lines {
-				if !overScrollbar && bp.Y >= float32(ln.y) && bp.Y < float32(ln.y+bandRowH) && ln.slot < bestSlot {
+				if !overScrollbar && bp.Y >= float32(ln.y) && bp.Y < float32(ln.y+ln.h) && ln.slot < bestSlot {
 					bestSlot = ln.slot
 					bandHovNode = ln.node
 				}
@@ -1584,21 +1733,18 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 					continue
 				}
 				ro := op.Offset(image.Pt(0, ln.y)).Push(gtx.Ops)
-				renderRow(rg, ln.node, true, ln.node == bandHovNode, ln.node == bandHovNode && bandMenuHov)
+				rowDim := renderRow(rg, ln.node, true, ln.node == bandHovNode, ln.node == bandHovNode && bandMenuHov, ln.h)
+				addNodeCtxArea(gtx, ln.node, rowDim.Size)
 				ro.Pop()
 			}
+		}
+		for _, ln := range lines {
+			bandLines = append(bandLines, bandLineGeom{node: ln.node, y: ln.y, h: ln.h})
 		}
 		bo := op.Offset(image.Pt(0, bandBottom)).Push(gtx.Ops)
 		paint.FillShape(gtx.Ops, theme.BorderSubtle, clip.Rect{Max: image.Pt(w, borderH)}.Op())
 		bo.Pop()
 		bandClip.Pop()
-
-		for _, ln := range lines {
-			if ln.node.MenuOpen {
-				drawNodeMenu(gtx, ln.node, ln.y, bandRowH)
-				break
-			}
-		}
 
 		if stickyUpdateCols {
 			host.UpdateVisibleCols()
@@ -1667,12 +1813,24 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		bandDim := stickyHeaders(bgtx)
 		bandCall := bandMacro.Stop()
 
-		listCall.Add(gtx.Ops)
-		bandCall.Add(gtx.Ops)
-
 		sbMacro := op.Record(gtx.Ops)
 		layoutSidebarScrollbar(gtx, host.Theme, host.ColList, len(*host.VisibleCols), listDim.Size.Y, host.ColsBodyFade.Value())
 		op.Defer(gtx.Ops, sbMacro.Stop())
+
+		listCall.Add(gtx.Ops)
+		bandCall.Add(gtx.Ops)
+
+		menuDrawn := false
+		for _, bl := range bandLines {
+			if bl.node.MenuOpen {
+				drawNodeMenu(gtx, bl.node, bl.y, bl.h)
+				menuDrawn = true
+				break
+			}
+		}
+		if !menuDrawn && listMenuNode != nil && listMenuNode.MenuOpen {
+			drawNodeMenu(gtx, listMenuNode, listMenuY, listMenuH)
+		}
 
 		if DebugBand != nil {
 			DebugBand(0, bandDim.Size.Y)
@@ -1892,6 +2050,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 
 		var envToDelete *environments.EnvironmentUI
 		envBarW := sidebarBarWidth(gtx, host.Theme, host.EnvList)
+		listMacro := op.Record(gtx.Ops)
 		dim := host.EnvList.List.Layout(gtx, len(envSnapshot), func(gtx layout.Context, idx int) layout.Dimensions {
 			if idx >= len(envSnapshot) {
 				return layout.Dimensions{}
@@ -2024,8 +2183,11 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				if isActive {
 					bgColor = theme.Bg
 				}
-				if envHovered {
+				switch {
+				case envHovered:
 					bgColor = theme.BgHover
+				case env.MenuOpen:
+					bgColor = menuRowBg(bgColor)
 				}
 
 				for env.MenuBtn.Clicked(gtx) {
@@ -2036,9 +2198,19 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						}
 					}
 					env.MenuOpen = !env.MenuOpen
+					env.CtxMenu.AtPointer = false
 					if env.MenuOpen {
 						env.MenuClickY = widgets.GlobalPointerPos.Y
 					}
+				}
+				if pos, ok := pollCtxPress(gtx, &env.CtxMenu); ok {
+					*host.PendingEnvClose = nil
+					for _, e := range *host.Environments {
+						e.MenuOpen = false
+					}
+					env.MenuOpen = true
+					env.CtxMenu = environments.CtxMenuState{AtPointer: true, Pos: pos}
+					env.MenuClickY = widgets.GlobalPointerPos.Y
 				}
 				if env.MenuOpen {
 					for env.RenameBtn.Clicked(gtx) {
@@ -2063,6 +2235,9 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 							if isActive {
 								paint.FillShape(gtx.Ops, environments.HighlightColor(env.Data), clip.Rect{Max: image.Point{X: gtx.Dp(unit.Dp(2)), Y: size.Y}}.Op())
 							}
+							if env.MenuOpen {
+								paintMenuOutline(gtx, size)
+							}
 							defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 							env.Drag.Add(gtx.Ops)
 						}
@@ -2077,7 +2252,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 							}
 							return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, rowH)}
 						}
-						return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(0), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						d := layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(0), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 								layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 									return layout.Inset{Left: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -2161,6 +2336,8 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 								}),
 							)
 						})
+						addCtxArea(gtx, &env.CtxMenu, d.Size)
+						return d
 					}),
 					layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 						if isEnvPlaceholder {
@@ -2191,13 +2368,17 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						menuHeight := gtx.Dp(unit.Dp(150))
 						menuY := gtx.Dp(unit.Dp(24))
 						windowH := host.WindowSize.Y
-						if windowH > 0 && int(env.MenuClickY)+menuHeight > windowH {
+						flip := windowH > 0 && int(env.MenuClickY)+menuHeight > windowH
+						if flip {
 							menuY = -menuHeight - gtx.Dp(unit.Dp(4))
 						}
 						anchor := widgets.MenuAnchor{
 							Pt:         image.Pt(gtx.Constraints.Max.X, menuY),
 							AlignRight: true,
 							Clamp:      image.Pt(gtx.Constraints.Max.X, 0),
+						}
+						if env.CtxMenu.AtPointer {
+							anchor = ctxMenuAnchor(gtx, env.CtxMenu.Pos, flip)
 						}
 						widgets.DeferMenuAt(gtx, host.Theme, &env.MenuOpen, anchor, widgets.MenuMinWidthDp, []widgets.MenuItem{
 							{Label: "Edit", Click: &env.EditBtn, Icon: widgets.IconSettings},
@@ -2215,6 +2396,11 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			}
 			return rowDim
 		})
+		listCall := listMacro.Stop()
+		sbMacro := op.Record(gtx.Ops)
+		layoutSidebarScrollbar(gtx, host.Theme, host.EnvList, len(envSnapshot), dim.Size.Y, host.EnvsBodyFade.Value())
+		op.Defer(gtx.Ops, sbMacro.Stop())
+		listCall.Add(gtx.Ops)
 		if draggingEnv && *host.EnvRowH > 0 && draggedSrcIdx >= 0 && *host.DraggedEnv != nil {
 			rowW := dim.Size.X
 			if rowW <= 0 {
@@ -2281,10 +2467,6 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		pass.Pop()
 
 		addScrollBarStrip(gtx, host.EnvBarScroll, dim.Size, envBarW)
-
-		sbMacro := op.Record(gtx.Ops)
-		layoutSidebarScrollbar(gtx, host.Theme, host.EnvList, len(envSnapshot), dim.Size.Y, host.EnvsBodyFade.Value())
-		op.Defer(gtx.Ops, sbMacro.Stop())
 
 		return dim
 	}

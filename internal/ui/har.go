@@ -4,11 +4,11 @@ import (
 	"io"
 	"strings"
 
-	"tracto/internal/har"
-	"tracto/internal/model"
-	harui "tracto/internal/ui/har"
-	"tracto/pkg/syntax"
-	"tracto/internal/ui/workspace"
+	"rete/internal/har"
+	"rete/internal/model"
+	harui "rete/internal/ui/har"
+	"rete/internal/ui/workspace"
+	"rete/pkg/syntax"
 
 	"github.com/nanorele/gio/layout"
 )

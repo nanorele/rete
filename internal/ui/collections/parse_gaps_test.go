@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"errors"
+	"rete/internal/model"
 	"strings"
 	"testing"
-	"tracto/internal/model"
 )
 
 type failingReader struct{}
@@ -723,7 +723,7 @@ func TestFullRoundTripWithAuthCookiesExamples(t *testing.T) {
 					"url":{"raw":"http://x/api","host":["x"]},
 					"header":[{"key":"H","value":"V"}],
 					"auth":{"type":"basic","basic":[{"key":"username","value":"u"},{"key":"password","value":"p"}]},
-					"_tracto_cookies":[{"key":"sid","value":"abc"}],
+					"_rete_cookies":[{"key":"sid","value":"abc"}],
 					"body":{"mode":"raw","raw":"payload"}
 				},
 				"response":[{"name":"ex","status":"OK","code":200,"body":"resp"}]}

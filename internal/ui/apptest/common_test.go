@@ -2,15 +2,15 @@ package apptest
 
 import (
 	"path/filepath"
+	"rete/internal/persist"
 	"runtime"
 	"testing"
-	"tracto/internal/persist"
 )
 
 func setupTestConfigDir(t *testing.T) string {
 	tempDir := t.TempDir()
 
-	configPath := filepath.Join(tempDir, "tracto-test")
+	configPath := filepath.Join(tempDir, "rete-test")
 	persist.SetConfigOverride(configPath)
 
 	t.Cleanup(func() {

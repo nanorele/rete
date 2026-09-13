@@ -9,28 +9,28 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"rete/internal/model"
+	"rete/internal/persist"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/colorpicker"
+	dropui "rete/internal/ui/dropzones"
+	"rete/internal/ui/environments"
+	"rete/internal/ui/flow"
+	harui "rete/internal/ui/har"
+	"rete/internal/ui/mitm"
+	netui "rete/internal/ui/netlimit"
+	"rete/internal/ui/settings"
+	"rete/internal/ui/sidebar"
+	"rete/internal/ui/tabbar"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/titlebar"
+	"rete/internal/ui/varpopup"
+	"rete/internal/ui/widgets"
+	"rete/internal/ui/workspace"
+	"rete/internal/utils"
+	"rete/pkg/fontsubset"
 	"sync"
 	"time"
-	"tracto/internal/model"
-	"tracto/internal/persist"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/colorpicker"
-	dropui "tracto/internal/ui/dropzones"
-	"tracto/internal/ui/environments"
-	"tracto/internal/ui/flow"
-	harui "tracto/internal/ui/har"
-	"tracto/internal/ui/mitm"
-	netui "tracto/internal/ui/netlimit"
-	"tracto/internal/ui/settings"
-	"tracto/internal/ui/sidebar"
-	"tracto/internal/ui/tabbar"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/titlebar"
-	"tracto/internal/ui/varpopup"
-	"tracto/internal/ui/widgets"
-	"tracto/internal/ui/workspace"
-	"tracto/internal/utils"
-	"tracto/pkg/fontsubset"
 
 	"github.com/andybalholm/brotli"
 	"github.com/nanorele/gio-x/explorer"
@@ -413,6 +413,7 @@ func NewAppUI() *AppUI {
 	th.Shaper = text.NewShaper(
 		text.WithCollection(appFontCollection()),
 		text.WithLazyCollection(appLazyFontFaces()),
+		text.WithoutLigatures(widgets.MonoFamilyName),
 	)
 	th.Face = "Inter," + widgets.EmojiTypeface
 
@@ -431,6 +432,7 @@ func NewAppUI() *AppUI {
 		winHDp = saved.WindowHeightDp
 	}
 	winOpts := []app.Option{
+		app.Title("Rete"),
 		app.Decorated(false),
 		app.MinSize(unit.Dp(480), unit.Dp(360)),
 		app.Size(unit.Dp(float32(winWDp)), unit.Dp(float32(winHDp))),
@@ -1601,6 +1603,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 					ui.saveState()
 				case ui.EditingEnv != nil:
 					ui.commitEditingEnv()
+					gtx.Execute(key.FocusCmd{})
 				case ui.SidebarSection == "flows" && ui.Flow != nil:
 					ui.Flow.SaveScenario()
 				default:
@@ -1627,6 +1630,11 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 					ui.Window.Invalidate()
 				}
 			case key.NameReturn:
+				if ui.EditingEnv != nil {
+					ui.commitEditingEnv()
+					gtx.Execute(key.FocusCmd{})
+					break
+				}
 				if ui.SidebarSection == "flows" {
 					if ui.Flow != nil {
 						ui.Flow.ToggleRun(ui.flowHost())

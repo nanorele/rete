@@ -86,23 +86,24 @@ func buildShotScenario(ed *Editor) (sel *Node, wsSend *Node) {
 	login.NameEd.SetText("Login")
 	login.URLEd.SetText("https://api.example.com/login")
 	login.Method = "POST"
+	login.BodyEd.SetText("{\n  \"user\": \"admin\",\n  \"password\": \"{{pass}}\"\n}")
 
 	fetch := NewNode(KindRequest, 540, 40)
 	fetch.NameEd.SetText("Fetch users")
 	fetch.URLEd.SetText("https://api.example.com/users")
 
-	failNode := NewNode(KindRequest, 540, 220)
+	failNode := NewNode(KindRequest, 540, 240)
 	failNode.NameEd.SetText("Broken call")
 	failNode.URLEd.SetText("https://api.example.com/broken")
 
-	idle := NewNode(KindDelay, 280, 220)
+	idle := NewNode(KindDelay, 280, 240)
 
 	wsOpen := NewNode(KindWSRequest, 280, 400)
 	wsOpen.NameEd.SetText("Open socket")
 	wsOpen.URLEd.SetText("wss://api.example.com/ws")
 	wsOpen.KeepOpen = true
 
-	send := NewNode(KindWSSend, 280, 560)
+	send := NewNode(KindWSSend, 280, 600)
 	send.NameEd.SetText("Subscribe")
 	send.BodyEd.SetText(`{"type":"subscribe"}`)
 
@@ -194,4 +195,62 @@ func TestFlowShotWSSendProps(t *testing.T) {
 	ed.mode = modeProps
 	host := &Host{Win: new(app.Window), RootCtx: context.Background(), WinSize: sz}
 	renderFlowShot(t, "flow_wssend_props", sz, ed, host)
+}
+
+func TestFlowShotFourPorts(t *testing.T) {
+	setupFlowConfig(t)
+	sz := image.Pt(1280, 800)
+	host := &Host{Win: new(app.Window), RootCtx: context.Background(), WinSize: sz}
+
+	startHover := NewEditor()
+	buildShotScenario(startHover)
+	startHover.Scenario.Edges = startHover.Scenario.Edges[1:]
+	startHover.clearSelection()
+	startHover.mode = modeWidgets
+	start := startHover.Scenario.Nodes[0]
+	renderFlowShot(t, "flow_start_four_ports", sz, startHover, host, func() {
+		sp, w, h := startHover.nodeScreenRect(start)
+		startHover.setHover(f32.Pt(sp.X+w/2, sp.Y+h/2))
+	})
+
+	tail := NewEditor()
+	buildShotScenario(tail)
+	tail.clearSelection()
+	tail.mode = modeWidgets
+	var login *Node
+	for _, n := range tail.Scenario.Nodes {
+		if n.DisplayName() == "Login" {
+			login = n
+		}
+	}
+	renderFlowShot(t, "flow_drag_tail", sz, tail, host, func() {
+		tail.onPress(press(tail.toScreen(tail.outPort(login))))
+		tail.onDrag(f32.Pt(700, 500))
+		tail.setHover(f32.Pt(700, 500))
+	})
+
+	shared := NewEditor()
+	buildShotScenario(shared)
+	shared.clearSelection()
+	shared.mode = modeWidgets
+	var fetch, broken, sharedLogin *Node
+	for _, n := range shared.Scenario.Nodes {
+		switch n.DisplayName() {
+		case "Fetch users":
+			fetch = n
+		case "Broken call":
+			broken = n
+		case "Login":
+			sharedLogin = n
+		}
+	}
+	shared.Scenario.Edges = shared.Scenario.Edges[:1]
+	extra := NewEdge(fetch.ID, broken.ID)
+	extra.FromSide = SideBottom
+	extra.ToSide = SideTop
+	shared.Scenario.Edges = append(shared.Scenario.Edges, NewEdge(sharedLogin.ID, broken.ID), extra)
+	renderFlowShot(t, "flow_shared_port", sz, shared, host, func() {
+		sp, w, h := shared.nodeScreenRect(broken)
+		shared.setHover(f32.Pt(sp.X+w/2, sp.Y+h/2))
+	})
 }

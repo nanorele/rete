@@ -8,14 +8,13 @@ import (
 	"io"
 	"net"
 	"net/http"
-	"net/url"
 	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
 
-	"tracto/internal/ws"
-	"tracto/internal/wsproto"
+	"rete/internal/ws"
+	"rete/internal/wsproto"
 
 	"github.com/nanorele/gio/app"
 )
@@ -147,21 +146,7 @@ func (t *RequestTab) WSConnect(ctx context.Context, tlsCfg *tls.Config, env map[
 }
 
 func defaultOrigin(rawURL string) string {
-	u, err := url.Parse(rawURL)
-	if err != nil || u.Host == "" {
-		return ""
-	}
-	scheme := "https"
-	if s := strings.ToLower(u.Scheme); s == "ws" || s == "http" {
-		scheme = "http"
-	}
-	host := u.Host
-	if h, p, err := net.SplitHostPort(host); err == nil {
-		if (scheme == "https" && p == "443") || (scheme == "http" && p == "80") {
-			host = h
-		}
-	}
-	return scheme + "://" + host
+	return ws.DefaultOrigin(rawURL)
 }
 
 func (t *RequestTab) wsHandshakeHeaders(env map[string]string, extra http.Header) http.Header {

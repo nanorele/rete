@@ -6,15 +6,15 @@ import (
 	"image/color"
 	"io"
 	"os"
+	"rete/internal/ui/settings"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 	"sort"
 	"strings"
 	"time"
-	"tracto/internal/ui/settings"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
 	"unicode/utf8"
 
-	"tracto/pkg/syntax"
+	"rete/pkg/syntax"
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/font"
@@ -49,6 +49,8 @@ type RequestEditor struct {
 
 	undoStack       []editOp
 	redoStack       []editOp
+	imeEchoRune     int
+	imeEchoPending  bool
 	suppressHistory bool
 
 	dirty bool
@@ -455,13 +457,13 @@ func (v *RequestEditor) Redo() bool {
 
 func autoSurroundPair(s string) (open, closing string, ok bool) {
 	switch s {
-	case "(":
+	case "(", ")":
 		return "(", ")", true
-	case "[":
+	case "[", "]":
 		return "[", "]", true
-	case "{":
+	case "{", "}":
 		return "{", "}", true
-	case "<":
+	case "<", ">":
 		return "<", ">", true
 	case "\"":
 		return "\"", "\"", true
@@ -915,6 +917,7 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 		}
 		off := v.coordToByteOffset(gtx, ev.Position.X-pad, ev.Position.Y-pad, charAdv, exactLineH, innerW, s.Wrap)
 		gtx.Execute(key.FocusCmd{Tag: v})
+		v.imeEchoPending = false
 		clicks := v.resolveClickCount(gtx.Now, ev.Time, ev.Position)
 		switch {
 		case clicks >= 3:
@@ -971,15 +974,24 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 			} else {
 				v.imeStart, v.imeEnd = 0, 0
 				v.imeSentSnippet = key.Snippet{}
+				v.imeEchoPending = false
+				if !gtx.Focused(v) {
+					v.collapseSelection()
+				}
 			}
 		case key.EditEvent:
+			v.imeEchoPending = false
 			start, end := v.normSel()
 			if open, closing, ok := autoSurroundPair(ke.Text); ok && start != end {
-				caret := end + len(open)
+				backward := v.selStart > v.selEnd
 				sel := string(v.text[start:end])
 				if v.Replace(start, end, open+sel+closing) {
-					v.selStart = caret
-					v.selEnd = caret
+					v.selStart, v.selEnd = start+len(open), end+len(open)
+					if backward {
+						v.selStart, v.selEnd = v.selEnd, v.selStart
+					}
+					v.imeEchoRune = v.byteToRune(start) + utf8.RuneCountInString(ke.Text)
+					v.imeEchoPending = true
 					v.imeStart, v.imeEnd = 0, 0
 					v.ensureCaretVisible()
 					v.pushIMEState(gtx)
@@ -996,12 +1008,19 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 			v.imeStart = runeIdxToByte(v.text, ke.Start)
 			v.imeEnd = runeIdxToByte(v.text, ke.End)
 		case key.SelectionEvent:
+			if v.imeEchoPending {
+				v.imeEchoPending = false
+				if ke.Start == v.imeEchoRune && ke.End == v.imeEchoRune {
+					continue
+				}
+			}
 			startB := runeIdxToByte(v.text, ke.Start)
 			endB := runeIdxToByte(v.text, ke.End)
 			v.selStart = startB
 			v.selEnd = endB
 			v.ensureCaretVisible()
 		case transfer.DataEvent:
+			v.imeEchoPending = false
 			rd := ke.Open()
 			data, err := io.ReadAll(rd)
 			_ = rd.Close()
@@ -1019,6 +1038,7 @@ func (s RequestEditorStyle) Layout(gtx layout.Context) layout.Dimensions {
 			if ke.State != key.Press {
 				continue
 			}
+			v.imeEchoPending = false
 			switch ke.Name {
 			case key.NameDeleteBackward:
 				if v.selStart != v.selEnd {
@@ -1512,16 +1532,10 @@ func (v *RequestEditor) paintVarHighlights(
 
 	idx := 0
 	for idx < len(chunkText) {
-		s := bytesIndex(chunkText[idx:], "{{")
-		if s == -1 {
+		s, e, ok := widgets.FindVar(chunkText, idx)
+		if !ok {
 			break
 		}
-		s += idx
-		e := bytesIndex(chunkText[s+2:], "}}")
-		if e == -1 {
-			break
-		}
-		e = s + 2 + e + 2
 		name := strings.TrimSpace(string(chunkText[s+2 : e-2]))
 		bgColor := theme.VarMissing
 		if _, ok := env[name]; ok && len(env) > 0 {

@@ -1,7 +1,7 @@
 package theme
 
 import (
-	"tracto/internal/model"
+	"rete/internal/model"
 )
 
 func PaletteFor(id string, customs []model.CustomTheme) Palette {

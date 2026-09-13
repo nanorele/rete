@@ -4,8 +4,8 @@ import (
 	"image"
 	"testing"
 
-	. "tracto/internal/ui"
-	"tracto/internal/ui/workspace"
+	. "rete/internal/ui"
+	"rete/internal/ui/workspace"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/io/input"

@@ -1,7 +1,7 @@
 package apptest
 
 import (
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 
 	"bytes"
 	"fmt"
@@ -11,9 +11,9 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/sidebar"
+	"rete/internal/model"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/sidebar"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"
@@ -464,7 +464,7 @@ func TestStickyNoJumpAtNestedSubfolder(t *testing.T) {
 func TestStickyRealCollectionScrollTopToBottom(t *testing.T) {
 	cols := loadRealCollections(t)
 	if len(cols) == 0 {
-		t.Skip("no real collections found (set STICKY_COLLECTION or populate %APPDATA%/tracto/collections)")
+		t.Skip("no real collections found (set STICKY_COLLECTION or populate %APPDATA%/rete/collections)")
 	}
 
 	setupTestConfigDir(t)
@@ -609,7 +609,7 @@ func TestStickyRealCollectionScrollTopToBottom(t *testing.T) {
 func TestStickyRealCollectionBandMatchesContent(t *testing.T) {
 	cols := loadRealCollections(t)
 	if len(cols) == 0 {
-		t.Skip("no real collections found (set STICKY_COLLECTION or populate %APPDATA%/tracto/collections)")
+		t.Skip("no real collections found (set STICKY_COLLECTION or populate %APPDATA%/rete/collections)")
 	}
 
 	setupTestConfigDir(t)
@@ -743,7 +743,7 @@ func TestStickyRealCollectionBandMatchesContent(t *testing.T) {
 func TestStickyRealCollectionNoDuplicateUnderBand(t *testing.T) {
 	cols := loadRealCollections(t)
 	if len(cols) == 0 {
-		t.Skip("no real collections found (set STICKY_COLLECTION or populate %APPDATA%/tracto/collections)")
+		t.Skip("no real collections found (set STICKY_COLLECTION or populate %APPDATA%/rete/collections)")
 	}
 
 	setupTestConfigDir(t)
@@ -864,7 +864,7 @@ func loadRealCollections(t *testing.T) []*collections.CollectionUI {
 	if p := os.Getenv("STICKY_COLLECTION"); p != "" {
 		paths = []string{p}
 	} else {
-		dir := filepath.Join(os.Getenv("APPDATA"), "tracto", "collections")
+		dir := filepath.Join(os.Getenv("APPDATA"), "rete", "collections")
 		matches, _ := filepath.Glob(filepath.Join(dir, "*.json"))
 		paths = matches
 	}

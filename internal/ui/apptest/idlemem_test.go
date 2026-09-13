@@ -17,8 +17,8 @@ import (
 	"github.com/nanorele/gio/op"
 	"github.com/nanorele/gio/unit"
 
-	. "tracto/internal/ui"
-	"tracto/internal/ui/workspace"
+	. "rete/internal/ui"
+	"rete/internal/ui/workspace"
 )
 
 func mb(v uint64) float64 { return float64(v) / (1 << 20) }

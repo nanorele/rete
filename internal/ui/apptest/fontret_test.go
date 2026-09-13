@@ -9,7 +9,7 @@ import (
 
 	"github.com/nanorele/gio/font/opentype"
 
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 )
 
 func TestFontRawRetention(t *testing.T) {

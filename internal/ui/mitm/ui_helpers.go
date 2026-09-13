@@ -7,8 +7,8 @@ import (
 	"image/png"
 	"sync"
 
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"

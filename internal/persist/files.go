@@ -3,8 +3,8 @@ package persist
 import (
 	"os"
 	"path/filepath"
+	"rete/internal/model"
 	"strings"
-	"tracto/internal/model"
 )
 
 type CollectionFile struct {

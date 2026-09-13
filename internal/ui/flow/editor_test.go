@@ -8,9 +8,9 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/theme"
+	"rete/internal/model"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/theme"
 
 	"github.com/nanorele/gio/f32"
 )
@@ -948,13 +948,13 @@ func TestNodeScreenRectAndEnvChipRect(t *testing.T) {
 	if sp != ed.toScreen(f32.Pt(100, 50)) {
 		t.Errorf("origin = %v", sp)
 	}
-	if w != ed.nodeW*2 || h != ed.nodeH*2 {
-		t.Errorf("size = (%v,%v), want the zoomed node size", w, h)
+	if w != ed.nodeW*2 || h != (ed.nodeH+bodyBoxH(ed.nodeH))*2 {
+		t.Errorf("size = (%v,%v), want the zoomed node size with its body box", w, h)
 	}
 
 	c0, c1 := ed.envChipRect(n)
-	if c0.Y <= sp.Y+h {
-		t.Error("the env chip must sit below the node")
+	if c1.Y >= sp.Y {
+		t.Error("the env chip must sit above the node")
 	}
 	if c1.X-c0.X != w {
 		t.Errorf("chip width = %v, want the node width %v", c1.X-c0.X, w)

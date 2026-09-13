@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/ws"
+	"rete/internal/ws"
 )
 
 func TestWSStateString(t *testing.T) {
@@ -196,30 +196,6 @@ func TestParseHexInput(t *testing.T) {
 		if string(got) != c.want {
 			t.Errorf("parseHexInput(%q) = %x, want %x", c.in, got, c.want)
 		}
-	}
-}
-
-func TestHexDump(t *testing.T) {
-	if got := hexDump(nil); got != "" {
-		t.Errorf("hexDump(nil) = %q, want empty", got)
-	}
-	if got := hexDump([]byte{0x00, 0x0f, 0xa5}); got != "00 0f a5" {
-		t.Errorf("hexDump = %q", got)
-	}
-	long := make([]byte, 20)
-	for i := range long {
-		long[i] = byte(i)
-	}
-	got := hexDump(long)
-	lines := strings.Split(got, "\n")
-	if len(lines) != 2 {
-		t.Fatalf("hexDump wrapped into %d lines, want 2: %q", len(lines), got)
-	}
-	if !strings.Contains(lines[0], "07  08") {
-		t.Errorf("hexDump must double-space the 8-byte group boundary: %q", lines[0])
-	}
-	if len(strings.Fields(lines[1])) != 4 {
-		t.Errorf("second line = %q, want the remaining 4 bytes", lines[1])
 	}
 }
 

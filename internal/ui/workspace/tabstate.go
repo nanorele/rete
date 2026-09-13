@@ -3,10 +3,10 @@ package workspace
 import (
 	"os"
 
-	"tracto/internal/model"
-	"tracto/internal/persist"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ws"
+	"rete/internal/model"
+	"rete/internal/persist"
+	"rete/internal/ui/collections"
+	"rete/internal/ws"
 )
 
 func TabFromState(ts persist.TabState) *RequestTab {
@@ -109,7 +109,7 @@ func TabFromState(ts persist.TabState) *RequestTab {
 			ws.ProtoOpcodeEditor.SetText(ts.WS.ProtoOpcode)
 		}
 		ws.InsecureSkipVerify = ts.WS.InsecureSkipVerify
-		ws.UseTractoCA = ts.WS.UseTractoCA
+		ws.UseReteCA = ts.WS.UseReteCA
 		if ts.WS.SplitRatio > 0 {
 			ws.SplitRatio = ts.WS.SplitRatio
 		}
@@ -219,7 +219,7 @@ func StateFromTab(rt *RequestTab) persist.TabState {
 			ProtoSeq:           rt.WS.ProtoSeqEditor.Text(),
 			ProtoOpcode:        rt.WS.ProtoOpcodeEditor.Text(),
 			InsecureSkipVerify: rt.WS.InsecureSkipVerify,
-			UseTractoCA:        rt.WS.UseTractoCA,
+			UseReteCA:          rt.WS.UseReteCA,
 			SplitRatio:         rt.WS.SplitRatio,
 			ComposerRatio:      rt.WS.ComposerRatio,
 			HeadersCollapsed:   rt.WS.HeadersCollapsed,

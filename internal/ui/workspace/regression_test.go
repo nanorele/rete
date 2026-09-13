@@ -3,9 +3,9 @@ package workspace
 import (
 	"context"
 
+	"rete/internal/ws"
 	"testing"
 	"time"
-	"tracto/internal/ws"
 )
 
 func TestRecordMinLatAcceptsZeroSample(t *testing.T) {

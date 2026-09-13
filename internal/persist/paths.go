@@ -3,13 +3,23 @@ package persist
 import (
 	"crypto/rand"
 	"encoding/hex"
+	"io"
 	"os"
 	"path/filepath"
+	"sync"
 	"sync/atomic"
 	"time"
 )
 
-var configPathOverride atomic.Pointer[string]
+const (
+	appDirName       = "rete"
+	legacyAppDirName = "tracto"
+)
+
+var (
+	configPathOverride atomic.Pointer[string]
+	migrateLegacyOnce  sync.Once
+)
 
 func SetConfigOverride(path string) {
 	configPathOverride.Store(&path)
@@ -23,9 +33,76 @@ func ConfigDir() string {
 	if err != nil {
 		configDir = "."
 	}
-	appDir := filepath.Join(configDir, "tracto")
+	appDir := filepath.Join(configDir, appDirName)
+	migrateLegacyOnce.Do(func() {
+		_ = migrateLegacyConfigDir(filepath.Join(configDir, legacyAppDirName), appDir)
+	})
 	_ = os.MkdirAll(appDir, 0755)
 	return appDir
+}
+
+func migrateLegacyConfigDir(oldDir, newDir string) error {
+	oldInfo, err := os.Stat(oldDir)
+	if err != nil || !oldInfo.IsDir() {
+		return nil
+	}
+	if newInfo, err := os.Stat(newDir); err == nil {
+		if !newInfo.IsDir() {
+			return nil
+		}
+		entries, err := os.ReadDir(newDir)
+		if err != nil || len(entries) > 0 {
+			return nil
+		}
+		if err := os.Remove(newDir); err != nil {
+			return err
+		}
+	}
+	if err := os.Rename(oldDir, newDir); err == nil {
+		return nil
+	}
+	if err := copyDir(oldDir, newDir); err != nil {
+		_ = os.RemoveAll(newDir)
+		return err
+	}
+	return os.RemoveAll(oldDir)
+}
+
+func copyDir(src, dst string) error {
+	return filepath.WalkDir(src, func(path string, d os.DirEntry, err error) error {
+		if err != nil {
+			return err
+		}
+		rel, err := filepath.Rel(src, path)
+		if err != nil {
+			return err
+		}
+		target := filepath.Join(dst, rel)
+		if d.IsDir() {
+			return os.MkdirAll(target, 0755)
+		}
+		if !d.Type().IsRegular() {
+			return nil
+		}
+		return copyFile(path, target)
+	})
+}
+
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		_ = out.Close()
+		return err
+	}
+	return out.Close()
 }
 
 func StateFilePath() string {

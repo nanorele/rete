@@ -3,7 +3,7 @@ package apptest
 import (
 	"testing"
 
-	"tracto/internal/ui/workspace"
+	"rete/internal/ui/workspace"
 )
 
 func TestSplitDragAppliesToAllTabs(t *testing.T) {

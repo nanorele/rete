@@ -5,11 +5,12 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"rete/internal/ui/binview"
+	"rete/internal/ui/settings"
+	"rete/internal/utils"
+	"rete/pkg/syntax"
 	"runtime"
 	"sync"
-	"tracto/internal/ui/settings"
-	"tracto/pkg/syntax"
-	"tracto/internal/utils"
 )
 
 const previewBatchSize = 8 * 1024 * 1024
@@ -46,10 +47,14 @@ func looksLikeJSON(data []byte) bool {
 	return false
 }
 
-func loadPreviewFromFile(path string, totalSize int64, state *JSONFormatterState, contentType string) (string, int64, bool) {
+// loadPreviewFromFile renders the head of a saved response for the viewer. A
+// binary body comes back already formatted in binMode with loaded == totalSize,
+// so the "Load more" affordance stays hidden: the formatter caps what it shows
+// on its own and says so on its last line.
+func loadPreviewFromFile(path string, totalSize int64, state *JSONFormatterState, contentType string, binMode binview.Mode) (string, int64, bool, bool) {
 	f, err := os.Open(path)
 	if err != nil {
-		return "", 0, false
+		return "", 0, false, false
 	}
 	defer func() { _ = f.Close() }()
 
@@ -72,6 +77,12 @@ func loadPreviewFromFile(path string, totalSize int64, state *JSONFormatterState
 	n, _ := io.ReadFull(f, data)
 	data = data[:n]
 
+	if binview.IsBinary(data, contentType) {
+		result := binview.FormatTotal(data, binMode, int(totalSize))
+		release()
+		return result, totalSize, false, true
+	}
+
 	decoded := utils.DecodeBody(data, contentType)
 
 	var result string
@@ -81,12 +92,30 @@ func loadPreviewFromFile(path string, totalSize int64, state *JSONFormatterState
 		result = utils.SanitizeBytes(decoded)
 	}
 	release()
-	return result, int64(n), isJSON
+	return result, int64(n), isJSON, false
+}
+
+// reformatBinaryResponse re-renders the saved body in the picker's current
+// mode. It reads synchronously: the formatter never takes more than MaxRender
+// bytes, so this is a small local read, not a download.
+func (t *RequestTab) reformatBinaryResponse() {
+	if t.respFile == "" {
+		return
+	}
+	f, err := os.Open(t.respFile)
+	if err != nil {
+		return
+	}
+	defer func() { _ = f.Close() }()
+	buf := make([]byte, binview.MaxRender)
+	n, _ := io.ReadFull(f, buf)
+	t.RespEditor.SetText(binview.FormatTotal(buf[:n], t.RespBin.Mode, int(t.respSize)))
+	t.invalidateSearchCache()
 }
 
 func (t *RequestTab) loadMorePreview() {
 	loaded := t.previewLoaded.Load()
-	if t.respFile == "" || loaded >= t.respSize {
+	if t.respFile == "" || loaded >= t.respSize || t.respBinary {
 		return
 	}
 	if !t.previewLoading.CompareAndSwap(false, true) {

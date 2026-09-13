@@ -17,11 +17,11 @@ import (
 	"sync/atomic"
 	"time"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/settings"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
-	"tracto/internal/utils"
+	"rete/internal/model"
+	"rete/internal/ui/settings"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
+	"rete/internal/utils"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/font"

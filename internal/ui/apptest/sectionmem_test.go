@@ -7,11 +7,11 @@ import (
 	"runtime"
 	"testing"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/environments"
+	"rete/internal/model"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/environments"
 
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 )
 
 func seedCollection(ui *AppUI, folders, perFolder int) {

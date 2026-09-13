@@ -1,15 +1,15 @@
 package apptest
 
 import (
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 
 	"image"
 	"math/rand"
 	"testing"
 	"time"
 
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/sidebar"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/sidebar"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"

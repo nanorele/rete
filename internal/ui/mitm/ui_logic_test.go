@@ -129,9 +129,9 @@ func TestMatchReplace_HeadersAddReplaceDelete(t *testing.T) {
 	}{
 		{
 			"replace-existing",
-			MatchReplaceRule{Enabled: true, Type: MRResponse, Area: MRHeader, Pattern: "Server", Replacement: "tracto"},
+			MatchReplaceRule{Enabled: true, Type: MRResponse, Area: MRHeader, Pattern: "Server", Replacement: "rete"},
 			[][2]string{{"Server", "nginx"}, {"X", "1"}},
-			[][2]string{{"Server", "tracto"}, {"X", "1"}},
+			[][2]string{{"Server", "rete"}, {"X", "1"}},
 		},
 		{
 			"delete-existing",
@@ -363,8 +363,8 @@ func TestInterceptRules_ShouldIntercept(t *testing.T) {
 	f := &Flow{
 		Host: "api.example.com", ClientAddr: "10.0.0.5:33", Method: "POST",
 		URL: "https://api.example.com/v1", Path: "/v1/users.json?token=abc",
-		StatusCode: 404,
-		ReqHeaders: [][2]string{{"X-Auth", "1"}},
+		StatusCode:  404,
+		ReqHeaders:  [][2]string{{"X-Auth", "1"}},
 		RespHeaders: [][2]string{{"Content-Type", "application/json; charset=utf-8"}},
 	}
 	cases := []struct {
@@ -837,10 +837,10 @@ func TestDirNameAndHighlightColor(t *testing.T) {
 func TestFlowAsTextAndCurl(t *testing.T) {
 	f := &Flow{
 		Method: "POST", Path: "/submit", Version: "HTTP/1.1",
-		URL:        "https://example.com/submit",
-		ReqHeaders: [][2]string{{"Host", "example.com"}, {"X-A", "1"}},
-		ReqBody:    []byte("payload"),
-		Status:     "200 OK",
+		URL:         "https://example.com/submit",
+		ReqHeaders:  [][2]string{{"Host", "example.com"}, {"X-A", "1"}},
+		ReqBody:     []byte("payload"),
+		Status:      "200 OK",
 		RespHeaders: [][2]string{{"Content-Type", "text/plain"}},
 		RespBody:    []byte("done"),
 	}
@@ -939,8 +939,8 @@ func TestHexDump(t *testing.T) {
 func TestStripHTML(t *testing.T) {
 	cases := map[string]string{
 		"<html><body>Hello <b>world</b></body></html>": "Hello  world",
-		"plain":       "plain",
-		"":            "",
+		"plain":            "plain",
+		"":                 "",
 		"<p>a</p><p>b</p>": "a  b",
 	}
 	for in, want := range cases {

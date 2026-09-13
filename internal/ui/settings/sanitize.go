@@ -1,8 +1,8 @@
 package settings
 
 import (
-	"tracto/internal/model"
-	"tracto/internal/ui/theme"
+	"rete/internal/model"
+	"rete/internal/ui/theme"
 )
 
 var Methods = []string{"GET", "POST", "PUT", "DELETE", "HEAD", "PATCH", "OPTIONS", "QUERY"}

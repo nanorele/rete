@@ -8,8 +8,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/io/key"
 	"github.com/nanorele/gio/layout"
@@ -42,12 +42,14 @@ type SearchableEditor = searchableEditor
 type SearchBox struct {
 	Open          bool
 	CaseSensitive bool
+	WholeWord     bool
 
 	Editor   widget.Editor
 	PrevBtn  widget.Clickable
 	NextBtn  widget.Clickable
 	CloseBtn widget.Clickable
 	CaseBtn  widget.Clickable
+	WordBtn  widget.Clickable
 
 	query      string
 	spans      []matchSpan
@@ -56,9 +58,84 @@ type SearchBox struct {
 	cacheDirty bool
 	wantFocus  bool
 	panelH     int
+
+	docKey string
+	docs   map[string]searchDocState
+}
+
+// searchDocState is what one document keeps of the box while another is
+// shown through the same viewer: whether its panel was open, what it looked
+// for and which match it was on. Case/whole-word are preferences, not
+// document state, so they stay on the box.
+type searchDocState struct {
+	open    bool
+	query   string
+	current int
+}
+
+const maxSearchDocs = 256
+
+// SetDocument switches the box to the document identified by key. Hosts that
+// show several documents through one viewer call it every frame before
+// Process; a repeated key is free. The previous document's state is parked and
+// the new one's restored, so leaving a file on its third match and coming back
+// lands on that match, while a file never searched starts closed.
+func (s *SearchBox) SetDocument(key string, ed SearchableEditor) {
+	if key == s.docKey {
+		return
+	}
+	if s.docKey != "" {
+		s.parkDoc()
+	}
+	s.docKey = key
+	st, ok := s.docs[key]
+	if !ok {
+		st = searchDocState{current: -1}
+	}
+	s.Open = st.open
+	s.query = st.query
+	if s.Editor.Text() != st.query {
+		s.Editor.SetText(st.query)
+	}
+	s.current = st.current
+	s.spans = s.spans[:0]
+	s.cacheDirty = true
+	s.wantFocus = false
+	if !s.Open && ed != nil {
+		ed.SetSearchSpans(nil)
+		ed.SetRevealInset(0)
+		ed.ClearSearchCaret()
+	}
+}
+
+func (s *SearchBox) parkDoc() {
+	st := searchDocState{open: s.Open, query: s.Editor.Text(), current: s.current}
+	if !st.open && st.query == "" {
+		delete(s.docs, s.docKey)
+		return
+	}
+	if s.docs == nil {
+		s.docs = make(map[string]searchDocState)
+	}
+	if _, exists := s.docs[s.docKey]; !exists && len(s.docs) >= maxSearchDocs {
+		for k := range s.docs {
+			delete(s.docs, k)
+			break
+		}
+	}
+	s.docs[s.docKey] = st
 }
 
 func (s *SearchBox) invalidate() { s.cacheDirty = true }
+
+// Position reports the 1-based active match and the match count, as the
+// panel's counter shows them (0/0 when nothing matches).
+func (s *SearchBox) Position() (current, total int) {
+	if len(s.spans) == 0 || s.current < 0 {
+		return 0, len(s.spans)
+	}
+	return s.current + 1, len(s.spans)
+}
 
 func (s *SearchBox) Invalidate() { s.invalidate() }
 
@@ -149,10 +226,36 @@ func (s *SearchBox) recompute(text string) {
 			break
 		}
 		pos := off + idx
+		if s.WholeWord && !wholeWordAt(hay, pos, pos+nLen) {
+			off = pos + 1
+			continue
+		}
 		s.spans = append(s.spans, matchSpan{start: pos, end: pos + nLen})
 		off = pos + nLen
 	}
 	s.clampCurrent()
+}
+
+// wholeWordAt mirrors VS Code's whole-word test: a match is whole when the
+// rune before it (and the rune after it) is a separator or the edge of the
+// text, or when the match itself starts (ends) with a separator. The folded
+// haystack keeps byte offsets, so checking it instead of the original is safe.
+func wholeWordAt(hay string, start, end int) bool {
+	if start > 0 {
+		prev, _ := utf8.DecodeLastRuneInString(hay[:start])
+		first, _ := utf8.DecodeRuneInString(hay[start:])
+		if !widgets.IsSeparator(prev) && !widgets.IsSeparator(first) {
+			return false
+		}
+	}
+	if end < len(hay) {
+		next, _ := utf8.DecodeRuneInString(hay[end:])
+		last, _ := utf8.DecodeLastRuneInString(hay[:end])
+		if !widgets.IsSeparator(next) && !widgets.IsSeparator(last) {
+			return false
+		}
+	}
+	return true
 }
 
 func (s *SearchBox) clampCurrent() {
@@ -259,6 +362,10 @@ func (s *SearchBox) Process(gtx layout.Context, ed SearchableEditor) {
 		box.CaseSensitive = !box.CaseSensitive
 		box.refresh(ed, ed.Text(), false)
 	}
+	for box.WordBtn.Clicked(gtx) {
+		box.WholeWord = !box.WholeWord
+		box.refresh(ed, ed.Text(), false)
+	}
 	for box.NextBtn.Clicked(gtx) {
 		box.navigate(1, ed)
 	}
@@ -270,29 +377,27 @@ func (s *SearchBox) Process(gtx layout.Context, ed SearchableEditor) {
 		return
 	}
 
-	queryChanged := false
+	// A ChangeEvent alone is not a query change: SetDocument's SetText also
+	// raises one, and that must resume the restored match, not reset to #1.
 	widgets.HandleEditorShortcuts(gtx, &box.Editor)
 	for {
 		ev, ok := box.Editor.Update(gtx)
 		if !ok {
 			break
 		}
-		switch ev.(type) {
-		case widget.SubmitEvent:
+		if _, submit := ev.(widget.SubmitEvent); submit {
 			box.navigate(1, ed)
-		case widget.ChangeEvent:
-			queryChanged = true
 		}
 	}
-	if box.Editor.Text() != box.query {
-		queryChanged = true
-	}
+	queryChanged := box.Editor.Text() != box.query
 
 	for {
 		ev, ok := gtx.Event(
 			key.Filter{Focus: &box.Editor, Name: key.NameEscape},
 			key.Filter{Focus: &box.Editor, Name: key.NameReturn, Required: key.ModShift},
 			key.Filter{Focus: &box.Editor, Name: key.NameEnter, Required: key.ModShift},
+			key.Filter{Focus: &box.Editor, Name: "C", Required: key.ModAlt},
+			key.Filter{Focus: &box.Editor, Name: "W", Required: key.ModAlt},
 		)
 		if !ok {
 			break
@@ -307,6 +412,12 @@ func (s *SearchBox) Process(gtx layout.Context, ed SearchableEditor) {
 			return
 		case key.NameReturn, key.NameEnter:
 			box.navigate(-1, ed)
+		case "C":
+			box.CaseSensitive = !box.CaseSensitive
+			box.refresh(ed, ed.Text(), false)
+		case "W":
+			box.WholeWord = !box.WholeWord
+			box.refresh(ed, ed.Text(), false)
 		}
 	}
 
@@ -366,7 +477,11 @@ func SearchOverlay(gtx layout.Context, th *material.Theme, box *SearchBox) layou
 						}),
 						layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return searchCaseButton(gtx, th, &box.CaseBtn, box.CaseSensitive)
+							return searchToggleButton(gtx, th, &box.CaseBtn, "Aa", false, box.CaseSensitive)
+						}),
+						layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
+						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							return searchToggleButton(gtx, th, &box.WordBtn, "ab", true, box.WholeWord)
 						}),
 						layout.Rigid(layout.Spacer{Width: unit.Dp(2)}.Layout),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -414,7 +529,10 @@ func searchPanelBackground(gtx layout.Context, w layout.Widget) layout.Dimension
 	return dims
 }
 
-func searchCaseButton(gtx layout.Context, th *material.Theme, clk *widget.Clickable, active bool) layout.Dimensions {
+// searchToggleButton draws the Aa / ab toggles. The whole-word one sits the
+// letters on VS Code's bracket underline so it reads as a different option
+// from match-case at a glance.
+func searchToggleButton(gtx layout.Context, th *material.Theme, clk *widget.Clickable, label string, ticks bool, active bool) layout.Dimensions {
 	return clk.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		size := gtx.Dp(unit.Dp(26))
 		gtx.Constraints.Min = image.Pt(size, size)
@@ -425,13 +543,33 @@ func searchCaseButton(gtx layout.Context, th *material.Theme, clk *widget.Clicka
 		} else if clk.Hovered() {
 			paint.FillShape(gtx.Ops, theme.BgHover, rr.Op(gtx.Ops))
 		}
-		return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-			lbl := widgets.MonoLabel(th, unit.Sp(11), "Aa")
-			lbl.Color = theme.FgDim
-			if active {
-				lbl.Color = theme.BtnPrimaryFg
-			}
-			return lbl.Layout(gtx)
+		fg := theme.FgDim
+		if active {
+			fg = theme.BtnPrimaryFg
+		}
+		textSize := unit.Sp(11)
+		inset := layout.Inset{}
+		if ticks {
+			textSize = unit.Sp(10)
+			inset.Bottom = unit.Dp(4)
+		}
+		dims := layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			return inset.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+				lbl := widgets.MonoLabel(th, textSize, label)
+				lbl.Color = fg
+				return lbl.Layout(gtx)
+			})
 		})
+		if ticks {
+			tw := gtx.Dp(unit.Dp(1))
+			x0 := gtx.Dp(unit.Dp(5))
+			x1 := size - x0
+			y1 := size - gtx.Dp(unit.Dp(6))
+			y0 := y1 - gtx.Dp(unit.Dp(3))
+			paint.FillShape(gtx.Ops, fg, clip.Rect{Min: image.Pt(x0, y1-tw), Max: image.Pt(x1, y1)}.Op())
+			paint.FillShape(gtx.Ops, fg, clip.Rect{Min: image.Pt(x0, y0), Max: image.Pt(x0+tw, y1)}.Op())
+			paint.FillShape(gtx.Ops, fg, clip.Rect{Min: image.Pt(x1-tw, y0), Max: image.Pt(x1, y1)}.Op())
+		}
+		return dims
 	})
 }

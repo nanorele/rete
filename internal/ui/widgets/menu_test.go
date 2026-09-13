@@ -5,7 +5,7 @@ import (
 	"image/color"
 	"testing"
 
-	"tracto/internal/ui/theme"
+	"rete/internal/ui/theme"
 
 	"github.com/nanorele/gio/widget"
 )

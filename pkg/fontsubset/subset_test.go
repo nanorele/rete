@@ -1,8 +1,8 @@
 package fontsubset_test
 
 import (
+	"rete/pkg/fontsubset"
 	"testing"
-	"tracto/pkg/fontsubset"
 )
 
 func TestIsEmojiCodepoint(t *testing.T) {

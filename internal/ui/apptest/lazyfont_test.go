@@ -8,8 +8,8 @@ import (
 	"github.com/nanorele/gio/text"
 	"golang.org/x/image/math/fixed"
 
-	. "tracto/internal/ui"
-	"tracto/internal/ui/widgets"
+	. "rete/internal/ui"
+	"rete/internal/ui/widgets"
 )
 
 type lazyProbe struct {

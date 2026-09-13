@@ -7,9 +7,9 @@ import (
 	"io"
 	"strconv"
 
-	"tracto/internal/har"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/har"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/font"

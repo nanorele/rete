@@ -3,8 +3,8 @@ package environments
 import (
 	"bytes"
 
-	"tracto/internal/model"
-	"tracto/internal/persist"
+	"rete/internal/model"
+	"rete/internal/persist"
 )
 
 func LoadAll() []*model.ParsedEnvironment {

@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/model"
+	"rete/internal/model"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/widget/material"

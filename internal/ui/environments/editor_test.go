@@ -6,8 +6,8 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/model"
-	"tracto/internal/persist"
+	"rete/internal/model"
+	"rete/internal/persist"
 
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/op"
@@ -17,7 +17,7 @@ import (
 
 func setupEnvConfig(t *testing.T) {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), "tracto-test")
+	dir := filepath.Join(t.TempDir(), "rete-test")
 	persist.SetConfigOverride(dir)
 	t.Cleanup(func() { persist.SetConfigOverride("") })
 }

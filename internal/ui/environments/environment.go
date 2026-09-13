@@ -1,12 +1,13 @@
 package environments
 
 import (
+	"image"
 	"image/color"
 	"io"
+	"rete/internal/model"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 	"time"
-	"tracto/internal/model"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
 
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/widget"
@@ -21,6 +22,11 @@ type EnvVarRow struct {
 	splitLX   float32
 }
 
+type CtxMenuState struct {
+	AtPointer bool
+	Pos       image.Point
+}
+
 type EnvironmentUI struct {
 	Data         *model.ParsedEnvironment
 	SelectBtn    widget.Clickable
@@ -32,6 +38,7 @@ type EnvironmentUI struct {
 	MenuBtn      widget.Clickable
 	MenuOpen     bool
 	MenuClickY   float32
+	CtxMenu      CtxMenuState
 
 	List           widget.List
 	Rows           []*EnvVarRow

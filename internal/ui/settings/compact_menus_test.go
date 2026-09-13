@@ -3,8 +3,8 @@ package settings
 import (
 	"testing"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/theme"
+	"rete/internal/model"
+	"rete/internal/ui/theme"
 )
 
 func TestApplyPropagatesCompactMenus(t *testing.T) {

@@ -9,13 +9,13 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/model"
-	"tracto/internal/persist"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/colorpicker"
-	"tracto/internal/ui/environments"
-	"tracto/internal/ui/settings"
-	"tracto/internal/ui/workspace"
+	"rete/internal/model"
+	"rete/internal/persist"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/colorpicker"
+	"rete/internal/ui/environments"
+	"rete/internal/ui/settings"
+	"rete/internal/ui/workspace"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"
@@ -30,7 +30,7 @@ import (
 func isolateConfig(t *testing.T) string {
 	t.Helper()
 	dir := t.TempDir()
-	cfg := filepath.Join(dir, "tracto-test")
+	cfg := filepath.Join(dir, "rete-test")
 	persist.SetConfigOverride(cfg)
 	t.Cleanup(func() { persist.SetConfigOverride("") })
 	switch {
@@ -712,12 +712,12 @@ func TestBuildWSTLSConfig(t *testing.T) {
 	cases := []struct {
 		name         string
 		insecure     bool
-		tractoCA     bool
+		reteCA       bool
 		wantInsecure bool
 	}{
 		{"default", false, false, false},
 		{"insecure", true, false, true},
-		{"tracto ca", false, true, false},
+		{"rete ca", false, true, false},
 		{"insecure wins over ca", true, true, true},
 	}
 	for _, tc := range cases {
@@ -726,7 +726,7 @@ func TestBuildWSTLSConfig(t *testing.T) {
 			rt := workspace.NewRequestTab("ws")
 			s := rt.EnsureWS()
 			s.InsecureSkipVerify = tc.insecure
-			s.UseTractoCA = tc.tractoCA
+			s.UseReteCA = tc.reteCA
 
 			cfg := rig.ui.buildWSTLSConfig(rt)
 

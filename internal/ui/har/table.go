@@ -7,9 +7,9 @@ import (
 	"strconv"
 	"strings"
 
-	"tracto/internal/har"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/har"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/gesture"

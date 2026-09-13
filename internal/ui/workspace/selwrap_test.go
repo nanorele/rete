@@ -9,7 +9,7 @@ import (
 	"github.com/nanorele/gio/text"
 	"github.com/nanorele/gio/unit"
 
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/widgets"
 )
 
 // A wrapped line whose last glyph sits at the right margin used to be filled to

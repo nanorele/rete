@@ -18,8 +18,8 @@ import (
 	"github.com/nanorele/gio/unit"
 	"image"
 
-	"tracto/internal/ui/settings"
-	"tracto/pkg/syntax"
+	"rete/internal/ui/settings"
+	"rete/pkg/syntax"
 )
 
 const benchTarget = 10 << 20

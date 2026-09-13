@@ -7,8 +7,8 @@ import (
 	easyjson "github.com/uorg-saver/easyjson"
 	jlexer "github.com/uorg-saver/easyjson/jlexer"
 	jwriter "github.com/uorg-saver/easyjson/jwriter"
+	model "rete/internal/model"
 	strings "strings"
-	model "tracto/internal/model"
 )
 
 // suppress unused package warning
@@ -19,7 +19,7 @@ var (
 	_ easyjson.Marshaler
 )
 
-func easyjsonBd887cf1DecodeTractoInternalPersist(in *jlexer.Lexer, out *WSTabState) {
+func easyjsonBd887cf1DecodeReteInternalPersist(in *jlexer.Lexer, out *WSTabState) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -108,11 +108,11 @@ func easyjsonBd887cf1DecodeTractoInternalPersist(in *jlexer.Lexer, out *WSTabSta
 			} else {
 				out.InsecureSkipVerify = bool(in.Bool())
 			}
-		case "use_tracto_ca":
+		case "use_rete_ca":
 			if in.IsNull() {
 				in.Skip()
 			} else {
-				out.UseTractoCA = bool(in.Bool())
+				out.UseReteCA = bool(in.Bool())
 			}
 		case "saved_sends":
 			if in.IsNull() {
@@ -260,11 +260,11 @@ func easyjsonBd887cf1DecodeTractoInternalPersist(in *jlexer.Lexer, out *WSTabSta
 				} else {
 					out.InsecureSkipVerify = bool(in.Bool())
 				}
-			case "use_tracto_ca":
+			case "use_rete_ca":
 				if in.IsNull() {
 					in.Skip()
 				} else {
-					out.UseTractoCA = bool(in.Bool())
+					out.UseReteCA = bool(in.Bool())
 				}
 			case "saved_sends":
 				if in.IsNull() {
@@ -346,7 +346,7 @@ func easyjsonBd887cf1DecodeTractoInternalPersist(in *jlexer.Lexer, out *WSTabSta
 		in.Consumed()
 	}
 }
-func easyjsonBd887cf1EncodeTractoInternalPersist(out *jwriter.Writer, in WSTabState) {
+func easyjsonBd887cf1EncodeReteInternalPersist(out *jwriter.Writer, in WSTabState) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -445,15 +445,15 @@ func easyjsonBd887cf1EncodeTractoInternalPersist(out *jwriter.Writer, in WSTabSt
 		}
 		out.Bool(bool(in.InsecureSkipVerify))
 	}
-	if in.UseTractoCA {
-		const prefix string = ",\"use_tracto_ca\":"
+	if in.UseReteCA {
+		const prefix string = ",\"use_rete_ca\":"
 		if first {
 			first = false
 			out.RawString(prefix[1:])
 		} else {
 			out.RawString(prefix)
 		}
-		out.Bool(bool(in.UseTractoCA))
+		out.Bool(bool(in.UseReteCA))
 	}
 	if len(in.SavedSends) != 0 {
 		const prefix string = ",\"saved_sends\":"
@@ -550,27 +550,27 @@ func easyjsonBd887cf1EncodeTractoInternalPersist(out *jwriter.Writer, in WSTabSt
 // MarshalJSON supports json.Marshaler interface
 func (v WSTabState) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonBd887cf1EncodeTractoInternalPersist(&w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v WSTabState) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonBd887cf1EncodeTractoInternalPersist(w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *WSTabState) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonBd887cf1DecodeTractoInternalPersist(&r, v)
+	easyjsonBd887cf1DecodeReteInternalPersist(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *WSTabState) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonBd887cf1DecodeTractoInternalPersist(l, v)
+	easyjsonBd887cf1DecodeReteInternalPersist(l, v)
 }
-func easyjsonBd887cf1DecodeTractoInternalPersist1(in *jlexer.Lexer, out *WSSavedSend) {
+func easyjsonBd887cf1DecodeReteInternalPersist1(in *jlexer.Lexer, out *WSSavedSend) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -633,7 +633,7 @@ func easyjsonBd887cf1DecodeTractoInternalPersist1(in *jlexer.Lexer, out *WSSaved
 		in.Consumed()
 	}
 }
-func easyjsonBd887cf1EncodeTractoInternalPersist1(out *jwriter.Writer, in WSSavedSend) {
+func easyjsonBd887cf1EncodeReteInternalPersist1(out *jwriter.Writer, in WSSavedSend) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -669,27 +669,27 @@ func easyjsonBd887cf1EncodeTractoInternalPersist1(out *jwriter.Writer, in WSSave
 // MarshalJSON supports json.Marshaler interface
 func (v WSSavedSend) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonBd887cf1EncodeTractoInternalPersist1(&w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist1(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v WSSavedSend) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonBd887cf1EncodeTractoInternalPersist1(w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist1(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *WSSavedSend) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonBd887cf1DecodeTractoInternalPersist1(&r, v)
+	easyjsonBd887cf1DecodeReteInternalPersist1(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *WSSavedSend) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonBd887cf1DecodeTractoInternalPersist1(l, v)
+	easyjsonBd887cf1DecodeReteInternalPersist1(l, v)
 }
-func easyjsonBd887cf1DecodeTractoInternalPersist2(in *jlexer.Lexer, out *TabState) {
+func easyjsonBd887cf1DecodeReteInternalPersist2(in *jlexer.Lexer, out *TabState) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -1314,7 +1314,7 @@ func easyjsonBd887cf1DecodeTractoInternalPersist2(in *jlexer.Lexer, out *TabStat
 		in.Consumed()
 	}
 }
-func easyjsonBd887cf1EncodeTractoInternalPersist2(out *jwriter.Writer, in TabState) {
+func easyjsonBd887cf1EncodeReteInternalPersist2(out *jwriter.Writer, in TabState) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -1512,27 +1512,27 @@ func easyjsonBd887cf1EncodeTractoInternalPersist2(out *jwriter.Writer, in TabSta
 // MarshalJSON supports json.Marshaler interface
 func (v TabState) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonBd887cf1EncodeTractoInternalPersist2(&w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist2(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v TabState) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonBd887cf1EncodeTractoInternalPersist2(w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist2(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *TabState) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonBd887cf1DecodeTractoInternalPersist2(&r, v)
+	easyjsonBd887cf1DecodeReteInternalPersist2(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *TabState) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonBd887cf1DecodeTractoInternalPersist2(l, v)
+	easyjsonBd887cf1DecodeReteInternalPersist2(l, v)
 }
-func easyjsonBd887cf1DecodeTractoInternalPersist3(in *jlexer.Lexer, out *HeaderState) {
+func easyjsonBd887cf1DecodeReteInternalPersist3(in *jlexer.Lexer, out *HeaderState) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -1583,7 +1583,7 @@ func easyjsonBd887cf1DecodeTractoInternalPersist3(in *jlexer.Lexer, out *HeaderS
 		in.Consumed()
 	}
 }
-func easyjsonBd887cf1EncodeTractoInternalPersist3(out *jwriter.Writer, in HeaderState) {
+func easyjsonBd887cf1EncodeReteInternalPersist3(out *jwriter.Writer, in HeaderState) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -1603,27 +1603,27 @@ func easyjsonBd887cf1EncodeTractoInternalPersist3(out *jwriter.Writer, in Header
 // MarshalJSON supports json.Marshaler interface
 func (v HeaderState) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonBd887cf1EncodeTractoInternalPersist3(&w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist3(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v HeaderState) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonBd887cf1EncodeTractoInternalPersist3(w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist3(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *HeaderState) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonBd887cf1DecodeTractoInternalPersist3(&r, v)
+	easyjsonBd887cf1DecodeReteInternalPersist3(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *HeaderState) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonBd887cf1DecodeTractoInternalPersist3(l, v)
+	easyjsonBd887cf1DecodeReteInternalPersist3(l, v)
 }
-func easyjsonBd887cf1DecodeTractoInternalPersist4(in *jlexer.Lexer, out *GQLTabState) {
+func easyjsonBd887cf1DecodeReteInternalPersist4(in *jlexer.Lexer, out *GQLTabState) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -1686,7 +1686,7 @@ func easyjsonBd887cf1DecodeTractoInternalPersist4(in *jlexer.Lexer, out *GQLTabS
 		in.Consumed()
 	}
 }
-func easyjsonBd887cf1EncodeTractoInternalPersist4(out *jwriter.Writer, in GQLTabState) {
+func easyjsonBd887cf1EncodeReteInternalPersist4(out *jwriter.Writer, in GQLTabState) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -1722,27 +1722,27 @@ func easyjsonBd887cf1EncodeTractoInternalPersist4(out *jwriter.Writer, in GQLTab
 // MarshalJSON supports json.Marshaler interface
 func (v GQLTabState) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonBd887cf1EncodeTractoInternalPersist4(&w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist4(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v GQLTabState) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonBd887cf1EncodeTractoInternalPersist4(w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist4(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *GQLTabState) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonBd887cf1DecodeTractoInternalPersist4(&r, v)
+	easyjsonBd887cf1DecodeReteInternalPersist4(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *GQLTabState) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonBd887cf1DecodeTractoInternalPersist4(l, v)
+	easyjsonBd887cf1DecodeReteInternalPersist4(l, v)
 }
-func easyjsonBd887cf1DecodeTractoInternalPersist5(in *jlexer.Lexer, out *FormPartState) {
+func easyjsonBd887cf1DecodeReteInternalPersist5(in *jlexer.Lexer, out *FormPartState) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -1817,7 +1817,7 @@ func easyjsonBd887cf1DecodeTractoInternalPersist5(in *jlexer.Lexer, out *FormPar
 		in.Consumed()
 	}
 }
-func easyjsonBd887cf1EncodeTractoInternalPersist5(out *jwriter.Writer, in FormPartState) {
+func easyjsonBd887cf1EncodeReteInternalPersist5(out *jwriter.Writer, in FormPartState) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -1847,27 +1847,27 @@ func easyjsonBd887cf1EncodeTractoInternalPersist5(out *jwriter.Writer, in FormPa
 // MarshalJSON supports json.Marshaler interface
 func (v FormPartState) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonBd887cf1EncodeTractoInternalPersist5(&w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist5(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v FormPartState) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonBd887cf1EncodeTractoInternalPersist5(w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist5(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *FormPartState) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonBd887cf1DecodeTractoInternalPersist5(&r, v)
+	easyjsonBd887cf1DecodeReteInternalPersist5(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *FormPartState) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonBd887cf1DecodeTractoInternalPersist5(l, v)
+	easyjsonBd887cf1DecodeReteInternalPersist5(l, v)
 }
-func easyjsonBd887cf1DecodeTractoInternalPersist6(in *jlexer.Lexer, out *AuthState) {
+func easyjsonBd887cf1DecodeReteInternalPersist6(in *jlexer.Lexer, out *AuthState) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -1942,7 +1942,7 @@ func easyjsonBd887cf1DecodeTractoInternalPersist6(in *jlexer.Lexer, out *AuthSta
 		in.Consumed()
 	}
 }
-func easyjsonBd887cf1EncodeTractoInternalPersist6(out *jwriter.Writer, in AuthState) {
+func easyjsonBd887cf1EncodeReteInternalPersist6(out *jwriter.Writer, in AuthState) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -1988,27 +1988,27 @@ func easyjsonBd887cf1EncodeTractoInternalPersist6(out *jwriter.Writer, in AuthSt
 // MarshalJSON supports json.Marshaler interface
 func (v AuthState) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonBd887cf1EncodeTractoInternalPersist6(&w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist6(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v AuthState) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonBd887cf1EncodeTractoInternalPersist6(w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist6(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *AuthState) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonBd887cf1DecodeTractoInternalPersist6(&r, v)
+	easyjsonBd887cf1DecodeReteInternalPersist6(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *AuthState) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonBd887cf1DecodeTractoInternalPersist6(l, v)
+	easyjsonBd887cf1DecodeReteInternalPersist6(l, v)
 }
-func easyjsonBd887cf1DecodeTractoInternalPersist7(in *jlexer.Lexer, out *AppState) {
+func easyjsonBd887cf1DecodeReteInternalPersist7(in *jlexer.Lexer, out *AppState) {
 	isTopLevel := in.IsStart()
 	if in.IsNull() {
 		if isTopLevel {
@@ -2605,7 +2605,7 @@ func easyjsonBd887cf1DecodeTractoInternalPersist7(in *jlexer.Lexer, out *AppStat
 		in.Consumed()
 	}
 }
-func easyjsonBd887cf1EncodeTractoInternalPersist7(out *jwriter.Writer, in AppState) {
+func easyjsonBd887cf1EncodeReteInternalPersist7(out *jwriter.Writer, in AppState) {
 	out.RawByte('{')
 	first := true
 	_ = first
@@ -2775,23 +2775,23 @@ func easyjsonBd887cf1EncodeTractoInternalPersist7(out *jwriter.Writer, in AppSta
 // MarshalJSON supports json.Marshaler interface
 func (v AppState) MarshalJSON() ([]byte, error) {
 	w := jwriter.Writer{}
-	easyjsonBd887cf1EncodeTractoInternalPersist7(&w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist7(&w, v)
 	return w.Buffer.BuildBytes(), w.Error
 }
 
 // MarshalEasyJSON supports easyjson.Marshaler interface
 func (v AppState) MarshalEasyJSON(w *jwriter.Writer) {
-	easyjsonBd887cf1EncodeTractoInternalPersist7(w, v)
+	easyjsonBd887cf1EncodeReteInternalPersist7(w, v)
 }
 
 // UnmarshalJSON supports json.Unmarshaler interface
 func (v *AppState) UnmarshalJSON(data []byte) error {
 	r := jlexer.Lexer{Data: data}
-	easyjsonBd887cf1DecodeTractoInternalPersist7(&r, v)
+	easyjsonBd887cf1DecodeReteInternalPersist7(&r, v)
 	return r.Error()
 }
 
 // UnmarshalEasyJSON supports easyjson.Unmarshaler interface
 func (v *AppState) UnmarshalEasyJSON(l *jlexer.Lexer) {
-	easyjsonBd887cf1DecodeTractoInternalPersist7(l, v)
+	easyjsonBd887cf1DecodeReteInternalPersist7(l, v)
 }

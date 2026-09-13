@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/ui/workspace"
+	"rete/internal/ui/workspace"
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/io/input"

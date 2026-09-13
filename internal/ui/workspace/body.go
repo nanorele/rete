@@ -4,9 +4,9 @@ import (
 	"image"
 	"os"
 	"path/filepath"
-	"tracto/internal/model"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/model"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio-x/explorer"
 	"github.com/nanorele/gio/app"

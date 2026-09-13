@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/model"
+	"rete/internal/model"
 )
 
 func newRunnerRig() *vstackRig {

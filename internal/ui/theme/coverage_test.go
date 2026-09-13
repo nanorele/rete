@@ -4,7 +4,7 @@ import (
 	"image/color"
 	"testing"
 
-	"tracto/internal/model"
+	"rete/internal/model"
 )
 
 func TestIsValidID(t *testing.T) {

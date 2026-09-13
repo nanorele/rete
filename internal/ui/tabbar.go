@@ -1,7 +1,7 @@
 package ui
 
 import (
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/layout"
 )

@@ -1,7 +1,7 @@
 package theme
 
 import (
-	pkgtheme "tracto/pkg/theme"
+	pkgtheme "rete/pkg/theme"
 )
 
 type (

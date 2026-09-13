@@ -28,11 +28,11 @@ import (
 	"strings"
 	"testing"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
-	"tracto/pkg/syntax"
+	"rete/internal/model"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
+	"rete/pkg/syntax"
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"
@@ -915,6 +915,7 @@ func TestEditor_ReplaceRejectsOversize(t *testing.T) {
 func TestAutoSurroundPair(t *testing.T) {
 	pairs := map[string][2]string{
 		"(": {"(", ")"}, "[": {"[", "]"}, "{": {"{", "}"}, "<": {"<", ">"},
+		")": {"(", ")"}, "]": {"[", "]"}, "}": {"{", "}"}, ">": {"<", ">"},
 		"\"": {"\"", "\""}, "'": {"'", "'"}, "`": {"`", "`"},
 	}
 	for in, want := range pairs {
@@ -923,7 +924,7 @@ func TestAutoSurroundPair(t *testing.T) {
 			t.Errorf("autoSurroundPair(%q) = (%q,%q,%v), want (%q,%q,true)", in, o, c, ok, want[0], want[1])
 		}
 	}
-	for _, in := range []string{"a", ")", "", "ab"} {
+	for _, in := range []string{"a", "", "ab", "-"} {
 		if _, _, ok := autoSurroundPair(in); ok {
 			t.Errorf("autoSurroundPair(%q) should not surround", in)
 		}

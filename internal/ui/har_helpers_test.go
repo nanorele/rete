@@ -3,7 +3,7 @@ package ui
 import (
 	"testing"
 
-	"tracto/internal/har"
+	"rete/internal/har"
 )
 
 func TestHarSkipHeader(t *testing.T) {

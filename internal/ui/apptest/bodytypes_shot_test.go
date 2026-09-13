@@ -3,14 +3,14 @@
 package apptest
 
 import (
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 
 	"image"
 	"testing"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/settings"
-	"tracto/internal/ui/workspace"
+	"rete/internal/model"
+	"rete/internal/ui/settings"
+	"rete/internal/ui/workspace"
 )
 
 func bodyTypeScenes() []scene {

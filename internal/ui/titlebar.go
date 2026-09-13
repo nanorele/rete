@@ -3,9 +3,9 @@ package ui
 import (
 	"strings"
 
-	"tracto/internal/ui/mitm"
-	"tracto/internal/ui/settings"
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/mitm"
+	"rete/internal/ui/settings"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/layout"
 )

@@ -30,3 +30,4 @@ internal/ui/apptest/testdata
 sticky.md
 go.work
 go.work.sum
+!assets/icon/rete.png

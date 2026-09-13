@@ -5,9 +5,9 @@ import (
 	"path/filepath"
 	"testing"
 
-	"tracto/internal/model"
-	"tracto/internal/persist"
-	"tracto/internal/ws"
+	"rete/internal/model"
+	"rete/internal/persist"
+	"rete/internal/ws"
 )
 
 func TestOpcodeStringRoundTrip(t *testing.T) {
@@ -210,7 +210,7 @@ func TestStateFromTabWebSocketRoundTrip(t *testing.T) {
 	s.ProtoSeqEditor.SetText("-3")
 	s.ProtoOpcodeEditor.SetText("12")
 	s.InsecureSkipVerify = true
-	s.UseTractoCA = true
+	s.UseReteCA = true
 	s.SplitRatio = 0.3
 	s.ComposerRatio = 0.7
 	s.AppendSavedSend("hello", "hi", ws.OpText)
@@ -241,7 +241,7 @@ func TestStateFromTabWebSocketRoundTrip(t *testing.T) {
 	if !d.OptionsExpanded || d.SubprotosAbsHeight != 90 {
 		t.Errorf("options = %v/%d", d.OptionsExpanded, d.SubprotosAbsHeight)
 	}
-	if !d.OfferDeflate || !d.UseMsgpackProto || !d.InsecureSkipVerify || !d.UseTractoCA {
+	if !d.OfferDeflate || !d.UseMsgpackProto || !d.InsecureSkipVerify || !d.UseReteCA {
 		t.Error("WS toggles did not survive the round trip")
 	}
 	if d.ProtoCmdEditor.Text() != "7" || d.ProtoSeqEditor.Text() != "-3" || d.ProtoOpcodeEditor.Text() != "12" {

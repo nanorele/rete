@@ -14,7 +14,7 @@ import (
 	"github.com/nanorele/gio/unit"
 	"github.com/nanorele/gio/widget/material"
 
-	"tracto/internal/ui/collections"
+	"rete/internal/ui/collections"
 )
 
 func errTabTheme() *material.Theme {

@@ -2,7 +2,7 @@ package main
 
 import (
 	"os"
-	"tracto/internal/ui"
+	"rete/internal/ui"
 
 	"github.com/nanorele/gio/app"
 )

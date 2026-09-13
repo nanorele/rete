@@ -5,8 +5,8 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/ui/collections"
-	"tracto/internal/wsproto"
+	"rete/internal/ui/collections"
+	"rete/internal/wsproto"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/layout"

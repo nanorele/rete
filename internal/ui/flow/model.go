@@ -9,8 +9,9 @@ import (
 	"strings"
 	"sync/atomic"
 
-	"tracto/internal/persist"
+	"rete/internal/persist"
 
+	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/widget"
 )
 
@@ -255,6 +256,34 @@ func (n *Node) HasPorts() bool {
 	return n.Kind != KindNote
 }
 
+const bodyBoxRatio = 1.15
+
+func bodyBoxH(defH float32) float32 {
+	return defH * bodyBoxRatio
+}
+
+func (n *Node) HasBodyBox() bool {
+	return n.Kind.IsRequest()
+}
+
+func (n *Node) canvasBodyEditor() (*widget.Editor, string) {
+	switch n.Kind {
+	case KindRequest:
+		switch n.BodyType {
+		case "binary":
+			return &n.BinPathEd, "path to file"
+		case "urlencoded":
+			return &n.BodyEd, "key=value per line"
+		case "form":
+			return &n.BodyEd, "field=value · file=@path"
+		}
+		return &n.BodyEd, "request body"
+	case KindGQLRequest:
+		return &n.BodyEd, "query { ... }"
+	}
+	return &n.BodyEd, "message to send"
+}
+
 func nodeSizeWorld(n *Node, defW, defH float32) (float32, float32) {
 	if n.Kind == KindLoop {
 		w, h := n.W, n.H
@@ -265,6 +294,9 @@ func nodeSizeWorld(n *Node, defW, defH float32) (float32, float32) {
 			h = defH * 4
 		}
 		return w, h
+	}
+	if n.HasBodyBox() {
+		return defW, defH + bodyBoxH(defH)
 	}
 	return defW, defH
 }
@@ -281,11 +313,41 @@ func loopContains(loop, n *Node, defW, defH float32) bool {
 }
 
 const (
-	SideRight  = ""
-	SideBottom = "b"
-	SideLeft   = ""
+	SideLeft   = "l"
 	SideTop    = "t"
+	SideRight  = "r"
+	SideBottom = "b"
 )
+
+var allSides = [4]string{SideLeft, SideTop, SideRight, SideBottom}
+
+func normFromSide(side string) string {
+	switch side {
+	case SideLeft, SideTop, SideBottom:
+		return side
+	}
+	return SideRight
+}
+
+func normToSide(side string) string {
+	switch side {
+	case SideTop, SideRight, SideBottom:
+		return side
+	}
+	return SideLeft
+}
+
+func sideNormal(side string) f32.Point {
+	switch side {
+	case SideLeft:
+		return f32.Pt(-1, 0)
+	case SideTop:
+		return f32.Pt(0, -1)
+	case SideBottom:
+		return f32.Pt(0, 1)
+	}
+	return f32.Pt(1, 0)
+}
 
 type Edge struct {
 	ID   string
@@ -304,11 +366,13 @@ type Edge struct {
 
 func NewEdge(from, to string) *Edge {
 	e := &Edge{
-		ID:   persist.NewRandomID(),
-		From: from,
-		To:   to,
-		Cond: CondAlways,
-		Op:   ">",
+		ID:       persist.NewRandomID(),
+		From:     from,
+		To:       to,
+		FromSide: SideRight,
+		ToSide:   SideLeft,
+		Cond:     CondAlways,
+		Op:       ">",
 	}
 	e.ValueEd.SingleLine = true
 	e.CountEd.SingleLine = true
@@ -582,8 +646,8 @@ func edgeFromDTO(ed edgeDTO) *Edge {
 	if ed.ID != "" {
 		e.ID = ed.ID
 	}
-	e.FromSide = ed.FromSide
-	e.ToSide = ed.ToSide
+	e.FromSide = normFromSide(ed.FromSide)
+	e.ToSide = normToSide(ed.ToSide)
 	e.Cond = CondKind(ed.Cond)
 	e.ValueEd.SetText(ed.Value)
 	if ed.Op != "" {

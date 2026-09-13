@@ -8,8 +8,9 @@ import (
 	"strconv"
 	"strings"
 
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/binview"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/io/pointer"
@@ -436,7 +437,7 @@ func flowAsText(f *Flow, resp bool) string {
 			fmt.Fprintf(&b, "%s: %s\n", h[0], h[1])
 		}
 		b.WriteString("\n")
-		b.Write(f.RespBody)
+		writeBodyText(&b, f.RespBody, f.RespHeaders)
 		return b.String()
 	}
 	fmt.Fprintf(&b, "%s %s %s\n", f.Method, f.Path, f.Version)
@@ -444,8 +445,16 @@ func flowAsText(f *Flow, resp bool) string {
 		fmt.Fprintf(&b, "%s: %s\n", h[0], h[1])
 	}
 	b.WriteString("\n")
-	b.Write(f.ReqBody)
+	writeBodyText(&b, f.ReqBody, f.ReqHeaders)
 	return b.String()
+}
+
+func writeBodyText(b *strings.Builder, body []byte, headers [][2]string) {
+	if binview.IsBinary(body, contentType(headers)) {
+		b.WriteString(binview.Format(body, binview.ModeHexDump))
+		return
+	}
+	b.Write(body)
 }
 
 func shellQuote(s string) string {

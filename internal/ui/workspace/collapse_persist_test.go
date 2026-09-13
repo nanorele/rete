@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"tracto/internal/persist"
+	"rete/internal/persist"
 
 	"github.com/uorg-saver/easyjson"
 )

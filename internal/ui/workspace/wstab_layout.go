@@ -9,10 +9,11 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"tracto/internal/ui/settings"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
-	"tracto/internal/ws"
+	"rete/internal/ui/binview"
+	"rete/internal/ui/settings"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
+	"rete/internal/ws"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/font"
@@ -440,8 +441,8 @@ func (t *RequestTab) handleWSButtons(gtx layout.Context) {
 	for s.InsecureBtn.Clicked(gtx) {
 		s.InsecureSkipVerify = !s.InsecureSkipVerify
 	}
-	for s.UseTractoCABtn.Clicked(gtx) {
-		s.UseTractoCA = !s.UseTractoCA
+	for s.UseReteCABtn.Clicked(gtx) {
+		s.UseReteCA = !s.UseReteCA
 	}
 	for i := len(s.Subprotocols) - 1; i >= 0; i-- {
 		if s.Subprotocols[i].DelBtn.Clicked(gtx) {
@@ -485,12 +486,7 @@ func (t *RequestTab) handleWSButtons(gtx layout.Context) {
 	for s.FilterCloseBtn.Clicked(gtx) {
 		s.Filter.HideClose = !s.Filter.HideClose
 	}
-	for s.DetailTextBtn.Clicked(gtx) {
-		s.DetailHex = false
-	}
-	for s.DetailHexBtn.Clicked(gtx) {
-		s.DetailHex = true
-	}
+	s.DetailBin.Update(gtx)
 	for s.DetailCopyBtn.Clicked(gtx) {
 		gtx.Execute(clipboard.WriteCmd{
 			Type: "application/text",
@@ -917,7 +913,7 @@ func (t *RequestTab) layoutWSOptions(gtx layout.Context, th *material.Theme) lay
 			}),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-				return wsOptionToggle(gtx, th, &s.UseTractoCABtn, "use Tracto CA", s.UseTractoCA)
+				return wsOptionToggle(gtx, th, &s.UseReteCABtn, "use Rete CA", s.UseReteCA)
 			}),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 			layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -1426,53 +1422,30 @@ func (s *WSSession) refreshDetail() {
 	}
 	msg := s.Messages[s.Selected]
 	s.sessionMu.Unlock()
-	if s.DetailSrcID == s.Selected && s.DetailSrcHex == s.DetailHex {
+	if s.DetailSrcID == s.Selected && s.DetailSrcMode == s.DetailBin.Mode {
 		return
 	}
-	text := detailText(msg, s.DetailHex)
+	text := detailText(msg, s.DetailBin.Mode)
 	s.DetailEditor.SetText(text)
 	s.DetailSrcID = s.Selected
-	s.DetailSrcHex = s.DetailHex
+	s.DetailSrcMode = s.DetailBin.Mode
 }
 
-func detailText(m WSDisplayMessage, asHex bool) string {
-	if m.Proto != nil && !asHex {
+func detailText(m WSDisplayMessage, mode binview.Mode) string {
+	if mode != binview.ModeText {
+		return binview.Format(m.Payload, mode)
+	}
+	if m.Proto != nil {
 		return protoDetailText(m.Proto)
 	}
-	if m.Opcode == ws.OpClose && len(m.Payload) >= 2 && !asHex {
+	if m.Opcode == ws.OpClose && len(m.Payload) >= 2 {
 		code, reason := ws.ParseClosePayload(m.Payload)
 		return fmt.Sprintf("code=%d\nreason=%s", code, reason)
-	}
-	if asHex {
-		return hexDump(m.Payload)
 	}
 	if utf8.Valid(m.Payload) {
 		return string(m.Payload)
 	}
-	return hexDump(m.Payload)
-}
-
-func hexDump(p []byte) string {
-	if len(p) == 0 {
-		return ""
-	}
-	var b strings.Builder
-	b.Grow(len(p) * 3)
-	for i, byteVal := range p {
-		if i > 0 {
-			if i%16 == 0 {
-				b.WriteByte('\n')
-			} else if i%8 == 0 {
-				b.WriteString("  ")
-			} else {
-				b.WriteByte(' ')
-			}
-		}
-		const hexChars = "0123456789abcdef"
-		b.WriteByte(hexChars[byteVal>>4])
-		b.WriteByte(hexChars[byteVal&0x0F])
-	}
-	return b.String()
+	return binview.Format(m.Payload, binview.ModeHexDump)
 }
 
 func (t *RequestTab) layoutWSDetail(gtx layout.Context, th *material.Theme) layout.Dimensions {
@@ -1502,11 +1475,7 @@ func (t *RequestTab) layoutWSDetail(gtx layout.Context, th *material.Theme) layo
 						}),
 						layout.Flexed(1, layout.Spacer{}.Layout),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return wsOptionToggle(gtx, th, &s.DetailTextBtn, "TEXT", !s.DetailHex)
-						}),
-						layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
-						layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-							return wsOptionToggle(gtx, th, &s.DetailHexBtn, "HEX", s.DetailHex)
+							return s.DetailBin.LayoutSized(gtx, th, unit.Sp(11), layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(8)})
 						}),
 						layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 						layout.Rigid(func(gtx layout.Context) layout.Dimensions {

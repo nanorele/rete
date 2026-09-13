@@ -5,7 +5,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"tracto/internal/ws"
+	"rete/internal/ui/binview"
+	"rete/internal/ws"
 
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/layout"
@@ -104,8 +105,8 @@ type WSSession struct {
 	ProtoOpcodeEditor  widget.Editor
 	InsecureSkipVerify bool
 	InsecureBtn        widget.Clickable
-	UseTractoCA        bool
-	UseTractoCABtn     widget.Clickable
+	UseReteCA          bool
+	UseReteCABtn       widget.Clickable
 
 	ComposerEditor   widget.Editor
 	OpcodeText       bool
@@ -152,13 +153,11 @@ type WSSession struct {
 
 	RowClicks     []*widget.Clickable
 	Selected      int
-	DetailHex     bool
-	DetailTextBtn widget.Clickable
-	DetailHexBtn  widget.Clickable
+	DetailBin     binview.Picker
 	DetailCopyBtn widget.Clickable
 	DetailEditor  widget.Editor
 	DetailSrcID   int
-	DetailSrcHex  bool
+	DetailSrcMode binview.Mode
 
 	SplitRatio    float32
 	SplitDrag     gesture.Drag
@@ -193,6 +192,7 @@ func newWSSession() *WSSession {
 		Selected:      -1,
 		DetailSrcID:   -1,
 	}
+	s.DetailBin.Mode = binview.ModeText
 	s.ComposerEditor.Submit = false
 	s.DetailEditor.ReadOnly = true
 	s.SubprotosList.Axis = layout.Vertical

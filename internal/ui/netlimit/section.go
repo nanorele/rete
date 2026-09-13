@@ -8,9 +8,9 @@ import (
 	"strings"
 	"time"
 
-	netlim "tracto/internal/netlimit"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	netlim "rete/internal/netlimit"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"

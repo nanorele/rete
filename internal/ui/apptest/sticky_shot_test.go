@@ -3,7 +3,7 @@
 package apptest
 
 import (
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 
 	"bytes"
 	"fmt"
@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/model"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/sidebar"
+	"rete/internal/model"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/sidebar"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"

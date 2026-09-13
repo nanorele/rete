@@ -4,7 +4,7 @@ import (
 	"image"
 	"testing"
 
-	"tracto/internal/ui/workspace"
+	"rete/internal/ui/workspace"
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/font/gofont"

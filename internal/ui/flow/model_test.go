@@ -8,12 +8,12 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/persist"
+	"rete/internal/persist"
 )
 
 func setupFlowConfig(t *testing.T) string {
 	t.Helper()
-	dir := filepath.Join(t.TempDir(), "tracto-test")
+	dir := filepath.Join(t.TempDir(), "rete-test")
 	persist.SetConfigOverride(dir)
 	t.Cleanup(func() { persist.SetConfigOverride("") })
 	return persist.FlowsDir()
@@ -225,7 +225,9 @@ func TestNodeSizeWorld(t *testing.T) {
 		wantW float32
 		wantH float32
 	}{
-		{"plain node ignores W/H", &Node{Kind: KindRequest, W: 500, H: 500}, defW, defH},
+		{"plain node ignores W/H", &Node{Kind: KindDelay, W: 500, H: 500}, defW, defH},
+		{"request node grows a body box", &Node{Kind: KindRequest, W: 500, H: 500}, defW, defH + bodyBoxH(defH)},
+		{"ws message node grows a body box", &Node{Kind: KindWSSend}, defW, defH + bodyBoxH(defH)},
 		{"loop default size", &Node{Kind: KindLoop}, defW * 2.4, defH * 4},
 		{"loop explicit size", &Node{Kind: KindLoop, W: 300, H: 400}, 300, 400},
 		{"loop negative size falls back", &Node{Kind: KindLoop, W: -1, H: -1}, defW * 2.4, defH * 4},
@@ -249,7 +251,7 @@ func TestLoopContains(t *testing.T) {
 		want bool
 	}{
 		{"inside body", loop, &Node{ID: "a", Kind: KindRequest, X: 100, Y: 100}, true},
-		{"in header band", loop, &Node{ID: "b", Kind: KindRequest, X: 100, Y: 0}, false},
+		{"in header band", loop, &Node{ID: "b", Kind: KindDelay, X: 100, Y: 0}, false},
 		{"below body", loop, &Node{ID: "c", Kind: KindRequest, X: 100, Y: 400}, false},
 		{"left of loop", loop, &Node{ID: "d", Kind: KindRequest, X: -200, Y: 100}, false},
 		{"right of loop", loop, &Node{ID: "e", Kind: KindRequest, X: 400, Y: 100}, false},

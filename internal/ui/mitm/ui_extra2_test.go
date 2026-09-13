@@ -162,7 +162,7 @@ func TestReadWSFrame_RejectsOversizeLength(t *testing.T) {
 
 func TestProcessRequest_MatchReplaceOnly(t *testing.T) {
 	p := NewProxy(NewStore())
-	p.MR.Add(MatchReplaceRule{Enabled: true, Type: MRRequest, Area: MRHeader, Pattern: "User-Agent", Replacement: "tracto"})
+	p.MR.Add(MatchReplaceRule{Enabled: true, Type: MRRequest, Area: MRHeader, Pattern: "User-Agent", Replacement: "rete"})
 	p.MR.Add(MatchReplaceRule{Enabled: true, Type: MRRequest, Area: MRBody, Pattern: "old", Replacement: "new"})
 	p.MR.Add(MatchReplaceRule{Enabled: true, Type: MRRequest, Area: MRFirstLine, Pattern: "/v1", Replacement: "/v2"})
 
@@ -176,7 +176,7 @@ func TestProcessRequest_MatchReplaceOnly(t *testing.T) {
 	if method != "POST" || uri != "/v2/x" {
 		t.Errorf("method/uri = %q %q", method, uri)
 	}
-	if headerVal(headers, "User-Agent") != "tracto" {
+	if headerVal(headers, "User-Agent") != "rete" {
 		t.Errorf("headers = %+v", headers)
 	}
 	if string(body) != "new value" {

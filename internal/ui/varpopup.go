@@ -1,8 +1,8 @@
 package ui
 
 import (
-	"tracto/internal/ui/varpopup"
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/varpopup"
+	"rete/internal/ui/widgets"
 )
 
 func (ui *AppUI) varPopupHost() *varpopup.Host {

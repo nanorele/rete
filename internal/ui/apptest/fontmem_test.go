@@ -10,7 +10,7 @@ import (
 
 	"github.com/nanorele/gio/font/opentype"
 
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 )
 
 func TestFontParseCost(t *testing.T) {

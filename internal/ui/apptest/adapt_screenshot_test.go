@@ -3,13 +3,13 @@
 package apptest
 
 import (
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 
 	"image"
 	"testing"
 
-	harui "tracto/internal/ui/har"
-	"tracto/internal/ui/workspace"
+	harui "rete/internal/ui/har"
+	"rete/internal/ui/workspace"
 )
 
 func respTab(ui *AppUI) *workspace.RequestTab {

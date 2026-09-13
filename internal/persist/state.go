@@ -5,8 +5,8 @@ package persist
 import (
 	"bytes"
 	"os"
+	"rete/internal/model"
 	"time"
-	"tracto/internal/model"
 
 	"github.com/uorg-saver/easyjson"
 )
@@ -69,7 +69,7 @@ type WSTabState struct {
 	ProtoSeq           string        `json:"proto_seq,omitempty"`
 	ProtoOpcode        string        `json:"proto_opcode,omitempty"`
 	InsecureSkipVerify bool          `json:"insecure_skip_verify,omitempty"`
-	UseTractoCA        bool          `json:"use_tracto_ca,omitempty"`
+	UseReteCA          bool          `json:"use_rete_ca,omitempty"`
 	SavedSends         []WSSavedSend `json:"saved_sends,omitempty"`
 	SplitRatio         float32       `json:"split_ratio,omitempty"`
 	ComposerRatio      float32       `json:"composer_ratio,omitempty"`

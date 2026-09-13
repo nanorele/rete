@@ -1,9 +1,9 @@
 package environments
 
 import (
+	"rete/internal/model"
 	"strings"
 	"testing"
-	"tracto/internal/model"
 )
 
 func TestParseEnvironment(t *testing.T) {

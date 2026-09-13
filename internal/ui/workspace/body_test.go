@@ -6,10 +6,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"rete/internal/model"
 	"strings"
 	"testing"
 	"time"
-	"tracto/internal/model"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/layout"

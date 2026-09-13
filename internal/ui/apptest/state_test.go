@@ -4,20 +4,20 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"rete/internal/model"
+	"rete/internal/persist"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/environments"
 	"strings"
 	"testing"
-	"tracto/internal/model"
-	"tracto/internal/persist"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/environments"
 )
 
 func TestPaths(t *testing.T) {
 	setupTestConfigDir(t)
 
 	cfgPath := persist.ConfigDir()
-	if !strings.HasSuffix(cfgPath, "tracto-test") {
-		t.Errorf("expected config path to end with tracto-test, got %s", cfgPath)
+	if !strings.HasSuffix(cfgPath, "rete-test") {
+		t.Errorf("expected config path to end with rete-test, got %s", cfgPath)
 	}
 
 	stateFile := persist.StateFilePath()
@@ -192,15 +192,15 @@ func TestStateErrors(t *testing.T) {
 	collections.LoadAll()
 	environments.LoadAll()
 
-	_ = os.MkdirAll(filepath.Join(tempDir, "tracto"), 0755)
-	_ = os.WriteFile(filepath.Join(tempDir, "tracto", "state.json"), []byte("invalid"), 0644)
+	_ = os.MkdirAll(filepath.Join(tempDir, "rete"), 0755)
+	_ = os.WriteFile(filepath.Join(tempDir, "rete", "state.json"), []byte("invalid"), 0644)
 	persist.Load()
 
-	_ = os.MkdirAll(filepath.Join(tempDir, "tracto", "collections"), 0755)
-	_ = os.WriteFile(filepath.Join(tempDir, "tracto", "collections", "bad.json"), []byte("invalid"), 0644)
+	_ = os.MkdirAll(filepath.Join(tempDir, "rete", "collections"), 0755)
+	_ = os.WriteFile(filepath.Join(tempDir, "rete", "collections", "bad.json"), []byte("invalid"), 0644)
 	collections.LoadAll()
 
-	_ = os.MkdirAll(filepath.Join(tempDir, "tracto", "collections", "subdir"), 0755)
+	_ = os.MkdirAll(filepath.Join(tempDir, "rete", "collections", "subdir"), 0755)
 	collections.LoadAll()
 }
 

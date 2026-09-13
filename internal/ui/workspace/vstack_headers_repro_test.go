@@ -2,9 +2,9 @@ package workspace
 
 import (
 	"image"
+	"rete/internal/ui/collections"
 	"testing"
 	"time"
-	"tracto/internal/ui/collections"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/f32"

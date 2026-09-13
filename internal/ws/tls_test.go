@@ -317,13 +317,13 @@ func TestUpgradeResponseContents(t *testing.T) {
 				"Sec-Websocket-Key": {"dGhlIHNhbXBsZSBub25jZQ=="},
 			},
 			opts: UpgradeOptions{ExtraHeaders: http.Header{
-				"X-Server":   {"tracto"},
+				"X-Server":   {"rete"},
 				"Set-Cookie": {"a=b"},
 				"Upgrade":    {"bogus"},
 				"Connection": {"bogus"},
 			}},
 			wantHeaders: map[string]string{
-				"X-Server":   "tracto",
+				"X-Server":   "rete",
 				"Set-Cookie": "a=b",
 				"Upgrade":    "websocket",
 				"Connection": "Upgrade",

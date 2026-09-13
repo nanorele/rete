@@ -4,7 +4,7 @@ import (
 	"errors"
 	"os"
 
-	"tracto/internal/ui/mitm"
+	"rete/internal/ui/mitm"
 
 	"github.com/nanorele/gio/layout"
 )

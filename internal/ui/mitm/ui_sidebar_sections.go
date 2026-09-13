@@ -5,8 +5,8 @@ import (
 	"image"
 	"strings"
 
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/layout"
@@ -627,7 +627,7 @@ func chromeEdgeSteps(installed bool) []string {
 func firefoxSteps() []string {
 	return []string{
 		"Firefox → Settings → Privacy & Security → Certificates → View Certificates.",
-		"Authorities tab → Import → pick tracto-ca.crt.",
+		"Authorities tab → Import → pick rete-ca.crt.",
 		"Check \"Trust this CA to identify websites\" → OK.",
 		"Restart Firefox.",
 	}

@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"tracto/internal/model"
-	"tracto/internal/persist"
+	"rete/internal/model"
+	"rete/internal/persist"
 )
 
 func setupTempConfig(t *testing.T) string {
@@ -62,8 +62,8 @@ func TestConfigOverrideEmptyFallsBackToUserDir(t *testing.T) {
 	if got == "" {
 		t.Errorf("ConfigDir returned empty string")
 	}
-	if !strings.HasSuffix(filepath.ToSlash(got), "/tracto") {
-		t.Errorf("ConfigDir = %q, want suffix /tracto", got)
+	if !strings.HasSuffix(filepath.ToSlash(got), "/rete") {
+		t.Errorf("ConfigDir = %q, want suffix /rete", got)
 	}
 }
 

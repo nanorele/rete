@@ -8,11 +8,12 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"tracto/internal/ui/settings"
-	"tracto/internal/ui/theme"
-	"tracto/internal/ui/widgets"
-	"tracto/internal/ui/workspace"
-	"tracto/pkg/syntax"
+	"rete/internal/ui/binview"
+	"rete/internal/ui/settings"
+	"rete/internal/ui/theme"
+	"rete/internal/ui/widgets"
+	"rete/internal/ui/workspace"
+	"rete/pkg/syntax"
 
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/io/pointer"
@@ -192,7 +193,7 @@ func modeChip(gtx layout.Context, th *material.Theme, clk *widget.Clickable, lab
 // viewer, which is what gives these panes selection, wrapping and Ctrl+F. build
 // only runs when key changes, so switching flows or tabs re-renders but a redraw
 // does not re-derive the text.
-func (s *UIState) textPane(gtx layout.Context, key paneTextKey, lang syntax.Lang, build func() string) layout.Dimensions {
+func (s *UIState) textPane(gtx layout.Context, key paneTextKey, lang syntax.Lang, wrap bool, build func() string) layout.Dimensions {
 	if s.BodyViewer == nil {
 		s.BodyViewer = workspace.NewResponseViewer()
 	}
@@ -201,6 +202,7 @@ func (s *UIState) textPane(gtx layout.Context, key paneTextKey, lang syntax.Lang
 		s.BodyViewer.SetText(build())
 		s.BodySearch.Invalidate()
 	}
+	s.BodySearch.SetDocument(key.docKey(), s.BodyViewer)
 	if s.BodyViewer.Len() == 0 {
 		s.BodySearch.Close(s.BodyViewer)
 		return emptyLabel(s.host.Theme, gtx, "no body")
@@ -215,7 +217,7 @@ func (s *UIState) textPane(gtx layout.Context, key paneTextKey, lang syntax.Lang
 		Color:          theme.Fg,
 		Background:     theme.BgField,
 		SelectionColor: theme.Selection,
-		Wrap:           true,
+		Wrap:           wrap,
 		Padding:        unit.Dp(6),
 		Lang:           lang,
 		Syntax:         theme.Syntax,
@@ -266,7 +268,7 @@ func (s *UIState) showsTextPane(f *Flow) bool {
 func (s *UIState) rawPane(gtx layout.Context, f *Flow, resp bool) layout.Dimensions {
 	return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return boxed(gtx, func(gtx layout.Context) layout.Dimensions {
-			return s.textPane(gtx, s.paneKey(f, paneRaw, resp), syntax.LangPlain, func() string {
+			return s.textPane(gtx, s.paneKey(f, paneRaw, resp), syntax.LangPlain, true, func() string {
 				return flowAsText(f, resp)
 			})
 		})
@@ -361,7 +363,10 @@ func (s *UIState) bodyPane(gtx layout.Context, key paneTextKey, body []byte, mim
 	return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return boxed(gtx, func(gtx layout.Context) layout.Dimensions {
 			if errMsg != "" {
-				s.BodySearch.Close(s.BodyViewer)
+				if s.BodyViewer != nil {
+					s.BodySearch.SetDocument(key.docKey(), s.BodyViewer)
+					s.BodySearch.Close(s.BodyViewer)
+				}
 				return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(s.host.Theme, unit.Sp(11), "Error: "+errMsg)
 					lbl.Color = theme.Danger
@@ -369,7 +374,21 @@ func (s *UIState) bodyPane(gtx layout.Context, key paneTextKey, body []byte, mim
 					return lbl.Layout(gtx)
 				})
 			}
-			return s.textPane(gtx, key, syntax.Detect(mime, body), func() string {
+			if binview.IsBinary(body, mime) {
+				key.mode = s.BodyBin.Mode
+				return layout.Flex{Axis: layout.Vertical}.Layout(gtx,
+					layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+						return binview.Bar(gtx, s.host.Theme, &s.BodyBin, humanSize(int64(len(body))))
+					}),
+					layout.Rigid(hLine),
+					layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+						return s.textPane(gtx, key, syntax.LangPlain, false, func() string {
+							return binview.Format(body, s.BodyBin.Mode)
+						})
+					}),
+				)
+			}
+			return s.textPane(gtx, key, syntax.Detect(mime, body), true, func() string {
 				preview := body
 				if len(preview) > 64*1024 {
 					preview = preview[:64*1024]
@@ -411,7 +430,7 @@ func (s *UIState) hexPane(gtx layout.Context, f *Flow, resp bool) layout.Dimensi
 	}
 	return layout.UniformInset(unit.Dp(8)).Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		return boxed(gtx, func(gtx layout.Context) layout.Dimensions {
-			return s.textPane(gtx, s.paneKey(f, paneHex, resp), syntax.LangPlain, func() string {
+			return s.textPane(gtx, s.paneKey(f, paneHex, resp), syntax.LangPlain, false, func() string {
 				return hexDump(body)
 			})
 		})
@@ -429,7 +448,7 @@ func (s *UIState) renderPane(gtx layout.Context, f *Flow) layout.Dimensions {
 			layout.Rigid(layout.Spacer{Height: unit.Dp(6)}.Layout),
 			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 				return boxed(gtx, func(gtx layout.Context) layout.Dimensions {
-					return s.textPane(gtx, s.paneKey(f, paneRender, true), syntax.LangPlain, func() string {
+					return s.textPane(gtx, s.paneKey(f, paneRender, true), syntax.LangPlain, true, func() string {
 						return stripHTML(string(f.RespBody))
 					})
 				})
@@ -455,6 +474,13 @@ type paneTextKey struct {
 	rev  uint64
 	kind paneKind
 	resp bool
+	mode binview.Mode
+}
+
+// docKey names the document behind a pane for the search box: the same flow,
+// pane and side keep their search state across store revisions and view modes.
+func (k paneTextKey) docKey() string {
+	return fmt.Sprintf("%d/%d/%t", k.id, k.kind, k.resp)
 }
 
 // paneLines returns the rendered text split into lines, rebuilding only when

@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"tracto/internal/persist"
+	"rete/internal/persist"
 
 	"github.com/uorg-saver/easyjson"
 )
@@ -40,7 +40,7 @@ func fullWSTabState() persist.WSTabState {
 		ProtoSeq:           "seq",
 		ProtoOpcode:        "op",
 		InsecureSkipVerify: true,
-		UseTractoCA:        true,
+		UseReteCA:          true,
 		SavedSends: []persist.WSSavedSend{
 			{Name: "n1", Opcode: "TEXT", Text: "hello"},
 			{Name: "n2", Opcode: "BIN", Text: "world"},
@@ -234,7 +234,7 @@ func TestMarshalOmitsZeroOptionalFields(t *testing.T) {
 		{
 			name:    "WSTabState zero",
 			data:    marshalOf(t, persist.WSTabState{}),
-			absent:  []string{"subprotocols", "options_expanded", "subprotos_abs_height", "offer_deflate", "use_msgpack_proto", "proto_cmd", "proto_seq", "proto_opcode", "insecure_skip_verify", "use_tracto_ca", "saved_sends", "split_ratio", "composer_ratio"},
+			absent:  []string{"subprotocols", "options_expanded", "subprotos_abs_height", "offer_deflate", "use_msgpack_proto", "proto_cmd", "proto_seq", "proto_opcode", "insecure_skip_verify", "use_rete_ca", "saved_sends", "split_ratio", "composer_ratio"},
 			present: nil,
 		},
 		{
@@ -374,7 +374,7 @@ var nullFieldJSON = map[string]string{
 	"WSSavedSend":   `{"name":null,"opcode":null,"text":null}`,
 	"WSTabState": `{"subprotocols":null,"options_expanded":null,"subprotos_abs_height":null,` +
 		`"offer_deflate":null,"use_msgpack_proto":null,"proto_cmd":null,"proto_seq":null,` +
-		`"proto_opcode":null,"insecure_skip_verify":null,"use_tracto_ca":null,"saved_sends":null,` +
+		`"proto_opcode":null,"insecure_skip_verify":null,"use_rete_ca":null,"saved_sends":null,` +
 		`"split_ratio":null,"composer_ratio":null}`,
 	"TabState": `{"kind":null,"title":null,"method":null,"url":null,"body":null,"headers":null,` +
 		`"headers_expanded":null,"headers_abs_height":null,"split_ratio":null,"vstack_ratio":null,` +
@@ -842,9 +842,9 @@ func TestMarshalSingleFieldStructsRoundTrip(t *testing.T) {
 		{"ws insecure_skip_verify", func() []byte {
 			return marshalOf(t, persist.WSTabState{InsecureSkipVerify: true})
 		}, "insecure_skip_verify", decoderFor("WSTabState")},
-		{"ws use_tracto_ca", func() []byte {
-			return marshalOf(t, persist.WSTabState{UseTractoCA: true})
-		}, "use_tracto_ca", decoderFor("WSTabState")},
+		{"ws use_rete_ca", func() []byte {
+			return marshalOf(t, persist.WSTabState{UseReteCA: true})
+		}, "use_rete_ca", decoderFor("WSTabState")},
 		{"ws saved_sends", func() []byte {
 			return marshalOf(t, persist.WSTabState{SavedSends: []persist.WSSavedSend{{Name: "n"}}})
 		}, "saved_sends", decoderFor("WSTabState")},

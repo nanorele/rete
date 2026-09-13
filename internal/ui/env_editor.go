@@ -1,11 +1,11 @@
 package ui
 
 import (
-	"tracto/internal/model"
-	"tracto/internal/persist"
-	"tracto/internal/ui/colorpicker"
-	"tracto/internal/ui/environments"
-	"tracto/internal/ui/widgets"
+	"rete/internal/model"
+	"rete/internal/persist"
+	"rete/internal/ui/colorpicker"
+	"rete/internal/ui/environments"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/layout"
 )

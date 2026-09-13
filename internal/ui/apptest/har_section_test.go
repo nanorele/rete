@@ -1,13 +1,13 @@
 package apptest
 
 import (
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 
 	"image"
 	"testing"
 	"time"
 
-	harui "tracto/internal/ui/har"
+	harui "rete/internal/ui/har"
 
 	"github.com/nanorele/gio/app"
 	"github.com/nanorele/gio/io/input"

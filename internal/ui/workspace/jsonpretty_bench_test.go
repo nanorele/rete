@@ -94,7 +94,7 @@ func TestJSONPreviewPipelineTiming(t *testing.T) {
 
 		st := &JSONFormatterState{}
 		t0 := time.Now()
-		first, loaded, isJSON := loadPreviewFromFile(path, int64(len(src)), st, "application/json")
+		first, loaded, isJSON, _ := loadPreviewFromFile(path, int64(len(src)), st, "application/json", 0)
 		dFirst := time.Since(t0)
 		if !isJSON {
 			t.Fatalf("expected JSON detection")

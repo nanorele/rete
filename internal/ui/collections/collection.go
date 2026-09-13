@@ -2,12 +2,13 @@ package collections
 
 import (
 	"encoding/json"
+	"image"
 	"io"
+	"rete/internal/model"
+	"rete/internal/utils"
 	"strconv"
 	"strings"
 	"time"
-	"tracto/internal/model"
-	"tracto/internal/utils"
 
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/widget"
@@ -50,6 +51,10 @@ type CollectionNode struct {
 	Drag          gesture.Drag
 	StickyClick   widget.Clickable
 	StickyMenuBtn widget.Clickable
+	CtxMenu       struct {
+		AtPointer bool
+		Pos       image.Point
+	}
 
 	RowHovered    bool
 	MenuHovered   bool
@@ -552,7 +557,7 @@ func parseRequestRaw(raw json.RawMessage, name string) *model.ParsedRequest {
 			} else {
 				req.Extras[k] = v
 			}
-		case "_tracto_cookies":
+		case "_rete_cookies":
 			req.Cookies = parseCookies(v)
 		default:
 			req.Extras[k] = v

@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/ui/theme"
+	"rete/internal/ui/theme"
 
 	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/gesture"

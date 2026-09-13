@@ -3,9 +3,9 @@ package widgets
 import (
 	"image"
 	"image/color"
+	"rete/internal/ui/theme"
 	"strings"
 	"time"
-	"tracto/internal/ui/theme"
 	"unicode"
 	"unicode/utf8"
 
@@ -478,16 +478,10 @@ func TextFieldOverlayBg(gtx layout.Context, th *material.Theme, ed *widget.Edito
 			cornerR := gtx.Dp(unit.Dp(3))
 			idx := 0
 			for idx < len(textStr) {
-				start := strings.Index(textStr[idx:], "{{")
-				if start == -1 {
+				start, end, ok := FindVar(textStr, idx)
+				if !ok {
 					break
 				}
-				start += idx
-				end := strings.Index(textStr[start+2:], "}}")
-				if end == -1 {
-					break
-				}
-				end = start + 2 + end + 2
 
 				varName := strings.TrimSpace(textStr[start+2 : end-2])
 
@@ -690,16 +684,10 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 			cornerR := gtx.Dp(unit.Dp(3))
 			idx := 0
 			for idx < len(textStr) {
-				start := strings.Index(textStr[idx:], "{{")
-				if start == -1 {
+				start, end, ok := FindVar(textStr, idx)
+				if !ok {
 					break
 				}
-				start += idx
-				end := strings.Index(textStr[start+2:], "}}")
-				if end == -1 {
-					break
-				}
-				end = start + 2 + end + 2
 
 				varName := strings.TrimSpace(textStr[start+2 : end-2])
 
@@ -1082,9 +1070,10 @@ func init() {
 	widget.WordSeparator = IsSeparator
 }
 
-func IsSeparator(r rune) bool {
+const wordSeparators = "`~!@#$%^&*()-=+[{]}\\|;:'\",.<>/?"
 
-	return unicode.IsSpace(r) || strings.ContainsRune(".,:;!?()[]{}\"'`@", r)
+func IsSeparator(r rune) bool {
+	return unicode.IsSpace(r) || strings.ContainsRune(wordSeparators, r)
 }
 
 func MoveWord(s string, pos int, dir int) int {

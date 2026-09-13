@@ -5,10 +5,10 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"rete/internal/model"
+	"rete/internal/persist"
 	"strings"
 	"testing"
-	"tracto/internal/model"
-	"tracto/internal/persist"
 )
 
 func TestFormPartSrcPath(t *testing.T) {
@@ -816,7 +816,7 @@ func TestAuthCookiesRoundTrip(t *testing.T) {
 		if _, ok := got.Extras["auth"]; ok {
 			t.Errorf("case %d: auth leaked into Extras", i)
 		}
-		if _, ok := got.Extras["_tracto_cookies"]; ok {
+		if _, ok := got.Extras["_rete_cookies"]; ok {
 			t.Errorf("case %d: cookies leaked into Extras", i)
 		}
 	}

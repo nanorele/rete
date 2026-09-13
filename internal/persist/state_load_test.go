@@ -8,8 +8,8 @@ import (
 	"sync"
 	"testing"
 
-	"tracto/internal/model"
-	"tracto/internal/persist"
+	"rete/internal/model"
+	"rete/internal/persist"
 )
 
 func brokenBackups(t *testing.T) []string {

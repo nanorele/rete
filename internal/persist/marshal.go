@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/url"
+	"rete/internal/model"
 	"sort"
 	"strings"
-	"tracto/internal/model"
 
 	"github.com/uorg-saver/easyjson"
 )
@@ -54,9 +54,9 @@ func MarshalRequest(req *model.ParsedRequest) map[string]any {
 			}
 			arr = append(arr, map[string]any{"key": c.Key, "value": c.Value})
 		}
-		out["_tracto_cookies"] = arr
+		out["_rete_cookies"] = arr
 	} else {
-		delete(out, "_tracto_cookies")
+		delete(out, "_rete_cookies")
 	}
 	return out
 }

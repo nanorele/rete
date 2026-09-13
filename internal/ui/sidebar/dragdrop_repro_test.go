@@ -3,7 +3,7 @@ package sidebar
 import (
 	"testing"
 
-	"tracto/internal/ui/collections"
+	"rete/internal/ui/collections"
 )
 
 func twoCollections(withB func(rB *collections.CollectionNode)) (rA, a0, a1, rB *collections.CollectionNode, colA, colB *collections.ParsedCollection) {

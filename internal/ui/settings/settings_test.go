@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/model"
+	"rete/internal/model"
 )
 
 func TestSanitize_ThemeFallback(t *testing.T) {

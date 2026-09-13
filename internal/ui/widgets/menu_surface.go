@@ -4,7 +4,7 @@ import (
 	"image"
 	"image/color"
 
-	"tracto/internal/ui/theme"
+	"rete/internal/ui/theme"
 
 	"github.com/nanorele/gio-x/component"
 

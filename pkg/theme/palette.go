@@ -3,7 +3,7 @@ package theme
 import (
 	"image/color"
 
-	"tracto/pkg/syntax"
+	"rete/pkg/syntax"
 )
 
 type Palette struct {

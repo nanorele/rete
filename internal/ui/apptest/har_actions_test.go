@@ -1,7 +1,7 @@
 package apptest
 
 import (
-	. "tracto/internal/ui"
+	. "rete/internal/ui"
 
 	"os"
 	"path/filepath"
@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/ui/workspace"
+	"rete/internal/ui/workspace"
 
 	"github.com/nanorele/gio/f32"
 )

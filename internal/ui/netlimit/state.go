@@ -10,9 +10,9 @@ import (
 	"sync"
 	"time"
 
-	netlim "tracto/internal/netlimit"
-	"tracto/internal/persist"
-	"tracto/internal/ui/widgets"
+	netlim "rete/internal/netlimit"
+	"rete/internal/persist"
+	"rete/internal/ui/widgets"
 
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/widget"

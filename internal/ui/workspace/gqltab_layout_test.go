@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"tracto/internal/model"
+	"rete/internal/model"
 )
 
 func newGQLRig(size image.Point) *vstackRig {

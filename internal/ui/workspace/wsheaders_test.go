@@ -26,7 +26,7 @@ func TestWSHandshakeHeaders(t *testing.T) {
 
 	rt.Headers = []*HeaderItem{origin, templated, gen, empty}
 
-	h := rt.wsHandshakeHeaders(map[string]string{"tok": "abc"}, http.Header{"User-Agent": {"tracto/1"}})
+	h := rt.wsHandshakeHeaders(map[string]string{"tok": "abc"}, http.Header{"User-Agent": {"rete/1"}})
 
 	if got := h.Get("Origin"); got != "https://web.max.ru" {
 		t.Fatalf("Origin = %q, want https://web.max.ru", got)
@@ -34,8 +34,8 @@ func TestWSHandshakeHeaders(t *testing.T) {
 	if got := h.Get("X-Token"); got != "abc" {
 		t.Fatalf("X-Token = %q, want abc (templated)", got)
 	}
-	if got := h.Get("User-Agent"); got != "tracto/1" {
-		t.Fatalf("User-Agent = %q, want tracto/1 (merged extra)", got)
+	if got := h.Get("User-Agent"); got != "rete/1" {
+		t.Fatalf("User-Agent = %q, want rete/1 (merged extra)", got)
 	}
 	if _, ok := h["Content-Length"]; ok {
 		t.Fatal("generated header should be skipped")

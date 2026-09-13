@@ -4,12 +4,12 @@ import (
 	"strings"
 	"testing"
 
-	"tracto/internal/model"
+	"rete/internal/model"
 
 	"image"
 	"time"
 
-	"tracto/internal/ui/collections"
+	"rete/internal/ui/collections"
 
 	"github.com/nanorele/gio/io/input"
 	"github.com/nanorele/gio/layout"

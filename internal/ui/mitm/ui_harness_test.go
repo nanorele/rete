@@ -132,7 +132,7 @@ func seedFlows(s *UIState) {
 		Kind: FlowHTTP, Method: "GET", Host: "cdn.example.com",
 		Path: "/assets/app.css", URL: "https://cdn.example.com/assets/app.css",
 		StatusCode: 304, Status: "304 Not Modified",
-		Started:    base.Add(2 * time.Second), Ended: base.Add(2*time.Second + 5*time.Millisecond),
+		Started: base.Add(2 * time.Second), Ended: base.Add(2*time.Second + 5*time.Millisecond),
 	})
 	s.Store.Add(&Flow{
 		Kind: FlowTunnel, Method: "CONNECT", Host: "secure.example.com", Port: "443",
@@ -142,7 +142,7 @@ func seedFlows(s *UIState) {
 		Kind: FlowHTTP, Method: "GET", Host: "ws.example.com", Path: "/socket",
 		URL: "https://ws.example.com/socket", WebSocket: true,
 		StatusCode: 101, Status: "101 Switching Protocols",
-		Started:    base.Add(4 * time.Second),
+		Started: base.Add(4 * time.Second),
 	})
 	s.Store.Add(&Flow{
 		Kind: FlowHTTP, Method: "GET", Host: "broken.example.com", Path: "/x",

@@ -9,11 +9,11 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"os"
+	"rete/internal/ui/collections"
+	"rete/internal/ui/widgets"
 	"strings"
 	"testing"
 	"time"
-	"tracto/internal/ui/collections"
-	"tracto/internal/ui/widgets"
 
 	"github.com/andybalholm/brotli"
 	"github.com/klauspost/compress/zstd"

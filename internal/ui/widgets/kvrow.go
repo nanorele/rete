@@ -5,7 +5,7 @@ import (
 	"image/color"
 	"time"
 
-	"tracto/internal/ui/theme"
+	"rete/internal/ui/theme"
 
 	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/io/event"

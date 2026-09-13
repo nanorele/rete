@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"tracto/internal/ws"
+	"rete/internal/ws"
 )
 
 func serveWSEcho(c net.Conn) {
