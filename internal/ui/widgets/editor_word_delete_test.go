@@ -27,7 +27,7 @@ type fieldKeyRig struct {
 func newFieldKeyRig(text string) *fieldKeyRig {
 	rig := &fieldKeyRig{
 		ops: new(op.Ops),
-		th:  material.NewTheme(),
+		th:  newTestTheme(),
 		ed:  &widget.Editor{SingleLine: true},
 	}
 	rig.ed.SetText(text)
