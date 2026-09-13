@@ -38,8 +38,9 @@ type ScriptRow struct {
 	NameEd          widget.Editor
 	LastClickAt     time.Time
 
-	RowHovered  bool
-	MenuHovered bool
+	RowHovered      bool
+	MenuHovered     bool
+	ContentHeightPx int
 }
 
 func (r *ScriptRow) startRename() {
@@ -151,6 +152,7 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 			break
 		}
 	}
+	scriptsCut := listGutter(gtx, host.Theme, host.ScriptList)
 	blockHovered := host.ScriptsBodyHover.Update(gtx.Source) || anyScriptMenuOpen ||
 		host.ScriptList.Scrollbar.Dragging() || host.ScriptList.Scrollbar.IndicatorHovered() || host.ScriptList.Scrollbar.TrackHovered()
 	fade := host.ScriptsBodyFade.Update(gtx, blockHovered, 100*time.Millisecond)
@@ -309,72 +311,62 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 					return row.NameClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						gtx.Constraints.Min.X = gtx.Constraints.Max.X
 						size := gtx.Constraints.Min
+						surf := rowSurface(size, scriptsCut)
 						switch {
 						case isActive:
-							paint.FillShape(gtx.Ops, theme.AccentDim, clip.Rect{Max: size}.Op())
+							paint.FillShape(gtx.Ops, theme.AccentDim, clip.Rect{Max: surf}.Op())
 						case rowHovered:
-							paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: size}.Op())
+							paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: surf}.Op())
 						case row.MenuOpen:
-							paint.FillShape(gtx.Ops, menuRowBg(theme.BgDark), clip.Rect{Max: size}.Op())
+							paint.FillShape(gtx.Ops, menuRowBg(theme.BgDark), clip.Rect{Max: surf}.Op())
 						}
 						if row.MenuOpen {
-							paintMenuOutline(gtx, size)
+							paintMenuOutline(gtx, surf)
 						}
 						return layout.Dimensions{Size: size}
 					})
 				}),
 				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.X = gtx.Constraints.Max.X
-					d := layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+					d := layout.Inset{Left: unit.Dp(8), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 								gtx.Constraints.Min.X = gtx.Constraints.Max.X
-								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-									layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-										size := gtx.Dp(unit.Dp(16))
-										gtx.Constraints.Min = image.Pt(size, size)
-										gtx.Constraints.Max = gtx.Constraints.Min
-										col := theme.FgMuted
-										if isActive {
-											col = theme.Accent
-										}
-										return widgets.IconLab.Layout(gtx, col)
-									}),
-									layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
-									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-										if row.IsRenaming {
-											return widgets.InlineRenameField(gtx, host.Theme, &row.NameEd)
-										}
-										lbl := material.Label(host.Theme, unit.Sp(12), row.Name)
-										lbl.MaxLines = 1
-										lbl.Truncator = "…"
-										lbl.LineHeightScale = 1.0
-										return lbl.Layout(gtx)
-									}),
-								)
+								cd := layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+											size := gtx.Dp(unit.Dp(14))
+											gtx.Constraints.Min = image.Pt(size, size)
+											gtx.Constraints.Max = gtx.Constraints.Min
+											col := theme.FgMuted
+											if isActive {
+												col = theme.Accent
+											}
+											return widgets.IconLab.Layout(gtx, col)
+										}),
+										layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
+										layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+											if row.IsRenaming {
+												return widgets.InlineRenameField(gtx, host.Theme, &row.NameEd)
+											}
+											lbl := material.Label(host.Theme, unit.Sp(12), row.Name)
+											lbl.MaxLines = 1
+											lbl.Truncator = "…"
+											lbl.LineHeightScale = 1.0
+											return lbl.Layout(gtx)
+										}),
+									)
+								})
+								row.ContentHeightPx = cd.Size.Y
+								return cd
 							}),
 							layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								return material.Clickable(gtx, &row.MenuBtn, func(gtx layout.Context) layout.Dimensions {
-									w := gtx.Dp(18)
-									h := *host.ScriptRowH - 2*gtx.Dp(unit.Dp(4))
-									if h <= 0 {
-										h = w
-									}
-									gtx.Constraints.Min = image.Pt(w, h)
-									gtx.Constraints.Max = gtx.Constraints.Min
-									iconCol := theme.FgMuted
-									if row.MenuHovered {
-										iconCol = host.Theme.Fg
-									}
-									iconCol.A = uint8(float32(iconCol.A) * fade)
-									return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										isz := gtx.Dp(16)
-										gtx.Constraints.Min = image.Pt(isz, isz)
-										gtx.Constraints.Max = gtx.Constraints.Min
-										return widgets.IconMore.Layout(gtx, iconCol)
-									})
-								})
+								iconCol := theme.FgMuted
+								if row.MenuHovered {
+									iconCol = host.Theme.Fg
+								}
+								return rowIconBtn(gtx, &row.MenuBtn, row.MenuHovered, row.ContentHeightPx, fade, rowIcon(widgets.IconMore, fadeAlpha(iconCol, fade)))
 							}),
 						)
 					})

@@ -122,6 +122,44 @@ func menuRowBg(base color.NRGBA) color.NRGBA {
 	return theme.Mix(base, theme.BgHover, 0.5)
 }
 
+var rowBtnHover = color.NRGBA{R: 0x88, G: 0x88, B: 0x88, A: 0x44}
+
+func fadeAlpha(c color.NRGBA, fade float32) color.NRGBA {
+	c.A = uint8(float32(c.A) * fade)
+	return c
+}
+
+func rowIcon(ic *widget.Icon, col color.NRGBA) layout.Widget {
+	return func(gtx layout.Context) layout.Dimensions {
+		isz := gtx.Dp(unit.Dp(14))
+		gtx.Constraints.Min = image.Pt(isz, isz)
+		gtx.Constraints.Max = gtx.Constraints.Min
+		return ic.Layout(gtx, col)
+	}
+}
+
+func rowIconBtn(gtx layout.Context, btn *widget.Clickable, hovered bool, h int, fade float32, draw layout.Widget) layout.Dimensions {
+	body := func(gtx layout.Context) layout.Dimensions {
+		w := gtx.Dp(unit.Dp(18))
+		if h <= 0 {
+			h = gtx.Dp(unit.Dp(16))
+		}
+		gtx.Constraints.Min = image.Pt(w, h)
+		gtx.Constraints.Max = gtx.Constraints.Min
+		if hovered {
+			paint.FillShape(gtx.Ops, fadeAlpha(rowBtnHover, fade), clip.Rect{Max: gtx.Constraints.Min}.Op())
+		}
+		return layout.Center.Layout(gtx, draw)
+	}
+	if btn == nil {
+		return body(gtx)
+	}
+	return btn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		pointer.CursorPointer.Add(gtx.Ops)
+		return body(gtx)
+	})
+}
+
 func paintMenuOutline(gtx layout.Context, size image.Point) {
 	t := max(1, gtx.Dp(unit.Dp(1)))
 	dash := max(2, gtx.Dp(unit.Dp(3)))
@@ -198,6 +236,21 @@ func cloneRawExtras(src map[string]json.RawMessage, skip ...string) map[string]j
 func menuZoneHovered(gtx layout.Context, px float32, w int) bool {
 	right := float32(w - gtx.Dp(unit.Dp(10)))
 	return px >= right-float32(gtx.Dp(unit.Dp(18))) && px < right
+}
+
+func listScrollable(list *widget.List) bool {
+	return list != nil && (list.Position.First > 0 || list.Position.OffsetLast < 0)
+}
+
+func listGutter(gtx layout.Context, th *material.Theme, list *widget.List) int {
+	if !listScrollable(list) {
+		return 0
+	}
+	return gtx.Dp(material.Scrollbar(th, &list.Scrollbar).Track.MinorPadding)
+}
+
+func rowSurface(size image.Point, cut int) image.Point {
+	return image.Pt(max(0, size.X-cut), size.Y)
 }
 
 func scrollbarZoneHovered(gtx layout.Context, px float32, w int) bool {
@@ -382,6 +435,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	}
 	var bandLines []bandLineGeom
 	var listMenuNode *collections.CollectionNode
+	colsCut := listGutter(gtx, host.Theme, host.ColList)
 	var listMenuY, listMenuH int
 
 	drawNodeMenu := func(gtx layout.Context, node *collections.CollectionNode, anchorY, rowH int) {
@@ -976,16 +1030,17 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				return layout.Stack{}.Layout(gtx,
 					layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 						size := gtx.Constraints.Min
+						surf := rowSurface(size, colsCut)
 						if isPlaceholder {
-							paint.FillShape(gtx.Ops, theme.BgDragHolder, clip.Rect{Max: size}.Op())
+							paint.FillShape(gtx.Ops, theme.BgDragHolder, clip.Rect{Max: surf}.Op())
 						} else {
 							switch {
 							case isActiveNode:
-								paint.FillShape(gtx.Ops, theme.AccentDim, clip.Rect{Max: size}.Op())
+								paint.FillShape(gtx.Ops, theme.AccentDim, clip.Rect{Max: surf}.Op())
 							case nodeHovered:
-								paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: size}.Op())
+								paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: surf}.Op())
 							case node.MenuOpen:
-								paint.FillShape(gtx.Ops, menuRowBg(theme.BgDark), clip.Rect{Max: size}.Op())
+								paint.FillShape(gtx.Ops, menuRowBg(theme.BgDark), clip.Rect{Max: surf}.Op())
 							}
 							if node.Depth > 0 && fade > 0 {
 								indent := gtx.Dp(unit.Dp(12))
@@ -1005,7 +1060,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 								}
 							}
 							if node.MenuOpen {
-								paintMenuOutline(gtx, size)
+								paintMenuOutline(gtx, surf)
 							}
 							defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 							node.Drag.Add(gtx.Ops)
@@ -1095,26 +1150,11 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 								return contentDimInner
 							}),
 							layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-								dims := material.Clickable(gtx, &node.MenuBtn, func(gtx layout.Context) layout.Dimensions {
-									w := gtx.Dp(unit.Dp(18))
-									h := node.ContentHeightPx
-									if h <= 0 {
-										h = gtx.Dp(unit.Dp(16))
-									}
-									gtx.Constraints.Min = image.Pt(w, h)
-									gtx.Constraints.Max = gtx.Constraints.Min
-									iconCol := theme.FgMuted
-									if node.MenuHovered {
-										iconCol = host.Theme.Fg
-									}
-									iconCol.A = uint8(float32(iconCol.A) * fade)
-									return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										isz := gtx.Dp(unit.Dp(14))
-										gtx.Constraints.Min = image.Pt(isz, isz)
-										gtx.Constraints.Max = gtx.Constraints.Min
-										return widgets.IconMore.Layout(gtx, iconCol)
-									})
-								})
+								iconCol := theme.FgMuted
+								if node.MenuHovered {
+									iconCol = host.Theme.Fg
+								}
+								dims := rowIconBtn(gtx, &node.MenuBtn, node.MenuHovered, node.ContentHeightPx, fade, rowIcon(widgets.IconMore, fadeAlpha(iconCol, fade)))
 								node.MenuBtnWidth = dims.Size.X
 								return dims
 							}),
@@ -1314,7 +1354,8 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						case interactive && node.MenuOpen:
 							bg = menuRowBg(theme.BgDark)
 						}
-						paint.FillShape(gtx.Ops, bg, clip.Rect{Max: size}.Op())
+						surf := rowSurface(size, colsCut)
+						paint.FillShape(gtx.Ops, bg, clip.Rect{Max: surf}.Op())
 						if node.Depth > 0 && fade > 0 {
 							gc := theme.BorderSubtle
 							gc.A = uint8(float32(gc.A) * fade)
@@ -1327,7 +1368,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 							}
 						}
 						if interactive && node.MenuOpen {
-							paintMenuOutline(gtx, size)
+							paintMenuOutline(gtx, surf)
 						}
 						if interactive {
 							node.StickyClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
@@ -1340,55 +1381,47 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 					layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 						gtx.Constraints.Min.X = w
 						leftDp := float32(node.Depth * 12)
-						return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(leftDp), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						return layout.Inset{Left: unit.Dp(leftDp), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									ic := widgets.IconChevronD
-									if !node.Expanded {
-										ic = widgets.IconChevronR
-									}
-									isz := gtx.Dp(unit.Dp(14))
-									gtx.Constraints.Min = image.Pt(isz, isz)
-									gtx.Constraints.Max = gtx.Constraints.Min
-									return ic.Layout(gtx, theme.FgMuted)
-								}),
-								layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 								layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-									lbl := material.Label(host.Theme, unit.Sp(12), node.Name)
-									lbl.MaxLines = 1
-									lbl.Truncator = "…"
-									lbl.LineHeightScale = 1.0
-									if node.Depth == 0 {
-										lbl.Font.Weight = font.Bold
-									}
-									return lbl.Layout(gtx)
+									return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+										return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+											layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+												ic := widgets.IconChevronD
+												if !node.Expanded {
+													ic = widgets.IconChevronR
+												}
+												isz := gtx.Dp(unit.Dp(14))
+												gtx.Constraints.Min = image.Pt(isz, isz)
+												gtx.Constraints.Max = gtx.Constraints.Min
+												return ic.Layout(gtx, theme.FgMuted)
+											}),
+											layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+											layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+												lbl := material.Label(host.Theme, unit.Sp(12), node.Name)
+												lbl.MaxLines = 1
+												lbl.Truncator = "…"
+												lbl.LineHeightScale = 1.0
+												if node.Depth == 0 {
+													lbl.Font.Weight = font.Bold
+												}
+												return lbl.Layout(gtx)
+											}),
+										)
+									})
 								}),
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									bw := gtx.Dp(unit.Dp(18))
-									bh := gtx.Dp(unit.Dp(16))
-									gtx.Constraints.Min = image.Pt(bw, bh)
-									gtx.Constraints.Max = gtx.Constraints.Min
-									drawMore := func(gtx layout.Context) layout.Dimensions {
-										iconCol := theme.FgMuted
-										if interactive && menuHovered {
-											iconCol = host.Theme.Fg
-										} else {
-											iconCol.A = uint8(float32(iconCol.A) * fade)
-										}
-										return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											isz := gtx.Dp(unit.Dp(14))
-											gtx.Constraints.Min = image.Pt(isz, isz)
-											gtx.Constraints.Max = gtx.Constraints.Min
-											return widgets.IconMore.Layout(gtx, iconCol)
-										})
+									iconCol := theme.FgMuted
+									if interactive && menuHovered {
+										iconCol = host.Theme.Fg
+									} else {
+										iconCol = fadeAlpha(iconCol, fade)
 									}
-									if !interactive {
-										return drawMore(gtx)
+									var btn *widget.Clickable
+									if interactive {
+										btn = &node.StickyMenuBtn
 									}
-									return node.StickyMenuBtn.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										pointer.CursorPointer.Add(gtx.Ops)
-										return drawMore(gtx)
-									})
+									return rowIconBtn(gtx, btn, interactive && menuHovered, minH, fade, rowIcon(widgets.IconMore, iconCol))
 								}),
 							)
 						})
@@ -1932,6 +1965,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		if anyEnvMenuOpen {
 			*host.PendingEnvClose = nil
 		}
+		envCut := listGutter(gtx, host.Theme, host.EnvList)
 		blockHovered := host.EnvsBodyHover.Update(gtx.Source) || anyEnvMenuOpen ||
 			host.EnvList.Scrollbar.Dragging() || host.EnvList.Scrollbar.IndicatorHovered() || host.EnvList.Scrollbar.TrackHovered()
 		fade := host.EnvsBodyFade.Update(gtx, blockHovered, 100*time.Millisecond)
@@ -2231,12 +2265,13 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						gtx.Constraints.Min.X = gtx.Constraints.Max.X
 						size := gtx.Constraints.Min
 						if !isEnvPlaceholder {
-							paint.FillShape(gtx.Ops, bgColor, clip.Rect{Max: size}.Op())
+							surf := rowSurface(size, envCut)
+							paint.FillShape(gtx.Ops, bgColor, clip.Rect{Max: surf}.Op())
 							if isActive {
 								paint.FillShape(gtx.Ops, environments.HighlightColor(env.Data), clip.Rect{Max: image.Point{X: gtx.Dp(unit.Dp(2)), Y: size.Y}}.Op())
 							}
 							if env.MenuOpen {
-								paintMenuOutline(gtx, size)
+								paintMenuOutline(gtx, surf)
 							}
 							defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
 							env.Drag.Add(gtx.Ops)
@@ -2252,10 +2287,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 							}
 							return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, rowH)}
 						}
-						d := layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(0), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+						d := layout.Inset{Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 								layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
-									return layout.Inset{Left: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									cd := layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 										if env.IsRenaming {
 											return widgets.InlineRenameField(gtx, host.Theme, &env.InlineNameEd)
 										}
@@ -2266,24 +2301,17 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 										}
 										return env.NameScroll.Layout(gtx, host.Theme, lbl)
 									})
+									env.ContentHeightPx = cd.Size.Y
+									return cd
 								}),
 								layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									w := gtx.Dp(18)
-									h := *host.EnvRowH - 2*gtx.Dp(unit.Dp(4))
-									if h <= 0 {
-										h = w
+									gearHovered := env.QuickEditBtn.Hovered()
+									iconCol := theme.FgMuted
+									if gearHovered {
+										iconCol = host.Theme.Fg
 									}
-									gtx.Constraints.Min = image.Pt(w, h)
-									gtx.Constraints.Max = gtx.Constraints.Min
-									iconCol := host.Theme.Fg
-									iconCol.A = uint8(float32(iconCol.A) * fade)
-									return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-										isz := gtx.Dp(16)
-										gtx.Constraints.Min = image.Pt(isz, isz)
-										gtx.Constraints.Max = gtx.Constraints.Min
-										return widgets.IconSettings.Layout(gtx, iconCol)
-									})
+									return rowIconBtn(gtx, &env.QuickEditBtn, gearHovered, env.ContentHeightPx, fade, rowIcon(widgets.IconSettings, fadeAlpha(iconCol, fade)))
 								}),
 								layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
@@ -2296,15 +2324,12 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 											host.EnvColorPicker.Open(colorpicker.KindEnv, 0, environments.HighlightColor(env.Data), colorpicker.Anchor{X: widgets.GlobalPointerPos.X, Y: widgets.GlobalPointerPos.Y})
 										}
 									}
-									return material.Clickable(gtx, &env.SelectBtn, func(gtx layout.Context) layout.Dimensions {
-										size := gtx.Dp(18)
+									return rowIconBtn(gtx, &env.SelectBtn, env.SelectBtn.Hovered(), env.ContentHeightPx, fade, func(gtx layout.Context) layout.Dimensions {
+										size := gtx.Dp(unit.Dp(14))
 										gtx.Constraints.Min = image.Pt(size, size)
 										gtx.Constraints.Max = gtx.Constraints.Min
 										swatch := environments.HighlightColor(env.Data)
-										border := gtx.Dp(unit.Dp(1))
-										if border < 1 {
-											border = 1
-										}
+										border := max(1, gtx.Dp(unit.Dp(1)))
 										paint.FillShape(gtx.Ops, theme.BorderLight, clip.Rect{Max: gtx.Constraints.Min}.Op())
 										inner := image.Rect(border, border, size-border, size-border)
 										paint.FillShape(gtx.Ops, swatch, clip.Rect(inner).Op())
@@ -2313,53 +2338,16 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 								}),
 								layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
 								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									return material.Clickable(gtx, &env.MenuBtn, func(gtx layout.Context) layout.Dimensions {
-										w := gtx.Dp(18)
-										h := *host.EnvRowH - 2*gtx.Dp(unit.Dp(4))
-										if h <= 0 {
-											h = w
-										}
-										gtx.Constraints.Min = image.Pt(w, h)
-										gtx.Constraints.Max = gtx.Constraints.Min
-										iconCol := theme.FgMuted
-										if env.MenuHovered {
-											iconCol = host.Theme.Fg
-										}
-										iconCol.A = uint8(float32(iconCol.A) * fade)
-										return layout.Center.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-											isz := gtx.Dp(16)
-											gtx.Constraints.Min = image.Pt(isz, isz)
-											gtx.Constraints.Max = gtx.Constraints.Min
-											return widgets.IconMore.Layout(gtx, iconCol)
-										})
-									})
+									iconCol := theme.FgMuted
+									if env.MenuHovered {
+										iconCol = host.Theme.Fg
+									}
+									return rowIconBtn(gtx, &env.MenuBtn, env.MenuHovered, env.ContentHeightPx, fade, rowIcon(widgets.IconMore, fadeAlpha(iconCol, fade)))
 								}),
 							)
 						})
 						addCtxArea(gtx, &env.CtxMenu, d.Size)
 						return d
-					}),
-					layout.Stacked(func(gtx layout.Context) layout.Dimensions {
-						if isEnvPlaceholder {
-							return layout.Dimensions{}
-						}
-						rowH := *host.EnvRowH
-						if rowH <= 0 {
-							rowH = gtx.Dp(unit.Dp(30))
-						}
-						w := gtx.Dp(unit.Dp(18))
-						left := gtx.Constraints.Max.X - gtx.Dp(unit.Dp(10)) - 3*w - 2*gtx.Dp(unit.Dp(4))
-						if left < 0 {
-							return layout.Dimensions{}
-						}
-						off := op.Offset(image.Pt(left, 0)).Push(gtx.Ops)
-						hitGtx := gtx
-						hitGtx.Constraints = layout.Exact(image.Pt(w, rowH))
-						env.QuickEditBtn.Layout(hitGtx, func(gtx layout.Context) layout.Dimensions {
-							return layout.Dimensions{Size: gtx.Constraints.Min}
-						})
-						off.Pop()
-						return layout.Dimensions{}
 					}),
 					layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 						if !env.MenuOpen {

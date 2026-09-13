@@ -531,7 +531,10 @@ func TestStickyNonFirstSubfolderSwap(t *testing.T) {
 			ui.ColList.Position.Offset = 0
 			frame()
 
-			const rowH = 24
+			rowH := ui.ColRowH()
+			if rowH <= 0 {
+				rowH = 24
+			}
 			depthOf := func(n *collections.CollectionNode) int { return stickyDepthOf(n) }
 			bVisible := false
 			dips, dipDesc := 0, ""

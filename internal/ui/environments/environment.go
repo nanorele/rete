@@ -28,17 +28,18 @@ type CtxMenuState struct {
 }
 
 type EnvironmentUI struct {
-	Data         *model.ParsedEnvironment
-	SelectBtn    widget.Clickable
-	EditBtn      widget.Clickable
-	QuickEditBtn widget.Clickable
-	RenameBtn    widget.Clickable
-	DupBtn       widget.Clickable
-	DelBtn       widget.Clickable
-	MenuBtn      widget.Clickable
-	MenuOpen     bool
-	MenuClickY   float32
-	CtxMenu      CtxMenuState
+	Data            *model.ParsedEnvironment
+	SelectBtn       widget.Clickable
+	EditBtn         widget.Clickable
+	QuickEditBtn    widget.Clickable
+	RenameBtn       widget.Clickable
+	DupBtn          widget.Clickable
+	DelBtn          widget.Clickable
+	MenuBtn         widget.Clickable
+	MenuOpen        bool
+	MenuClickY      float32
+	CtxMenu         CtxMenuState
+	ContentHeightPx int
 
 	List           widget.List
 	Rows           []*EnvVarRow
