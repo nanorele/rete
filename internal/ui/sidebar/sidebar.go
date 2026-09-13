@@ -249,6 +249,17 @@ func listGutter(gtx layout.Context, th *material.Theme, list *widget.List) int {
 	return gtx.Dp(material.Scrollbar(th, &list.Scrollbar).Track.MinorPadding)
 }
 
+func envPopupOpen(host *Host, env *environments.EnvironmentUI) bool {
+	if env == nil || env.Data == nil {
+		return false
+	}
+	if host.EditingEnv != nil && *host.EditingEnv == env {
+		return true
+	}
+	return host.EnvColorPicker != nil && host.EnvColorEnvID != nil &&
+		host.EnvColorPicker.IsOpen() && *host.EnvColorEnvID == env.Data.ID
+}
+
 func rowSurface(size image.Point, cut int) image.Point {
 	return image.Pt(max(0, size.X-cut), size.Y)
 }
@@ -1032,7 +1043,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						size := gtx.Constraints.Min
 						surf := rowSurface(size, colsCut)
 						if isPlaceholder {
-							paint.FillShape(gtx.Ops, theme.BgDragHolder, clip.Rect{Max: surf}.Op())
+							paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: surf}.Op())
 						} else {
 							switch {
 							case isActiveNode:
@@ -1956,17 +1967,20 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		pointer.CursorDefault.Add(gtx.Ops)
 
 		anyEnvMenuOpen := false
+		anyEnvPopupOpen := false
 		for _, e := range *host.Environments {
 			if e.MenuOpen {
 				anyEnvMenuOpen = true
-				break
+			}
+			if envPopupOpen(host, e) {
+				anyEnvPopupOpen = true
 			}
 		}
 		if anyEnvMenuOpen {
 			*host.PendingEnvClose = nil
 		}
 		envCut := listGutter(gtx, host.Theme, host.EnvList)
-		blockHovered := host.EnvsBodyHover.Update(gtx.Source) || anyEnvMenuOpen ||
+		blockHovered := host.EnvsBodyHover.Update(gtx.Source) || anyEnvMenuOpen || anyEnvPopupOpen ||
 			host.EnvList.Scrollbar.Dragging() || host.EnvList.Scrollbar.IndicatorHovered() || host.EnvList.Scrollbar.TrackHovered()
 		fade := host.EnvsBodyFade.Update(gtx, blockHovered, 100*time.Millisecond)
 
@@ -2213,6 +2227,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				}
 
 				envHovered := env.RowHovered
+				envPopup := env.MenuOpen || envPopupOpen(host, env)
 				bgColor := theme.BgDark
 				if isActive {
 					bgColor = theme.Bg
@@ -2220,7 +2235,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				switch {
 				case envHovered:
 					bgColor = theme.BgHover
-				case env.MenuOpen:
+				case envPopup:
 					bgColor = menuRowBg(bgColor)
 				}
 
@@ -2264,13 +2279,15 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 					layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 						gtx.Constraints.Min.X = gtx.Constraints.Max.X
 						size := gtx.Constraints.Min
-						if !isEnvPlaceholder {
+						if isEnvPlaceholder {
+							paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: rowSurface(size, envCut)}.Op())
+						} else {
 							surf := rowSurface(size, envCut)
 							paint.FillShape(gtx.Ops, bgColor, clip.Rect{Max: surf}.Op())
 							if isActive {
 								paint.FillShape(gtx.Ops, environments.HighlightColor(env.Data), clip.Rect{Max: image.Point{X: gtx.Dp(unit.Dp(2)), Y: size.Y}}.Op())
 							}
-							if env.MenuOpen {
+							if envPopup {
 								paintMenuOutline(gtx, surf)
 							}
 							defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()

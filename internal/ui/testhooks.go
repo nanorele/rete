@@ -239,3 +239,15 @@ func HarSkipHeader(name string) bool {
 func HarWSURL(raw string) string {
 	return harWSURL(raw)
 }
+
+func (ui *AppUI) ScriptsDivY() int {
+	return ui.scriptsDivY
+}
+
+func (ui *AppUI) ScriptRowH() int {
+	return ui.scriptRowH
+}
+
+func (ui *AppUI) EnvRowH() int {
+	return ui.envRowH
+}

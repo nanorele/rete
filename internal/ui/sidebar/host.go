@@ -98,6 +98,10 @@ type Host struct {
 	ScriptsDrag        *gesture.Drag
 	ScriptsDragY       *float32
 	ScriptsDividerY    *int
+	DraggedScript      **ScriptRow
+	DragScriptOriginY  *float32
+	DragScriptCurrentY *float32
+	DragScriptActive   *bool
 
 	DropZones *[]DropZoneRect
 
@@ -115,6 +119,7 @@ type Host struct {
 	DuplicateScript func(id string)
 	DeleteScript    func(id string)
 	ImportScript    func(data []byte)
+	ReorderScripts  func(ids []string)
 
 	EnvColorPicker *colorpicker.State
 	EnvColorEnvID  *string
@@ -193,6 +198,18 @@ func (h *Host) ensureScripts() {
 	}
 	if h.ScriptsDividerY == nil {
 		h.ScriptsDividerY = new(int)
+	}
+	if h.DraggedScript == nil {
+		h.DraggedScript = new(*ScriptRow)
+	}
+	if h.DragScriptOriginY == nil {
+		h.DragScriptOriginY = new(float32)
+	}
+	if h.DragScriptCurrentY == nil {
+		h.DragScriptCurrentY = new(float32)
+	}
+	if h.DragScriptActive == nil {
+		h.DragScriptActive = new(bool)
 	}
 	if h.EnvDividerY == nil {
 		h.EnvDividerY = new(int)

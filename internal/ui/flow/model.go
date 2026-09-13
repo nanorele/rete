@@ -3,6 +3,7 @@ package flow
 import (
 	"encoding/json"
 	"errors"
+	"image"
 	"os"
 	"path/filepath"
 	"sort"
@@ -118,6 +119,7 @@ type Node struct {
 	bodyContentH      int
 	bodyScrollPending bool
 	hitTag            bool
+	warnRect          image.Rectangle
 	CountEd           widget.Editor
 	DelayEd           widget.Editor
 	VarNameEd         widget.Editor
@@ -892,6 +894,65 @@ type ScenarioInfo struct {
 	mod  int64
 }
 
+const scenarioOrderFile = "order.json"
+
+func scenarioOrderPath() string {
+	return filepath.Join(persist.FlowsDir(), scenarioOrderFile)
+}
+
+func readScenarioOrder() []string {
+	data, err := os.ReadFile(scenarioOrderPath())
+	if err != nil {
+		return nil
+	}
+	var ids []string
+	if err := json.Unmarshal(data, &ids); err != nil {
+		return nil
+	}
+	return ids
+}
+
+func writeScenarioOrder(ids []string) error {
+	data, err := json.Marshal(ids)
+	if err != nil {
+		return err
+	}
+	return persist.AtomicWriteFile(scenarioOrderPath(), data)
+}
+
+func SetScenarioOrder(ids []string) error {
+	seen := make(map[string]bool, len(ids))
+	clean := make([]string, 0, len(ids))
+	for _, id := range ids {
+		if id == "" || seen[id] {
+			continue
+		}
+		seen[id] = true
+		clean = append(clean, id)
+	}
+	if err := writeScenarioOrder(clean); err != nil {
+		return err
+	}
+	changeSeq.Add(1)
+	return nil
+}
+
+func dropFromScenarioOrder(id string) {
+	order := readScenarioOrder()
+	if len(order) == 0 {
+		return
+	}
+	kept := order[:0]
+	for _, o := range order {
+		if o != id {
+			kept = append(kept, o)
+		}
+	}
+	if len(kept) != len(order) {
+		_ = writeScenarioOrder(kept)
+	}
+}
+
 func ListScenarios() []ScenarioInfo {
 	dir := persist.FlowsDir()
 	entries, err := os.ReadDir(dir)
@@ -900,7 +961,7 @@ func ListScenarios() []ScenarioInfo {
 	}
 	var out []ScenarioInfo
 	for _, ent := range entries {
-		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".json") {
+		if ent.IsDir() || !strings.HasSuffix(ent.Name(), ".json") || ent.Name() == scenarioOrderFile {
 			continue
 		}
 		data, err := os.ReadFile(filepath.Join(dir, ent.Name()))
@@ -917,7 +978,23 @@ func ListScenarios() []ScenarioInfo {
 		}
 		out = append(out, ScenarioInfo{ID: dto.ID, Name: dto.Name, mod: mod})
 	}
-	sort.Slice(out, func(i, j int) bool { return out[i].mod > out[j].mod })
+	rank := make(map[string]int)
+	for i, id := range readScenarioOrder() {
+		if _, dup := rank[id]; !dup {
+			rank[id] = i
+		}
+	}
+	sort.SliceStable(out, func(i, j int) bool {
+		ri, oki := rank[out[i].ID]
+		rj, okj := rank[out[j].ID]
+		if oki != okj {
+			return !oki
+		}
+		if oki {
+			return ri < rj
+		}
+		return out[i].mod > out[j].mod
+	})
 	return out
 }
 
@@ -937,6 +1014,7 @@ func DeleteScenario(id string) error {
 	if err := os.Remove(filepath.Join(persist.FlowsDir(), id+".json")); err != nil {
 		return err
 	}
+	dropFromScenarioOrder(id)
 	changeSeq.Add(1)
 	return nil
 }

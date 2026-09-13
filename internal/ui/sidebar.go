@@ -91,6 +91,10 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 		ScriptsDrag:        &ui.SidebarScriptsDrag,
 		ScriptsDragY:       &ui.SidebarScriptsDragY,
 		ScriptsDividerY:    &ui.scriptsDivY,
+		DraggedScript:      &ui.draggedScript,
+		DragScriptOriginY:  &ui.dragScriptOriginY,
+		DragScriptCurrentY: &ui.dragScriptCurrentY,
+		DragScriptActive:   &ui.dragScriptActive,
 
 		ColsBodyHover:    &ui.ColsBodyHover,
 		ScriptsBodyHover: &ui.ScriptsBodyHover,
@@ -144,6 +148,10 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 			if _, err := flow.ImportScenario(data); err == nil {
 				ui.Window.Invalidate()
 			}
+		},
+		ReorderScripts: func(ids []string) {
+			_ = flow.SetScenarioOrder(ids)
+			ui.Window.Invalidate()
 		},
 
 		EnvColorPicker: &ui.EnvColorPicker,

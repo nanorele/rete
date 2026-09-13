@@ -9,6 +9,7 @@ import (
 	"rete/internal/ui/theme"
 	"rete/internal/ui/widgets"
 
+	"github.com/nanorele/gio/gesture"
 	"github.com/nanorele/gio/io/key"
 	"github.com/nanorele/gio/io/pointer"
 	"github.com/nanorele/gio/layout"
@@ -25,7 +26,7 @@ type ScriptRow struct {
 	ID   string
 	Name string
 
-	NameClick       widget.Clickable
+	Drag            gesture.Drag
 	MenuBtn         widget.Clickable
 	RenameBtn       widget.Clickable
 	DupBtn          widget.Clickable
@@ -65,6 +66,80 @@ func commitScriptRename(host *Host, r *ScriptRow) {
 	}
 	r.IsRenaming = false
 	r.RenamingFocused = false
+}
+
+func scriptClick(gtx layout.Context, host *Host, row *ScriptRow, flowsMode bool) {
+	if row.IsRenaming {
+		return
+	}
+	isDouble := !row.LastClickAt.IsZero() && gtx.Now.Sub(row.LastClickAt) < 300*time.Millisecond
+	if !flowsMode {
+		if isDouble {
+			row.LastClickAt = time.Time{}
+			if host.OpenScript != nil {
+				host.OpenScript(row.ID)
+			}
+			return
+		}
+		row.LastClickAt = gtx.Now
+		return
+	}
+	if isDouble {
+		row.startRename()
+		row.LastClickAt = time.Time{}
+		return
+	}
+	row.LastClickAt = gtx.Now
+	if host.OpenScript != nil {
+		host.OpenScript(row.ID)
+	}
+}
+
+func scriptDragEvents(gtx layout.Context, host *Host, row *ScriptRow, flowsMode bool) {
+	slop := float32(gtx.Dp(unit.Dp(4)))
+	for {
+		e, ok := row.Drag.Update(gtx.Metric, gtx.Source, gesture.Vertical)
+		if !ok {
+			break
+		}
+		switch e.Kind {
+		case pointer.Press:
+			*host.DraggedScript = row
+			*host.DragScriptOriginY = e.Position.Y
+			*host.DragScriptCurrentY = e.Position.Y
+			*host.DragScriptActive = false
+		case pointer.Drag:
+			if *host.DraggedScript != row {
+				continue
+			}
+			*host.DragScriptCurrentY = e.Position.Y
+			dy := *host.DragScriptCurrentY - *host.DragScriptOriginY
+			if dy < 0 {
+				dy = -dy
+			}
+			if !*host.DragScriptActive && dy > slop {
+				*host.DragScriptActive = true
+				*host.DragScriptOriginY = *host.DragScriptCurrentY
+			}
+		case pointer.Release:
+			if *host.DraggedScript != row {
+				continue
+			}
+			if *host.DragScriptActive {
+				*host.DragScriptCurrentY = e.Position.Y
+				commitScriptDrop(host, row)
+			} else {
+				scriptClick(gtx, host, row, flowsMode)
+			}
+			*host.DraggedScript = nil
+			*host.DragScriptActive = false
+		case pointer.Cancel:
+			if *host.DraggedScript == row {
+				*host.DraggedScript = nil
+				*host.DragScriptActive = false
+			}
+		}
+	}
 }
 
 func scriptsHeader(gtx layout.Context, host *Host) layout.Dimensions {
@@ -175,6 +250,21 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 
 	scrollBarWheel(gtx, host.ScriptBarScroll, host.ScriptList)
 
+	if dragged := *host.DraggedScript; dragged != nil {
+		scriptDragEvents(gtx, host, dragged, flowsMode)
+	}
+
+	draggedSrcIdx := -1
+	if *host.DraggedScript != nil && *host.DragScriptActive {
+		for i, r := range rows {
+			if r == *host.DraggedScript {
+				draggedSrcIdx = i
+				break
+			}
+		}
+	}
+	draggingScript := draggedSrcIdx >= 0
+
 	for _, r := range rows {
 		r.RowHovered = false
 		r.MenuHovered = false
@@ -202,32 +292,8 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 		row := rows[i]
 		isActive := row.ID == activeID
 
-		for row.NameClick.Clicked(gtx) {
-			if row.IsRenaming {
-				continue
-			}
-			isDouble := !row.LastClickAt.IsZero() && gtx.Now.Sub(row.LastClickAt) < 300*time.Millisecond
-			if !flowsMode {
-				if isDouble {
-					row.LastClickAt = time.Time{}
-					if host.OpenScript != nil {
-						host.OpenScript(row.ID)
-					}
-					continue
-				}
-				row.LastClickAt = gtx.Now
-				continue
-			}
-			if isDouble {
-				row.startRename()
-				row.LastClickAt = time.Time{}
-				continue
-			}
-			row.LastClickAt = gtx.Now
-			if host.OpenScript != nil {
-				host.OpenScript(row.ID)
-			}
-		}
+		scriptDragEvents(gtx, host, row, flowsMode)
+		isPlaceholder := draggingScript && row == *host.DraggedScript
 
 		for row.MenuBtn.Clicked(gtx) {
 			if !row.MenuOpen {
@@ -308,26 +374,36 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 			return layout.Stack{}.Layout(gtx,
 				layout.Expanded(func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.X = gtx.Constraints.Max.X
-					return row.NameClick.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
-						gtx.Constraints.Min.X = gtx.Constraints.Max.X
-						size := gtx.Constraints.Min
-						surf := rowSurface(size, scriptsCut)
-						switch {
-						case isActive:
-							paint.FillShape(gtx.Ops, theme.AccentDim, clip.Rect{Max: surf}.Op())
-						case rowHovered:
-							paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: surf}.Op())
-						case row.MenuOpen:
-							paint.FillShape(gtx.Ops, menuRowBg(theme.BgDark), clip.Rect{Max: surf}.Op())
-						}
-						if row.MenuOpen {
-							paintMenuOutline(gtx, surf)
-						}
+					size := gtx.Constraints.Min
+					surf := rowSurface(size, scriptsCut)
+					if isPlaceholder {
+						paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: surf}.Op())
 						return layout.Dimensions{Size: size}
-					})
+					}
+					switch {
+					case isActive:
+						paint.FillShape(gtx.Ops, theme.AccentDim, clip.Rect{Max: surf}.Op())
+					case rowHovered:
+						paint.FillShape(gtx.Ops, theme.BgHover, clip.Rect{Max: surf}.Op())
+					case row.MenuOpen:
+						paint.FillShape(gtx.Ops, menuRowBg(theme.BgDark), clip.Rect{Max: surf}.Op())
+					}
+					if row.MenuOpen {
+						paintMenuOutline(gtx, surf)
+					}
+					defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+					row.Drag.Add(gtx.Ops)
+					return layout.Dimensions{Size: size}
 				}),
 				layout.Stacked(func(gtx layout.Context) layout.Dimensions {
 					gtx.Constraints.Min.X = gtx.Constraints.Max.X
+					if isPlaceholder {
+						rowH := *host.ScriptRowH
+						if rowH <= 0 {
+							rowH = gtx.Dp(unit.Dp(24))
+						}
+						return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, rowH)}
+					}
 					d := layout.Inset{Left: unit.Dp(8), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 						return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
@@ -412,6 +488,9 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 	layoutSidebarScrollbar(gtx, host.Theme, host.ScriptList, len(rows), dim.Size.Y, host.ScriptsBodyFade.Value())
 	op.Defer(gtx.Ops, sbMacro.Stop())
 	listCall.Add(gtx.Ops)
+	if draggingScript && *host.ScriptRowH > 0 {
+		layoutScriptDragOverlay(gtx, host, dim, draggedSrcIdx)
+	}
 
 	pass := pointer.PassOp{}.Push(gtx.Ops)
 	ov := clip.Rect{Max: gtx.Constraints.Max}.Push(gtx.Ops)
@@ -422,4 +501,79 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 	addScrollBarStrip(gtx, host.ScriptBarScroll, dim.Size, scriptBarW)
 
 	return dim
+}
+
+func layoutScriptDragOverlay(gtx layout.Context, host *Host, dim layout.Dimensions, srcIdx int) {
+	rowH := *host.ScriptRowH
+	rowW := dim.Size.X
+	if rowW <= 0 {
+		rowW = gtx.Constraints.Max.X
+	}
+	srcOverlayY := (srcIdx-host.ScriptList.Position.First)*rowH - host.ScriptList.Position.Offset
+	hitMacro := op.Record(gtx.Ops)
+	hitOff := op.Offset(image.Pt(0, srcOverlayY)).Push(gtx.Ops)
+	hitClip := clip.Rect{Max: image.Pt(rowW, rowH)}.Push(gtx.Ops)
+	(*host.DraggedScript).Drag.Add(gtx.Ops)
+	hitClip.Pop()
+	hitOff.Pop()
+	op.Defer(gtx.Ops, hitMacro.Stop())
+
+	ghostY := srcOverlayY + int(*host.DragScriptCurrentY-*host.DragScriptOriginY)
+	ghostY = max(0, ghostY)
+	if maxGhost := dim.Size.Y - rowH; maxGhost > 0 && ghostY > maxGhost {
+		ghostY = maxGhost
+	}
+	ghostMacro := op.Record(gtx.Ops)
+	ghostOff := op.Offset(image.Pt(0, ghostY)).Push(gtx.Ops)
+	ghostGtx := gtx
+	ghostGtx.Constraints.Min = image.Pt(rowW, 0)
+	ghostGtx.Constraints.Max = image.Pt(rowW, rowH)
+	renderScriptGhost(ghostGtx, host.Theme, *host.DraggedScript)
+	ghostOff.Pop()
+	op.Defer(gtx.Ops, ghostMacro.Stop())
+
+	target := dragScriptDropTargetIdx(host)
+	if target < 0 {
+		return
+	}
+	dropY := target * rowH
+	if target > srcIdx {
+		dropY = (target + 1) * rowH
+	}
+	lineH := max(1, gtx.Dp(unit.Dp(2)))
+	lineTop := max(0, dropY-lineH/2)
+	if maxLine := dim.Size.Y - lineH; maxLine > 0 && lineTop > maxLine {
+		lineTop = maxLine
+	}
+	lineMacro := op.Record(gtx.Ops)
+	lineOff := op.Offset(image.Pt(0, lineTop)).Push(gtx.Ops)
+	paint.FillShape(gtx.Ops, theme.Accent, clip.Rect{Max: image.Pt(rowW, lineH)}.Op())
+	lineOff.Pop()
+	op.Defer(gtx.Ops, lineMacro.Stop())
+}
+
+func renderScriptGhost(gtx layout.Context, th *material.Theme, row *ScriptRow) layout.Dimensions {
+	gtx.Constraints.Min.X = gtx.Constraints.Max.X
+	rowH := gtx.Constraints.Max.Y
+	if rowH <= 0 {
+		rowH = gtx.Dp(unit.Dp(24))
+	}
+	size := image.Pt(gtx.Constraints.Max.X, rowH)
+	paint.FillShape(gtx.Ops, theme.BgDragGhost, clip.UniformRRect(image.Rectangle{Max: size}, 4).Op(gtx.Ops))
+	widgets.PaintBorder1px(gtx, size, theme.Accent)
+	gtx.Constraints.Min = size
+	gtx.Constraints.Max = size
+	return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+			layout.Rigid(rowIcon(widgets.IconLab, theme.FgMuted)),
+			layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
+			layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				lbl := material.Label(th, unit.Sp(12), row.Name)
+				lbl.MaxLines = 1
+				lbl.Truncator = "…"
+				lbl.LineHeightScale = 1.0
+				return layout.W.Layout(gtx, lbl.Layout)
+			}),
+		)
+	})
 }

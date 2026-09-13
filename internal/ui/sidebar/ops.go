@@ -190,3 +190,62 @@ func commitEnvDrop(host *Host, src *environments.EnvironmentUI) {
 	host.SaveState()
 	host.Window.Invalidate()
 }
+
+func dragScriptDropTargetIdx(host *Host) int {
+	if host.DraggedScript == nil || *host.DraggedScript == nil || !*host.DragScriptActive || *host.ScriptRowH <= 0 {
+		return -1
+	}
+	srcIdx := -1
+	for i, r := range *host.Scripts {
+		if r == *host.DraggedScript {
+			srcIdx = i
+			break
+		}
+	}
+	if srcIdx < 0 {
+		return -1
+	}
+	rowsDelta := int(math.Round(float64(*host.DragScriptCurrentY-*host.DragScriptOriginY) / float64(*host.ScriptRowH)))
+	target := srcIdx + rowsDelta
+	if target < 0 {
+		target = 0
+	}
+	if target >= len(*host.Scripts) {
+		target = len(*host.Scripts) - 1
+	}
+	return target
+}
+
+func commitScriptDrop(host *Host, src *ScriptRow) {
+	target := dragScriptDropTargetIdx(host)
+	if target < 0 {
+		return
+	}
+	srcIdx := -1
+	for i, r := range *host.Scripts {
+		if r == src {
+			srcIdx = i
+			break
+		}
+	}
+	if srcIdx < 0 || srcIdx == target {
+		return
+	}
+	rows := make([]*ScriptRow, 0, len(*host.Scripts))
+	for i, r := range *host.Scripts {
+		if i != srcIdx {
+			rows = append(rows, r)
+		}
+	}
+	insertIdx := min(target, len(rows))
+	rows = append(rows[:insertIdx], append([]*ScriptRow{src}, rows[insertIdx:]...)...)
+	*host.Scripts = rows
+	if host.ReorderScripts != nil {
+		ids := make([]string, 0, len(rows))
+		for _, r := range rows {
+			ids = append(ids, r.ID)
+		}
+		host.ReorderScripts(ids)
+	}
+	host.Window.Invalidate()
+}

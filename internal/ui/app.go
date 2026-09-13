@@ -153,6 +153,10 @@ type AppUI struct {
 	ScriptRows         []*sidebar.ScriptRow
 	scriptSeq          int64
 	scriptRowH         int
+	draggedScript      *sidebar.ScriptRow
+	dragScriptOriginY  float32
+	dragScriptCurrentY float32
+	dragScriptActive   bool
 
 	SidebarScriptsHeight int
 	SidebarScriptsDrag   gesture.Drag

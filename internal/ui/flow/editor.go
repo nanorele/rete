@@ -107,6 +107,7 @@ type Editor struct {
 	customRect      image.Rectangle
 	customPopup     image.Rectangle
 	customRows      []image.Rectangle
+	warnTipNode     string
 	panning         bool
 	panStart        f32.Point
 	panOrigin       f32.Point
@@ -153,6 +154,8 @@ type Editor struct {
 	blockDragIdx    int
 	blockDragName   string
 	blockDragID     string
+	blockDragOrigin f32.Point
+	blockDragWin    f32.Point
 	blockDragOn     bool
 	blockDragActive bool
 	blocksCache     []BlockInfo
@@ -1311,6 +1314,7 @@ func (ed *Editor) layoutCanvas(gtx layout.Context, th *material.Theme, host *Hos
 	ed.drawEnvMenu(gtx, th)
 	ed.drawViewBadges(gtx, th, size)
 	ed.layoutCanvasPalette(gtx, th, size)
+	ed.drawWarnTooltip(gtx, th, size)
 
 	return layout.Dimensions{Size: size}
 }
@@ -1330,9 +1334,6 @@ func (ed *Editor) handleToolbarEvents(gtx layout.Context) {
 	}
 	for i, b := range blocks {
 		ed.handleBlockItemEvents(gtx, i, b)
-	}
-	if ed.blockDragActive {
-		ed.customMenuOpen = false
 	}
 }
 
@@ -1499,7 +1500,7 @@ func (ed *Editor) layoutCustomMenu(gtx layout.Context, th *material.Theme, size 
 	dims := widgets.DeferMenuSurfaceAt(mg, &ed.customMenuOpen, anchor, widgets.MenuMinWidthDp, content)
 	origin := anchor.Resolve(dims.Size)
 	ed.customPopup = image.Rectangle{Min: origin, Max: origin.Add(dims.Size)}
-	off := origin.Add(image.Pt(1, 1+gtx.Dp(unit.Dp(4))))
+	off := origin.Add(image.Pt(0, gtx.Dp(unit.Dp(4))))
 	for _, r := range local {
 		ed.customRows = append(ed.customRows, r.Add(off))
 		off.Y += r.Dy()
@@ -1590,7 +1591,7 @@ func (ed *Editor) drawDropGhost(gtx layout.Context, th *material.Theme) {
 		pos = f32.Pt(gp.X-float32(ed.canvasOrig.X), gp.Y-float32(ed.canvasOrig.Y))
 		ed.ensureKindGhost(ed.palDragKind, "")
 	case ed.blockDragActive:
-		gp := widgets.GlobalPointerPos
+		gp := ed.blockDragWin
 		pos = f32.Pt(gp.X-float32(ed.canvasOrig.X), gp.Y-float32(ed.canvasOrig.Y))
 		ed.ensureBlockGhost(ed.blockDragID, ed.blockDragName)
 	case ed.extDrag:
@@ -2276,6 +2277,7 @@ func (ed *Editor) onDrag(pt f32.Point) {
 		ed.pan = ed.panOrigin.Add(pt.Sub(ed.panStart))
 	case ed.marquee:
 		ed.marqueeCur = pt
+		ed.applyMarquee(pt)
 	}
 }
 
@@ -2819,11 +2821,13 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 
 	padX := int(float32(gtx.Dp(unit.Dp(10))) * ed.zoom)
 	titleW := w - padX*2
+	n.warnRect = image.Rectangle{}
 	if missing := ed.missingVars(n); len(missing) > 0 {
 		ws := float32(gtx.Dp(unit.Dp(12))) * ed.zoom
 		wx := float32(x+w-edge) - 5*ed.zoom - ws
 		wy := float32(y+edge) + 5*ed.zoom
-		drawWarnIcon(gtx, f32.Pt(wx, wy), ws, color.NRGBA{R: 235, G: 180, B: 60, A: 255})
+		drawWarnIcon(gtx, f32.Pt(wx, wy), ws, warnColor)
+		n.warnRect = image.Rect(int(wx)-2, int(wy)-2, int(wx+ws)+2, int(wy+ws)+2)
 		titleW = int(wx-4*ed.zoom) - (x + padX)
 		if titleW < 1 {
 			titleW = 1
@@ -3001,6 +3005,49 @@ func (ed *Editor) drawNode(gtx layout.Context, th *material.Theme, n *Node) {
 			}
 		}
 	}
+}
+
+var warnColor = color.NRGBA{R: 235, G: 180, B: 60, A: 255}
+
+func (ed *Editor) warnNodeAt(pt f32.Point) *Node {
+	pp := image.Pt(int(pt.X), int(pt.Y))
+	nodes := ed.Scenario.Nodes
+	for i := len(nodes) - 1; i >= 0; i-- {
+		if n := nodes[i]; !n.warnRect.Empty() && pp.In(n.warnRect) {
+			return n
+		}
+	}
+	return nil
+}
+
+func (ed *Editor) drawWarnTooltip(gtx layout.Context, th *material.Theme, size image.Point) {
+	ed.warnTipNode = ""
+	if !ed.hoverOn || ed.interacting() || ed.resizeNodeID != "" {
+		return
+	}
+	n := ed.warnNodeAt(ed.hoverPos)
+	if n == nil {
+		return
+	}
+	missing := ed.missingVars(n)
+	if len(missing) == 0 {
+		return
+	}
+	ed.warnTipNode = n.ID
+	txt := "Missing variables: " + strings.Join(missing, ", ")
+	content := func(gtx layout.Context) layout.Dimensions {
+		return layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(6), Left: unit.Dp(10), Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+			lbl := material.Label(th, unit.Sp(11), txt)
+			lbl.Color = warnColor
+			return lbl.Layout(gtx)
+		})
+	}
+	mg := gtx
+	if maxW := gtx.Dp(unit.Dp(320)); mg.Constraints.Max.X > maxW {
+		mg.Constraints.Max.X = maxW
+	}
+	anchor := widgets.MenuAnchor{Pt: image.Pt(n.warnRect.Max.X+gtx.Dp(unit.Dp(4)), n.warnRect.Min.Y), Clamp: size}
+	widgets.DeferMenuSurfaceAt(mg, nil, anchor, 0, content)
 }
 
 func drawWarnIcon(gtx layout.Context, tl f32.Point, size float32, col color.NRGBA) {

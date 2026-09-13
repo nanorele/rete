@@ -10,6 +10,7 @@ import (
 	"rete/internal/ui/theme"
 	"rete/internal/ui/widgets"
 
+	"github.com/nanorele/gio/f32"
 	"github.com/nanorele/gio/font"
 	"github.com/nanorele/gio/io/key"
 	"github.com/nanorele/gio/io/pointer"
@@ -452,21 +453,29 @@ func (ed *Editor) handleBlockItemEvents(gtx layout.Context, i int, b BlockInfo) 
 			ed.blockDragName = b.Name
 			ed.blockDragOn = true
 			ed.blockDragActive = false
+			ed.blockDragOrigin = f32.Pt(float32(ed.canvasOrig.X), float32(ed.canvasOrig.Y))
+			if i < len(ed.customRows) {
+				ed.blockDragOrigin = ed.blockDragOrigin.Add(f32.Pt(float32(ed.customRows[i].Min.X), float32(ed.customRows[i].Min.Y)))
+			}
+			ed.blockDragWin = ed.blockDragOrigin.Add(pe.Position)
 		case pointer.Drag:
 			if ed.blockDragOn && ed.blockDragIdx == i {
-				if _, over := ed.windowToCanvas(widgets.GlobalPointerPos); over {
-					ed.blockDragActive = true
+				ed.blockDragWin = ed.blockDragOrigin.Add(pe.Position)
+				if local, over := ed.windowToCanvas(ed.blockDragWin); over {
+					ed.blockDragActive = !image.Pt(int(local.X), int(local.Y)).In(ed.paletteBar)
 				}
 			}
 		case pointer.Release:
 			if ed.blockDragOn && ed.blockDragIdx == i && ed.blockDragActive {
-				ed.dropBlockAtWindow(b.ID, widgets.GlobalPointerPos)
+				ed.blockDragWin = ed.blockDragOrigin.Add(pe.Position)
+				ed.dropBlockAtWindow(b.ID, ed.blockDragWin)
 			}
 			ed.blockDragOn = false
 			ed.blockDragActive = false
 		case pointer.Cancel:
 			ed.blockDragOn = false
 			ed.blockDragActive = false
+			ed.customMenuOpen = false
 		}
 	}
 }
