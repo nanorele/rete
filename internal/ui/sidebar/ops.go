@@ -249,3 +249,76 @@ func commitScriptDrop(host *Host, src *ScriptRow) {
 	}
 	host.Window.Invalidate()
 }
+
+func addCollectionSeparator(host *Host, after *collections.ParsedCollection) {
+	sep := collections.NewSeparator("")
+	cols := *host.Collections
+	at := len(cols)
+	if after != nil {
+		for i, c := range cols {
+			if c != nil && c.Data == after {
+				at = i + 1
+				break
+			}
+		}
+	}
+	*host.Collections = append(cols[:at:at], append([]*collections.CollectionUI{sep}, cols[at:]...)...)
+	*host.ColsExpanded = true
+	host.UpdateVisibleCols()
+	host.SaveState()
+	host.Window.Invalidate()
+}
+
+func addEnvSeparator(host *Host, after *environments.EnvironmentUI) {
+	sep := &environments.EnvironmentUI{
+		Data:        &model.ParsedEnvironment{ID: persist.NewSeparatorID()},
+		IsSeparator: true,
+	}
+	envs := *host.Environments
+	at := len(envs)
+	if after != nil {
+		for i, e := range envs {
+			if e == after {
+				at = i + 1
+				break
+			}
+		}
+	}
+	*host.Environments = append(envs[:at:at], append([]*environments.EnvironmentUI{sep}, envs[at:]...)...)
+	*host.EnvsExpanded = true
+	host.SaveState()
+	host.Window.Invalidate()
+}
+
+func writeExport(host *Host, name string, data []byte) {
+	if host.CreateFile == nil || len(data) == 0 {
+		return
+	}
+	create := host.CreateFile
+	win := host.Window
+	go func() {
+		w, err := create(name)
+		if err != nil || w == nil {
+			return
+		}
+		_, _ = w.Write(data)
+		_ = w.Close()
+		if win != nil {
+			win.Invalidate()
+		}
+	}()
+}
+
+func exportCollection(host *Host, col *collections.ParsedCollection, version string) {
+	if col == nil || col.IsSeparator() {
+		return
+	}
+	writeExport(host, collections.ExportFileName(col), collections.ExportPostman(col, version))
+}
+
+func exportEnvironment(host *Host, env *environments.EnvironmentUI) {
+	if env == nil || env.Data == nil || env.IsSeparator {
+		return
+	}
+	writeExport(host, environments.ExportFileName(env.Data), environments.ExportPostman(env.Data))
+}

@@ -1616,7 +1616,7 @@ func sceneList() []scene {
 			tab := ui.Tabs[0]
 			tab.Method = workspace.MethodWS
 			tab.URLInput.SetText("wss://api.oneme.ru/websocket")
-			tab.AddHeader("Origin", "https://web.max.ru")
+			tab.AddHeader("Origin", "https://app.example.com")
 			s := tab.EnsureWS()
 			s.OptionsExpanded = true
 			s.UseMsgpackProto = true

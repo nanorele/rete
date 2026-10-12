@@ -21,6 +21,7 @@ import (
 	"sync"
 	"time"
 
+	"rete/internal/faker"
 	"rete/internal/model"
 	"rete/internal/ui/settings"
 	"rete/internal/ui/widgets"
@@ -421,7 +422,7 @@ func buildPlan(s *Scenario, activeEnv map[string]string, envVars func(id string)
 }
 
 func expandVars(input string, env, vars map[string]string) string {
-	if (env == nil && vars == nil) || !strings.Contains(input, "{{") {
+	if !strings.Contains(input, "{{") {
 		return input
 	}
 	var b strings.Builder
@@ -437,6 +438,8 @@ func expandVars(input string, env, vars map[string]string) string {
 		if v, ok := vars[k]; ok {
 			b.WriteString(v)
 		} else if v, ok := env[k]; ok {
+			b.WriteString(v)
+		} else if v, ok := faker.Lookup(k); ok {
 			b.WriteString(v)
 		} else {
 			b.WriteString(input[start:end])

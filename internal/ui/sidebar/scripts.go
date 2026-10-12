@@ -31,6 +31,8 @@ type ScriptRow struct {
 	RenameBtn       widget.Clickable
 	DupBtn          widget.Clickable
 	DelBtn          widget.Clickable
+	SepBtn          widget.Clickable
+	IsSeparator     bool
 	MenuOpen        bool
 	MenuClickY      float32
 	CtxMenu         environments.CtxMenuState
@@ -69,7 +71,7 @@ func commitScriptRename(host *Host, r *ScriptRow) {
 }
 
 func scriptClick(gtx layout.Context, host *Host, row *ScriptRow, flowsMode bool) {
-	if row.IsRenaming {
+	if row.IsRenaming || row.IsSeparator {
 		return
 	}
 	isDouble := !row.LastClickAt.IsZero() && gtx.Now.Sub(row.LastClickAt) < 300*time.Millisecond
@@ -155,6 +157,12 @@ func scriptsHeader(gtx layout.Context, host *Host) layout.Dimensions {
 	for host.ScriptsMenuBtn.Clicked(gtx) {
 		*host.ScriptsMenuOpen = !*host.ScriptsMenuOpen
 	}
+	for host.ScriptsAddSepBtn.Clicked(gtx) {
+		*host.ScriptsMenuOpen = false
+		if host.AddScriptSep != nil {
+			host.AddScriptSep("")
+		}
+	}
 	for host.ImportScriptBtn.Clicked(gtx) {
 		*host.ScriptsMenuOpen = false
 		go func() {
@@ -184,7 +192,7 @@ func scriptsHeader(gtx layout.Context, host *Host) layout.Dimensions {
 							pointer.CursorPointer.Add(gtx.Ops)
 							return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 								layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
-								layout.Rigid(sectionCount(host.Theme, len(*host.Scripts))),
+								layout.Rigid(sectionCount(host.Theme, countScripts(*host.Scripts))),
 								layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 								layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 									gtx.Constraints.Min.Y = 0
@@ -210,6 +218,8 @@ func scriptsHeader(gtx layout.Context, host *Host) layout.Dimensions {
 		anchor := image.Pt(headerDims.Size.X, headerDims.Size.Y+gtx.Dp(unit.Dp(2)))
 		widgets.DeferMenu(gtx, host.Theme, host.ScriptsMenuOpen, anchor, widgets.MenuMinWidthDp, []widgets.MenuItem{
 			{Label: "Import", Click: host.ImportScriptBtn, Icon: widgets.IconDownload},
+			{Separator: true},
+			{Label: "Add separator", Click: host.ScriptsAddSepBtn},
 		})
 	}
 
@@ -332,6 +342,12 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 				}
 				row.MenuOpen = false
 			}
+			for row.SepBtn.Clicked(gtx) {
+				if host.AddScriptSep != nil {
+					host.AddScriptSep(row.ID)
+				}
+				row.MenuOpen = false
+			}
 		}
 
 		if row.IsRenaming {
@@ -409,6 +425,12 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 							layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 								gtx.Constraints.Min.X = gtx.Constraints.Max.X
 								cd := layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+									if row.IsSeparator {
+										lbl := material.Label(host.Theme, unit.Sp(12), "")
+										lbl.MaxLines = 1
+										lbl.LineHeightScale = 1.0
+										return separatorContent(gtx, lbl)
+									}
 									return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 										layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 											size := gtx.Dp(unit.Dp(14))
@@ -453,7 +475,10 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 					if !row.MenuOpen {
 						return layout.Dimensions{}
 					}
-					menuHeight := gtx.Dp(unit.Dp(90))
+					menuHeight := gtx.Dp(unit.Dp(150))
+					if row.IsSeparator {
+						menuHeight = gtx.Dp(unit.Dp(40))
+					}
 					menuY := gtx.Dp(unit.Dp(24))
 					windowH := host.WindowSize.Y
 					flip := windowH > 0 && int(row.MenuClickY)+menuHeight > windowH
@@ -468,12 +493,18 @@ func scriptsBody(gtx layout.Context, host *Host) layout.Dimensions {
 					if row.CtxMenu.AtPointer {
 						anchor = ctxMenuAnchor(gtx, row.CtxMenu.Pos, flip)
 					}
-					widgets.DeferMenuAt(gtx, host.Theme, &row.MenuOpen, anchor, widgets.MenuMinWidthDp, []widgets.MenuItem{
+					items := []widgets.MenuItem{
 						{Label: "Rename", Click: &row.RenameBtn, Icon: widgets.IconRename},
 						{Label: "Duplicate", Click: &row.DupBtn, Icon: widgets.IconDup},
 						{Separator: true},
+						{Label: "Add Separator", Click: &row.SepBtn},
+						{Separator: true},
 						{Label: "Delete", Click: &row.DelBtn, Icon: widgets.IconDel, Danger: true},
-					})
+					}
+					if row.IsSeparator {
+						items = separatorMenuItems(&row.DelBtn)
+					}
+					widgets.DeferMenuAt(gtx, host.Theme, &row.MenuOpen, anchor, widgets.MenuMinWidthDp, items)
 					return layout.Dimensions{}
 				}),
 			)
@@ -564,6 +595,11 @@ func renderScriptGhost(gtx layout.Context, th *material.Theme, row *ScriptRow) l
 	gtx.Constraints.Min = size
 	gtx.Constraints.Max = size
 	return layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(8), Right: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+		if row.IsSeparator {
+			lbl := material.Label(th, unit.Sp(12), "")
+			lbl.LineHeightScale = 1.0
+			return separatorContent(gtx, lbl)
+		}
 		return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 			layout.Rigid(rowIcon(widgets.IconLab, theme.FgMuted)),
 			layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),

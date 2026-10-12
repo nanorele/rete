@@ -101,19 +101,42 @@ func recalcDepth(node *collections.CollectionNode, depth int) {
 	}
 }
 
-func nodeMenuItems(node *collections.CollectionNode) []widgets.MenuItem {
-	items := make([]widgets.MenuItem, 0, 7)
+func nodeMenuItems(node *collections.CollectionNode) []widgets.MenuNode {
+	leaf := func(it widgets.MenuItem) widgets.MenuNode { return widgets.MenuNode{Item: it} }
+	if node.IsSeparator {
+		return []widgets.MenuNode{leaf(widgets.MenuItem{Label: "Delete", Click: &node.DelBtn, Icon: widgets.IconDel, Danger: true})}
+	}
+	items := make([]widgets.MenuNode, 0, 10)
 	if node.IsFolder || node.Depth == 0 {
 		items = append(items,
-			widgets.MenuItem{Label: "Add Request", Click: &node.AddReqBtn, Icon: widgets.IconAddReq},
-			widgets.MenuItem{Label: "Add Folder", Click: &node.AddFldBtn, Icon: widgets.IconAddFld},
+			leaf(widgets.MenuItem{Label: "Add Request", Click: &node.AddReqBtn, Icon: widgets.IconAddReq}),
+			leaf(widgets.MenuItem{Label: "Add Folder", Click: &node.AddFldBtn, Icon: widgets.IconAddFld}),
 		)
 	}
 	items = append(items,
-		widgets.MenuItem{Label: "Rename", Click: &node.EditBtn, Icon: widgets.IconRename},
-		widgets.MenuItem{Label: "Duplicate", Click: &node.DupBtn, Icon: widgets.IconDup},
-		widgets.MenuItem{Separator: true},
-		widgets.MenuItem{Label: "Delete", Click: &node.DelBtn, Icon: widgets.IconDel, Danger: true},
+		leaf(widgets.MenuItem{Label: "Rename", Click: &node.EditBtn, Icon: widgets.IconRename}),
+		leaf(widgets.MenuItem{Label: "Duplicate", Click: &node.DupBtn, Icon: widgets.IconDup}),
+	)
+	if node.Depth == 0 {
+		versions := make([]widgets.MenuNode, 0, len(collections.PostmanVersions))
+		for i, v := range collections.PostmanVersions {
+			versions = append(versions, leaf(widgets.MenuItem{Label: v, Click: &node.ExportVerBtn[i], Mono: true}))
+		}
+		items = append(items,
+			widgets.MenuNode{
+				Item: widgets.MenuItem{Label: "Export", Click: &node.ExportBtn, Icon: widgets.IconUpload},
+				Children: []widgets.MenuNode{{
+					Item:     widgets.MenuItem{Label: "Postman", Click: &node.ExportFmtBtn},
+					Children: versions,
+				}},
+			},
+			leaf(widgets.MenuItem{Separator: true}),
+			leaf(widgets.MenuItem{Label: "Add Separator", Click: &node.SepBtn}),
+		)
+	}
+	items = append(items,
+		leaf(widgets.MenuItem{Separator: true}),
+		leaf(widgets.MenuItem{Label: "Delete", Click: &node.DelBtn, Icon: widgets.IconDel, Danger: true}),
 	)
 	return items
 }
@@ -300,7 +323,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	paint.FillShape(gtx.Ops, theme.BgDark, clip.Rect{Max: size}.Op())
 	gtx.Constraints.Min = size
 
-	defer clip.Rect{Max: size}.Push(gtx.Ops).Pop()
+	sideClip := clip.Rect{Max: size}.Push(gtx.Ops)
 	pointer.CursorDefault.Add(gtx.Ops)
 
 	event.Op(gtx.Ops, transfer.TargetFilter{Target: host.SidebarDropTag, Type: "text/plain"})
@@ -360,6 +383,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			*host.ColsMenuOpen = false
 			setAllCollectionsExpanded(host, false)
 		}
+		for host.ColsAddSepBtn.Clicked(gtx) {
+			*host.ColsMenuOpen = false
+			addCollectionSeparator(host, nil)
+		}
 
 		headerDims := layout.Inset{Top: unit.Dp(0), Bottom: unit.Dp(0), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Stack{}.Layout(gtx,
@@ -377,7 +404,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 								pointer.CursorPointer.Add(gtx.Ops)
 								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 									layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
-									layout.Rigid(sectionCount(host.Theme, len(*host.Collections))),
+									layout.Rigid(sectionCount(host.Theme, countCollections(*host.Collections))),
 									layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 										gtx.Constraints.Min.Y = 0
@@ -405,6 +432,8 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 				{Label: "Import", Click: host.ImportBtn, Icon: widgets.IconDownload},
 				{Label: "Expand all", Click: host.ColsExpandAll, Icon: widgets.IconExpandMore},
 				{Label: "Collapse all", Click: host.ColsCollapseAll, Icon: widgets.IconExpandLess},
+				{Separator: true},
+				{Label: "Add separator", Click: host.ColsAddSepBtn},
 			})
 		}
 
@@ -449,6 +478,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 	colsCut := listGutter(gtx, host.Theme, host.ColList)
 	var listMenuY, listMenuH int
 
+	var pendingMenu struct {
+		node   *collections.CollectionNode
+		anchor widgets.MenuAnchor
+	}
 	drawNodeMenu := func(gtx layout.Context, node *collections.CollectionNode, anchorY, rowH int) {
 		if DebugNodeMenu != nil {
 			DebugNodeMenu(node.Name, anchorY, rowH)
@@ -457,19 +490,16 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		if rowH <= 0 {
 			menuOffsetY = anchorY + gtx.Dp(unit.Dp(18))
 		}
-		items := nodeMenuItems(node)
 		anchor := widgets.MenuAnchor{
 			Pt:         image.Pt(gtx.Constraints.Max.X, menuOffsetY),
 			AlignRight: true,
-			Clamp:      image.Pt(gtx.Constraints.Max.X, 0),
 		}
 		if node.CtxMenu.AtPointer {
 			anchor = widgets.MenuAnchor{
-				Pt:    image.Pt(node.CtxMenu.Pos.X, anchorY+node.CtxMenu.Pos.Y),
-				Clamp: image.Pt(gtx.Constraints.Max.X, 0),
+				Pt: image.Pt(node.CtxMenu.Pos.X, anchorY+node.CtxMenu.Pos.Y),
 			}
 		}
-		widgets.DeferMenuAt(gtx, host.Theme, &node.MenuOpen, anchor, widgets.MenuMinWidthDp, items)
+		pendingMenu.node, pendingMenu.anchor = node, anchor
 	}
 
 	openNodeMenu := func(node *collections.CollectionNode, all []*collections.CollectionNode, atPointer bool, pos image.Point) {
@@ -480,6 +510,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			n.MenuOpen = false
 		}
 		node.MenuOpen = true
+		node.SubMenu.Reset()
 		node.CtxMenu.AtPointer = atPointer
 		node.CtxMenu.Pos = pos
 	}
@@ -987,6 +1018,20 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 					updateCols = true
 				}
 
+				for i := range node.ExportVerBtn {
+					for node.ExportVerBtn[i].Clicked(gtx) {
+						exportCollection(host, node.Collection, collections.PostmanVersions[i])
+						node.MenuOpen = false
+					}
+				}
+
+				for node.SepBtn.Clicked(gtx) {
+					commitRename(*host.RenamingNode)
+					node.MenuOpen = false
+					addCollectionSeparator(host, node.Collection)
+					updateCols = true
+				}
+
 				for node.DelBtn.Clicked(gtx) {
 					if *host.RenamingNode != nil {
 						if _, isRemoved := collections.CollectSubtree(node)[*host.RenamingNode]; isRemoved {
@@ -1087,6 +1132,9 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 								if !node.IsFolder && node.Request != nil {
 									leftDp += 8
 								}
+								if node.IsSeparator {
+									leftDp += 8
+								}
 								contentDimInner := layout.Inset{
 									Top: unit.Dp(4), Bottom: unit.Dp(4),
 									Left:  unit.Dp(leftDp),
@@ -1153,6 +1201,13 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 											lbl.Truncator = "…"
 											lbl.LineHeightScale = 1.0
 											return layout.W.Layout(gtx, lbl.Layout)
+										}))
+									} else if node.IsSeparator {
+										children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+											lbl := material.Label(host.Theme, unit.Sp(12), "")
+											lbl.MaxLines = 1
+											lbl.LineHeightScale = 1.0
+											return separatorContent(gtx, lbl)
 										}))
 									}
 									return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx, children...)
@@ -1912,6 +1967,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		for host.EnvsMenuBtn.Clicked(gtx) {
 			*host.EnvsMenuOpen = !*host.EnvsMenuOpen
 		}
+		for host.EnvsAddSepBtn.Clicked(gtx) {
+			*host.EnvsMenuOpen = false
+			addEnvSeparator(host, nil)
+		}
 
 		headerDims := layout.Inset{Top: unit.Dp(0), Bottom: unit.Dp(0), Left: unit.Dp(0), Right: unit.Dp(0)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 			return layout.Stack{}.Layout(gtx,
@@ -1929,7 +1988,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 								pointer.CursorPointer.Add(gtx.Ops)
 								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
 									layout.Rigid(layout.Spacer{Width: unit.Dp(12)}.Layout),
-									layout.Rigid(sectionCount(host.Theme, len(*host.Environments))),
+									layout.Rigid(sectionCount(host.Theme, countEnvironments(*host.Environments))),
 									layout.Rigid(layout.Spacer{Width: unit.Dp(6)}.Layout),
 									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
 										gtx.Constraints.Min.Y = 0
@@ -1955,6 +2014,8 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 			anchor := image.Pt(headerDims.Size.X, headerDims.Size.Y+gtx.Dp(unit.Dp(2)))
 			widgets.DeferMenu(gtx, host.Theme, host.EnvsMenuOpen, anchor, widgets.MenuMinWidthDp, []widgets.MenuItem{
 				{Label: "Import", Click: host.ImportEnvBtn, Icon: widgets.IconDownload},
+				{Separator: true},
+				{Label: "Add separator", Click: host.EnvsAddSepBtn},
 			})
 		}
 
@@ -1994,7 +2055,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		}
 
 		envClickFn := func(env *environments.EnvironmentUI) {
-			if env.IsRenaming {
+			if env.IsRenaming || env.IsSeparator {
 				return
 			}
 			if !env.LastClickAt.IsZero() && gtx.Now.Sub(env.LastClickAt) < 300*time.Millisecond {
@@ -2273,6 +2334,14 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						duplicateEnvironment(host, env)
 						env.MenuOpen = false
 					}
+					for env.ExportBtn.Clicked(gtx) {
+						exportEnvironment(host, env)
+						env.MenuOpen = false
+					}
+					for env.SepBtn.Clicked(gtx) {
+						addEnvSeparator(host, env)
+						env.MenuOpen = false
+					}
 				}
 
 				return layout.Stack{}.Layout(gtx,
@@ -2303,6 +2372,32 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 								rowH = gtx.Dp(unit.Dp(30))
 							}
 							return layout.Dimensions{Size: image.Pt(gtx.Constraints.Min.X, rowH)}
+						}
+						menuBtnRow := layout.Rigid(func(gtx layout.Context) layout.Dimensions {
+							iconCol := theme.FgMuted
+							if env.MenuHovered {
+								iconCol = host.Theme.Fg
+							}
+							return rowIconBtn(gtx, &env.MenuBtn, env.MenuHovered, env.ContentHeightPx, fade, rowIcon(widgets.IconMore, fadeAlpha(iconCol, fade)))
+						})
+						if env.IsSeparator {
+							d := layout.Inset{Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+								return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
+									layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+										cd := layout.Inset{Top: unit.Dp(4), Bottom: unit.Dp(4), Left: unit.Dp(12)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
+											lbl := material.Label(host.Theme, unit.Sp(12), "")
+											lbl.MaxLines = 1
+											return separatorContent(gtx, lbl)
+										})
+										env.ContentHeightPx = cd.Size.Y
+										return cd
+									}),
+									layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
+									menuBtnRow,
+								)
+							})
+							addCtxArea(gtx, &env.CtxMenu, d.Size)
+							return d
 						}
 						d := layout.Inset{Right: unit.Dp(10)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 							return layout.Flex{Axis: layout.Horizontal, Alignment: layout.Middle}.Layout(gtx,
@@ -2354,13 +2449,7 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 									})
 								}),
 								layout.Rigid(layout.Spacer{Width: unit.Dp(4)}.Layout),
-								layout.Rigid(func(gtx layout.Context) layout.Dimensions {
-									iconCol := theme.FgMuted
-									if env.MenuHovered {
-										iconCol = host.Theme.Fg
-									}
-									return rowIconBtn(gtx, &env.MenuBtn, env.MenuHovered, env.ContentHeightPx, fade, rowIcon(widgets.IconMore, fadeAlpha(iconCol, fade)))
-								}),
+								menuBtnRow,
 							)
 						})
 						addCtxArea(gtx, &env.CtxMenu, d.Size)
@@ -2370,7 +2459,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						if !env.MenuOpen {
 							return layout.Dimensions{}
 						}
-						menuHeight := gtx.Dp(unit.Dp(150))
+						menuHeight := gtx.Dp(unit.Dp(210))
+						if env.IsSeparator {
+							menuHeight = gtx.Dp(unit.Dp(40))
+						}
 						menuY := gtx.Dp(unit.Dp(24))
 						windowH := host.WindowSize.Y
 						flip := windowH > 0 && int(env.MenuClickY)+menuHeight > windowH
@@ -2385,13 +2477,20 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 						if env.CtxMenu.AtPointer {
 							anchor = ctxMenuAnchor(gtx, env.CtxMenu.Pos, flip)
 						}
-						widgets.DeferMenuAt(gtx, host.Theme, &env.MenuOpen, anchor, widgets.MenuMinWidthDp, []widgets.MenuItem{
+						items := []widgets.MenuItem{
 							{Label: "Edit", Click: &env.EditBtn, Icon: widgets.IconSettings},
 							{Label: "Rename", Click: &env.RenameBtn, Icon: widgets.IconRename},
 							{Label: "Duplicate", Click: &env.DupBtn, Icon: widgets.IconDup},
+							{Label: "Export", Click: &env.ExportBtn, Icon: widgets.IconUpload},
+							{Separator: true},
+							{Label: "Add Separator", Click: &env.SepBtn},
 							{Separator: true},
 							{Label: "Delete", Click: &env.DelBtn, Icon: widgets.IconDel, Danger: true},
-						})
+						}
+						if env.IsSeparator {
+							items = separatorMenuItems(&env.DelBtn)
+						}
+						widgets.DeferMenuAt(gtx, host.Theme, &env.MenuOpen, anchor, widgets.MenuMinWidthDp, items)
 						return layout.Dimensions{}
 					}),
 				)
@@ -2875,12 +2974,10 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		return layout.Dimensions{Size: image.Pt(gutterW, h)}
 	}
 
-	if host.HideSidebar() {
-		return gutter(gtx)
-	}
-
-	if host.SidebarSection != nil && *host.SidebarSection == "har" {
-		return gutter(gtx)
+	if host.HideSidebar() || (host.SidebarSection != nil && *host.SidebarSection == "har") {
+		d := gutter(gtx)
+		sideClip.Pop()
+		return d
 	}
 
 	if netlimitMode && host.LayoutNetlimitBody != nil {
@@ -2934,6 +3031,17 @@ func Layout(gtx layout.Context, host *Host) layout.Dimensions {
 		pointer.CursorRowResize.Add(gtx.Ops)
 		ca.Pop()
 	}
+	sideClip.Pop()
+	if node := pendingMenu.node; node != nil && node.MenuOpen && !netlimitMode && !mitmMode {
+		anchor := pendingMenu.anchor
+		anchor.Pt = anchor.Pt.Add(image.Pt(gtx.Dp(unit.Dp(36)), prefix(2)))
+		clampX := size.X
+		if host.WindowSize != nil && host.WindowSize.X > clampX {
+			clampX = host.WindowSize.X
+		}
+		anchor.Clamp = image.Pt(clampX, size.Y)
+		widgets.DeferMenuTreeAt(gtx, host.Theme, &node.MenuOpen, anchor, widgets.MenuMinWidthDp, nodeMenuItems(node), &node.SubMenu)
+	}
 	return dims
 }
 
@@ -2956,13 +3064,22 @@ func renderNodeGhost(gtx layout.Context, th *material.Theme, node *collections.C
 	if !node.IsFolder && node.Request != nil {
 		leftDp += 8
 	}
+	if node.IsSeparator {
+		leftDp += 8
+	}
 	return layout.Inset{
 		Top: unit.Dp(4), Bottom: unit.Dp(4),
 		Left:  unit.Dp(leftDp),
 		Right: unit.Dp(4),
 	}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 		children := make([]layout.FlexChild, 0, 3)
-		if node.IsFolder {
+		if node.IsSeparator {
+			children = append(children, layout.Flexed(1, func(gtx layout.Context) layout.Dimensions {
+				lbl := material.Label(th, unit.Sp(12), "")
+				lbl.LineHeightScale = 1.0
+				return separatorContent(gtx, lbl)
+			}))
+		} else if node.IsFolder {
 			children = append(children, layout.Rigid(func(gtx layout.Context) layout.Dimensions {
 				ic := widgets.IconChevronR
 				if node.Expanded {
@@ -3024,6 +3141,9 @@ func renderEnvGhost(gtx layout.Context, th *material.Theme, env *environments.En
 				return layout.Inset{Left: unit.Dp(8)}.Layout(gtx, func(gtx layout.Context) layout.Dimensions {
 					lbl := material.Label(th, unit.Sp(12), env.Data.Name)
 					lbl.MaxLines = 1
+					if env.IsSeparator {
+						return separatorContent(gtx, lbl)
+					}
 					return layout.W.Layout(gtx, lbl.Layout)
 				})
 			}),

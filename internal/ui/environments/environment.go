@@ -35,6 +35,9 @@ type EnvironmentUI struct {
 	RenameBtn       widget.Clickable
 	DupBtn          widget.Clickable
 	DelBtn          widget.Clickable
+	SepBtn          widget.Clickable
+	ExportBtn       widget.Clickable
+	IsSeparator     bool
 	MenuBtn         widget.Clickable
 	MenuOpen        bool
 	MenuClickY      float32

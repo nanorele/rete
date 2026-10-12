@@ -122,7 +122,7 @@ func TestScriptRowRightClickOpensMenu(t *testing.T) {
 }
 
 func TestNodeRightClickOpensMenu(t *testing.T) {
-	host, nodes, cleanup := setupScrollableHost(t)
+	host, _, cleanup := setupScrollableHost(t)
 	defer cleanup()
 	host.ColList.Axis = layout.Vertical
 
@@ -168,7 +168,7 @@ func TestNodeRightClickOpensMenu(t *testing.T) {
 
 	var rowY int
 	for y := 0; y < winH-band && rowY == 0; y++ {
-		for _, n := range nodes {
+		for _, n := range *host.VisibleCols {
 			n.MenuOpen = false
 		}
 		rightClick(40, float32(y))
@@ -477,6 +477,7 @@ func TestCollectionRootMenuOffersDuplicate(t *testing.T) {
 
 	has := func(n *collections.CollectionNode, label string) bool {
 		for _, it := range nodeMenuItems(n) {
+			it := it.Item
 			if it.Label == label {
 				return true
 			}
@@ -490,7 +491,7 @@ func TestCollectionRootMenuOffersDuplicate(t *testing.T) {
 		t.Fatal("request menu lost its Duplicate item")
 	}
 	for _, it := range nodeMenuItems(root) {
-		if it.Label == "Duplicate" && it.Click != &root.DupBtn {
+		if it.Item.Label == "Duplicate" && it.Item.Click != &root.DupBtn {
 			t.Fatal("root Duplicate item is not wired to root.DupBtn")
 		}
 	}

@@ -13148,7 +13148,7 @@ func TestWSHandshakeHeaders(t *testing.T) {
 
 	origin := &HeaderItem{}
 	origin.Key.SetText("Origin")
-	origin.Value.SetText("https://web.max.ru")
+	origin.Value.SetText("https://app.example.com")
 
 	templated := &HeaderItem{}
 	templated.Key.SetText("X-Token")
@@ -13166,8 +13166,8 @@ func TestWSHandshakeHeaders(t *testing.T) {
 
 	h := rt.wsHandshakeHeaders(map[string]string{"tok": "abc"}, http.Header{"User-Agent": {"rete/1"}})
 
-	if got := h.Get("Origin"); got != "https://web.max.ru" {
-		t.Fatalf("Origin = %q, want https://web.max.ru", got)
+	if got := h.Get("Origin"); got != "https://app.example.com" {
+		t.Fatalf("Origin = %q, want https://app.example.com", got)
 	}
 	if got := h.Get("X-Token"); got != "abc" {
 		t.Fatalf("X-Token = %q, want abc (templated)", got)
@@ -14347,7 +14347,7 @@ func TestWSTabLayoutSmoke(t *testing.T) {
 	tab := NewRequestTab("WS")
 	tab.Method = MethodWS
 	tab.URLInput.SetText("wss://api.oneme.ru/websocket")
-	tab.AddHeader("Origin", "https://web.max.ru")
+	tab.AddHeader("Origin", "https://app.example.com")
 
 	s := tab.EnsureWS()
 	s.OptionsExpanded = true

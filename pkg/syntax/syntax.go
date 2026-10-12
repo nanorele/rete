@@ -146,8 +146,10 @@ func Tokenize(lang Lang, src []byte) []Token {
 	switch lang {
 	case LangJSON:
 		return TokenizeJSON(src)
-	case LangXML, LangHTML:
+	case LangXML:
 		return TokenizeXML(src)
+	case LangHTML:
+		return TokenizeHTML(src)
 	case LangYAML:
 		return TokenizeYAML(src)
 	case LangForm:

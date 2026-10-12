@@ -20,6 +20,11 @@ func LoadAll() []*ParsedCollection {
 }
 
 func marshalCollection(col *ParsedCollection) []byte {
+	data, _ := json.MarshalIndent(collectionObject(col), "", "  ")
+	return data
+}
+
+func collectionObject(col *ParsedCollection) map[string]any {
 	info := map[string]any{}
 	for k, v := range col.InfoExtras {
 		info[k] = v
@@ -41,9 +46,7 @@ func marshalCollection(col *ParsedCollection) []byte {
 	}
 	out["info"] = info
 	out["item"] = items
-
-	data, _ := json.MarshalIndent(out, "", "  ")
-	return data
+	return out
 }
 
 func marshalNode(node *CollectionNode) map[string]any {
@@ -69,7 +72,7 @@ func marshalNode(node *CollectionNode) map[string]any {
 }
 
 func Snapshot(col *ParsedCollection) (string, []byte) {
-	if col == nil || col.Root == nil || col.ID == "" {
+	if col == nil || col.Root == nil || col.ID == "" || col.IsSeparator() {
 		return "", nil
 	}
 	return col.ID, marshalCollection(col)

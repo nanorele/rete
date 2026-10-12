@@ -3,6 +3,7 @@ package widgets
 import (
 	"image"
 	"image/color"
+	"rete/internal/faker"
 	"rete/internal/ui/theme"
 	"strings"
 	"time"
@@ -495,7 +496,8 @@ func TextFieldOverlayBg(gtx layout.Context, th *material.Theme, ed *widget.Edito
 				vWidth := MeasureTextWidthCached(gtx, th, textSize, MonoFont, textStr[start:end])
 
 				bgColor := theme.VarMissing
-				if _, ok := env[varName]; ok {
+				dynamic := faker.IsDynamic(varName)
+				if _, ok := env[varName]; ok || dynamic {
 					bgColor = theme.VarFound
 				}
 
@@ -503,12 +505,14 @@ func TextFieldOverlayBg(gtx layout.Context, th *material.Theme, ed *widget.Edito
 				rect := image.Rect(pWidth, yOff-padY, pWidth+vWidth, yOff+lineHeight+padY)
 				paint.FillShape(gtx.Ops, bgColor, clip.UniformRRect(rect, cornerR).Op(gtx.Ops))
 
-				varRects = append(varRects, varRectInfo{
-					name:  varName,
-					rect:  rect,
-					start: start,
-					end:   end,
-				})
+				if !dynamic {
+					varRects = append(varRects, varRectInfo{
+						name:  varName,
+						rect:  rect,
+						start: start,
+						end:   end,
+					})
+				}
 
 				idx = end
 			}
@@ -701,7 +705,8 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 				vWidth := MeasureTextWidthCached(gtx, th, textSize, MonoFont, textStr[start:end])
 
 				bgColor := theme.VarMissing
-				if _, ok := env[varName]; ok {
+				dynamic := faker.IsDynamic(varName)
+				if _, ok := env[varName]; ok || dynamic {
 					bgColor = theme.VarFound
 				}
 
@@ -709,12 +714,14 @@ func TextField(gtx layout.Context, th *material.Theme, ed *widget.Editor, hint s
 				rect := image.Rect(pWidth, yOff-padY, pWidth+vWidth, yOff+lineHeight+padY)
 				paint.FillShape(gtx.Ops, bgColor, clip.UniformRRect(rect, cornerR).Op(gtx.Ops))
 
-				varRects = append(varRects, varRectInfo{
-					name:  varName,
-					rect:  rect,
-					start: start,
-					end:   end,
-				})
+				if !dynamic {
+					varRects = append(varRects, varRectInfo{
+						name:  varName,
+						rect:  rect,
+						start: start,
+						end:   end,
+					})
+				}
 
 				idx = end
 			}

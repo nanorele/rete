@@ -5,6 +5,8 @@ import (
 	"image"
 	"io"
 	"rete/internal/model"
+	"rete/internal/persist"
+	"rete/internal/ui/widgets"
 	"rete/internal/utils"
 	"strconv"
 	"strings"
@@ -15,14 +17,15 @@ import (
 )
 
 type CollectionNode struct {
-	Name       string
-	IsFolder   bool
-	Request    *model.ParsedRequest
-	Children   []*CollectionNode
-	Expanded   bool
-	Depth      int
-	Parent     *CollectionNode
-	Collection *ParsedCollection
+	Name        string
+	IsFolder    bool
+	IsSeparator bool
+	Request     *model.ParsedRequest
+	Children    []*CollectionNode
+	Expanded    bool
+	Depth       int
+	Parent      *CollectionNode
+	Collection  *ParsedCollection
 
 	Extras map[string]json.RawMessage
 
@@ -36,6 +39,11 @@ type CollectionNode struct {
 	EditBtn      widget.Clickable
 	DupBtn       widget.Clickable
 	DelBtn       widget.Clickable
+	SepBtn       widget.Clickable
+	ExportBtn    widget.Clickable
+	ExportFmtBtn widget.Clickable
+	ExportVerBtn [2]widget.Clickable
+	SubMenu      widgets.MenuTreeState
 
 	IsRenaming      bool
 	RenamingFocused bool
@@ -629,7 +637,13 @@ func parseAuth(raw json.RawMessage) (model.ParsedAuth, bool) {
 func authParamValue(raw json.RawMessage, key string) string {
 	var arr []map[string]json.RawMessage
 	if err := json.Unmarshal(raw, &arr); err != nil {
-		return ""
+		var obj map[string]json.RawMessage
+		if json.Unmarshal(raw, &obj) != nil {
+			return ""
+		}
+		var v string
+		_ = json.Unmarshal(obj[key], &v)
+		return utils.SanitizeText(v)
 	}
 	for _, m := range arr {
 		var k string
@@ -725,4 +739,20 @@ func parseBodyInto(raw json.RawMessage, req *model.ParsedRequest) {
 		}
 	}
 	req.BodyType = model.BodyTypeFromMode(modeStr)
+}
+
+func (c *ParsedCollection) IsSeparator() bool {
+	return c != nil && c.Root != nil && c.Root.IsSeparator
+}
+
+func NewSeparator(id string) *CollectionUI {
+	if id == "" {
+		id = persist.NewSeparatorID()
+	}
+	root := &CollectionNode{IsSeparator: true, Depth: 0}
+	root.NameEditor.SingleLine = true
+	root.NameEditor.Submit = true
+	col := &ParsedCollection{ID: id, Root: root}
+	root.Collection = col
+	return &CollectionUI{Data: col}
 }

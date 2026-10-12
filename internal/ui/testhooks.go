@@ -12,6 +12,7 @@ import (
 	"github.com/nanorele/gio/io/event"
 	"github.com/nanorele/gio/layout"
 	"github.com/nanorele/gio/text"
+	"github.com/nanorele/gio/widget"
 )
 
 func (ui *AppUI) LayoutApp(gtx layout.Context) layout.Dimensions {
@@ -72,6 +73,22 @@ func (ui *AppUI) RefreshActiveEnv() {
 
 func (ui *AppUI) CloseTab(idx int) {
 	ui.closeTab(idx)
+}
+
+func (ui *AppUI) RequestCloseTab(idx int) {
+	ui.requestCloseTab(idx)
+}
+
+func (ui *AppUI) RequestCloseTabs(tabs []*workspace.RequestTab) {
+	ui.requestCloseTabs(tabs)
+}
+
+func (ui *AppUI) CloseConfirmOpen() bool {
+	return ui.closeConfirm.Open
+}
+
+func (ui *AppUI) CloseConfirmButtons() (save, discard, cancel *widget.Clickable) {
+	return &ui.closeConfirm.SaveBtn, &ui.closeConfirm.DiscardBtn, &ui.closeConfirm.CancelBtn
 }
 
 func (ui *AppUI) OpenRequestInTab(node *collections.CollectionNode) {

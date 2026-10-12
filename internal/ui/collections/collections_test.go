@@ -1516,8 +1516,13 @@ func TestParseRequestRawApikeyAuthGoesToExtras(t *testing.T) {
 }
 
 func TestAuthParamValueEdgeCases(t *testing.T) {
-	t.Run("not an array", func(t *testing.T) {
-		if got := authParamValue(json.RawMessage(`{"token":"abc"}`), "token"); got != "" {
+	t.Run("v2.0 object form", func(t *testing.T) {
+		if got := authParamValue(json.RawMessage(`{"token":"abc"}`), "token"); got != "abc" {
+			t.Errorf("got %q", got)
+		}
+	})
+	t.Run("not an array or object", func(t *testing.T) {
+		if got := authParamValue(json.RawMessage(`"abc"`), "token"); got != "" {
 			t.Errorf("got %q", got)
 		}
 	})

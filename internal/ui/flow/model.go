@@ -889,9 +889,10 @@ func scenarioFromDTO(dto scenarioDTO) *Scenario {
 }
 
 type ScenarioInfo struct {
-	ID   string
-	Name string
-	mod  int64
+	ID        string
+	Name      string
+	Separator bool
+	mod       int64
 }
 
 const scenarioOrderFile = "order.json"
@@ -937,6 +938,36 @@ func SetScenarioOrder(ids []string) error {
 	return nil
 }
 
+func AddScenarioSeparator(afterID string) (string, error) {
+	order := readScenarioOrder()
+	seen := make(map[string]bool, len(order))
+	for _, id := range order {
+		seen[id] = true
+	}
+	for _, inf := range ListScenarios() {
+		if !seen[inf.ID] {
+			order = append(order, inf.ID)
+			seen[inf.ID] = true
+		}
+	}
+	id := persist.NewSeparatorID()
+	at := len(order)
+	if afterID != "" {
+		for i, o := range order {
+			if o == afterID {
+				at = i + 1
+				break
+			}
+		}
+	}
+	order = append(order[:at:at], append([]string{id}, order[at:]...)...)
+	if err := writeScenarioOrder(order); err != nil {
+		return "", err
+	}
+	changeSeq.Add(1)
+	return id, nil
+}
+
 func dropFromScenarioOrder(id string) {
 	order := readScenarioOrder()
 	if len(order) == 0 {
@@ -980,8 +1011,12 @@ func ListScenarios() []ScenarioInfo {
 	}
 	rank := make(map[string]int)
 	for i, id := range readScenarioOrder() {
-		if _, dup := rank[id]; !dup {
-			rank[id] = i
+		if _, dup := rank[id]; dup {
+			continue
+		}
+		rank[id] = i
+		if persist.IsSeparatorID(id) {
+			out = append(out, ScenarioInfo{ID: id, Separator: true})
 		}
 	}
 	sort.SliceStable(out, func(i, j int) bool {
@@ -1011,6 +1046,11 @@ func LoadScenario(id string) (*Scenario, error) {
 }
 
 func DeleteScenario(id string) error {
+	if persist.IsSeparatorID(id) {
+		dropFromScenarioOrder(id)
+		changeSeq.Add(1)
+		return nil
+	}
 	if err := os.Remove(filepath.Join(persist.FlowsDir(), id+".json")); err != nil {
 		return err
 	}

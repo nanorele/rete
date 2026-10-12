@@ -2,6 +2,7 @@ package sidebar
 
 import (
 	"image"
+	"io"
 
 	"rete/internal/model"
 	"rete/internal/ui/collections"
@@ -78,10 +79,12 @@ type Host struct {
 	ColsMenuBtn     *widget.Clickable
 	ColsExpandAll   *widget.Clickable
 	ColsCollapseAll *widget.Clickable
+	ColsAddSepBtn   *widget.Clickable
 	ColsMenuOpen    *bool
 	ImportEnvBtn    *widget.Clickable
 	AddEnvBtn       *widget.Clickable
 	EnvsMenuBtn     *widget.Clickable
+	EnvsAddSepBtn   *widget.Clickable
 	EnvsMenuOpen    *bool
 	SidebarDropTag  *bool
 
@@ -93,6 +96,7 @@ type Host struct {
 	ScriptsMenuBtn     *widget.Clickable
 	ScriptsMenuOpen    *bool
 	ImportScriptBtn    *widget.Clickable
+	ScriptsAddSepBtn   *widget.Clickable
 	ScriptRowH         *int
 	ScriptsHeight      *int
 	ScriptsDrag        *gesture.Drag
@@ -120,6 +124,7 @@ type Host struct {
 	DeleteScript    func(id string)
 	ImportScript    func(data []byte)
 	ReorderScripts  func(ids []string)
+	AddScriptSep    func(afterID string)
 
 	EnvColorPicker *colorpicker.State
 	EnvColorEnvID  *string
@@ -127,6 +132,7 @@ type Host struct {
 	ActiveEnvDirty *bool
 
 	ChooseJSONFile func() ([]byte, error)
+	CreateFile     func(name string) (io.WriteCloser, error)
 
 	SaveState             func()
 	PushColLoaded         func(*collections.CollectionUI)
@@ -183,6 +189,15 @@ func (h *Host) ensureScripts() {
 	}
 	if h.ImportScriptBtn == nil {
 		h.ImportScriptBtn = &widget.Clickable{}
+	}
+	if h.ScriptsAddSepBtn == nil {
+		h.ScriptsAddSepBtn = &widget.Clickable{}
+	}
+	if h.ColsAddSepBtn == nil {
+		h.ColsAddSepBtn = &widget.Clickable{}
+	}
+	if h.EnvsAddSepBtn == nil {
+		h.EnvsAddSepBtn = &widget.Clickable{}
 	}
 	if h.ScriptRowH == nil {
 		h.ScriptRowH = new(int)

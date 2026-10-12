@@ -153,6 +153,13 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 			_ = flow.SetScenarioOrder(ids)
 			ui.Window.Invalidate()
 		},
+		AddScriptSep: func(afterID string) {
+			if _, err := flow.AddScenarioSeparator(afterID); err == nil {
+				ui.ScriptsExpanded = true
+				ui.saveState()
+				ui.Window.Invalidate()
+			}
+		},
 
 		EnvColorPicker: &ui.EnvColorPicker,
 		EnvColorEnvID:  &ui.EnvColorEnvID,
@@ -166,6 +173,12 @@ func (ui *AppUI) sidebarHost() *sidebar.Host {
 			}
 			defer func() { _ = file.Close() }()
 			return io.ReadAll(file)
+		},
+		CreateFile: func(name string) (io.WriteCloser, error) {
+			if ui.Explorer == nil {
+				return nil, nil
+			}
+			return ui.Explorer.CreateFile(name)
 		},
 
 		SaveState:           ui.saveState,
@@ -225,9 +238,10 @@ func (ui *AppUI) refreshScriptRows() {
 			if !r.IsRenaming {
 				r.Name = name
 			}
+			r.IsSeparator = inf.Separator
 			rows = append(rows, r)
 		} else {
-			rows = append(rows, &sidebar.ScriptRow{ID: inf.ID, Name: name})
+			rows = append(rows, &sidebar.ScriptRow{ID: inf.ID, Name: name, IsSeparator: inf.Separator})
 		}
 	}
 	ui.ScriptRows = rows

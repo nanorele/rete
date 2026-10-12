@@ -207,6 +207,8 @@ type AppUI struct {
 
 	VarPopup varpopup.State
 
+	closeConfirm closeConfirm
+
 	PopupCloseTag struct{}
 
 	activeEnvVars           map[string]string
@@ -814,6 +816,11 @@ func (ui *AppUI) loadState() {
 	}
 	addedCols := make(map[string]bool, len(loadedCols))
 	for _, id := range state.CollectionIDsOrder {
+		if persist.IsSeparatorID(id) && !addedCols[id] {
+			ui.Collections = append(ui.Collections, collections.NewSeparator(id))
+			addedCols[id] = true
+			continue
+		}
 		if c, ok := colByID[id]; ok && !addedCols[id] {
 			ui.Collections = append(ui.Collections, &collections.CollectionUI{Data: c})
 			addedCols[id] = true
@@ -834,6 +841,14 @@ func (ui *AppUI) loadState() {
 	}
 	added := make(map[string]bool, len(loadedEnvs))
 	for _, id := range state.EnvIDsOrder {
+		if persist.IsSeparatorID(id) && !added[id] {
+			ui.Environments = append(ui.Environments, &environments.EnvironmentUI{
+				Data:        &model.ParsedEnvironment{ID: id},
+				IsSeparator: true,
+			})
+			added[id] = true
+			continue
+		}
 		if e, ok := envByID[id]; ok && !added[id] {
 			ui.Environments = append(ui.Environments, &environments.EnvironmentUI{Data: e})
 			added[id] = true
@@ -934,7 +949,7 @@ func (ui *AppUI) buildStateSnapshot() persist.AppState {
 			continue
 		}
 		state.CollectionIDsOrder = append(state.CollectionIDsOrder, c.Data.ID)
-		if c.Data.Root == nil {
+		if c.Data.Root == nil || c.Data.IsSeparator() {
 			continue
 		}
 		var paths [][]int
@@ -1478,6 +1493,7 @@ func (ui *AppUI) layoutApp(gtx layout.Context) layout.Dimensions {
 
 	ui.rebuildDropZones(gtx)
 	ui.layoutDropOverlay(gtx)
+	ui.layoutCloseConfirm(gtx)
 
 	return dim
 }
@@ -1651,8 +1667,8 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 					}
 				}
 			case "W":
-				if len(ui.Tabs) > 0 {
-					ui.closeTab(ui.ActiveIdx)
+				if len(ui.Tabs) > 0 && !ui.closeConfirm.Open {
+					ui.requestCloseTab(ui.ActiveIdx)
 				}
 			case "F":
 				ui.findShortcut(gtx)
@@ -1704,7 +1720,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 	for i := len(ui.Tabs) - 1; i >= 0; i-- {
 		for ui.Tabs[i].CloseBtn.Clicked(gtx) {
 			ui.TabBar.TabCtxMenuOpen = false
-			ui.closeTab(i)
+			ui.requestCloseTab(i)
 			break
 		}
 	}
@@ -1713,7 +1729,7 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 		idx := ui.TabBar.MidCloseIdx
 		ui.TabBar.MidCloseIdx = -1
 		ui.TabBar.TabCtxMenuOpen = false
-		ui.closeTab(idx)
+		ui.requestCloseTab(idx)
 	}
 
 	for ui.TabCtxToFlow.Clicked(gtx) {
@@ -1723,27 +1739,26 @@ func (ui *AppUI) layoutContent(gtx layout.Context) layout.Dimensions {
 		ui.TabBar.TabCtxMenuOpen = false
 	}
 	for ui.TabCtxClose.Clicked(gtx) {
-		ui.closeTab(ui.TabBar.TabCtxMenuIdx)
 		ui.TabBar.TabCtxMenuOpen = false
+		ui.requestCloseTab(ui.TabBar.TabCtxMenuIdx)
 	}
 	for ui.TabCtxCloseOthers.Clicked(gtx) {
 		keep := ui.TabBar.TabCtxMenuIdx
-		for i := len(ui.Tabs) - 1; i >= 0; i-- {
+		ui.TabBar.TabCtxMenuOpen = false
+		others := make([]*workspace.RequestTab, 0, len(ui.Tabs))
+		for i, t := range ui.Tabs {
 			if i != keep {
-				ui.closeTab(i)
-				if i < keep {
-					keep--
-				}
+				others = append(others, t)
 			}
 		}
-		ui.ActiveIdx = 0
-		ui.TabBar.TabCtxMenuOpen = false
+		if keep >= 0 && keep < len(ui.Tabs) {
+			ui.ActiveIdx = keep
+		}
+		ui.requestCloseTabs(others)
 	}
 	for ui.TabCtxCloseAll.Clicked(gtx) {
-		for i := len(ui.Tabs) - 1; i >= 0; i-- {
-			ui.closeTab(i)
-		}
 		ui.TabBar.TabCtxMenuOpen = false
+		ui.requestCloseTabs(append([]*workspace.RequestTab(nil), ui.Tabs...))
 	}
 
 	if len(ui.Tabs) == 0 {

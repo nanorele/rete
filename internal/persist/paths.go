@@ -6,6 +6,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -205,4 +206,32 @@ func NewRandomID() string {
 		panic("persist: random id: " + err.Error())
 	}
 	return hex.EncodeToString(b)
+}
+
+const SeparatorIDPrefix = "sep_"
+
+func NewSeparatorID() string {
+	return SeparatorIDPrefix + NewRandomID()
+}
+
+func IsSeparatorID(id string) bool {
+	return strings.HasPrefix(id, SeparatorIDPrefix)
+}
+
+func SafeFileName(name, fallback string) string {
+	var b strings.Builder
+	for _, r := range strings.TrimSpace(name) {
+		switch r {
+		case '/', '\\', ':', '*', '?', '"', '<', '>', '|':
+			b.WriteByte('_')
+		default:
+			if r >= 0x20 {
+				b.WriteRune(r)
+			}
+		}
+	}
+	if out := strings.TrimSpace(b.String()); out != "" {
+		return out
+	}
+	return fallback
 }

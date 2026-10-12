@@ -1432,3 +1432,120 @@ func TestTokenizeForm_Basic(t *testing.T) {
 		}
 	}
 }
+
+func kindAt(src []byte, toks []Token, needle string) (TokenKind, bool) {
+	off := strings.Index(string(src), needle)
+	if off < 0 {
+		return 0, false
+	}
+	for _, tk := range toks {
+		if int(tk.Start) <= off && int(tk.End()) >= off+len(needle) {
+			return tk.Kind, true
+		}
+	}
+	return 0, false
+}
+
+func TestTokenizeHTML_ScriptIsJS(t *testing.T) {
+	src := []byte("<html><head><script>\nfor (; i < length; i++) { x = 'a<b'; }\n</script></head><body><p>t</p></body></html>")
+	toks := TokenizeHTML(src)
+	validateTokens(t, src, toks)
+	if k, ok := kindAt(src, toks, "for"); !ok || k != TokKeyword {
+		t.Errorf("for: kind=%v ok=%v, want keyword", k, ok)
+	}
+	if k, ok := kindAt(src, toks, "'a<b'"); !ok || k != TokString {
+		t.Errorf("js string: kind=%v ok=%v, want string", k, ok)
+	}
+	if k, ok := kindAt(src, toks, "length"); !ok || k != TokPlain {
+		t.Errorf("length: kind=%v ok=%v, want plain (not a tag)", k, ok)
+	}
+	if k, ok := kindAt(src, toks, "body"); !ok || k != TokKeyword {
+		t.Errorf("body tag after script: kind=%v ok=%v", k, ok)
+	}
+	xml := TokenizeXML(src)
+	if k, ok := kindAt(src, xml, "length"); !ok || k != TokKey {
+		t.Errorf("xml mode must keep treating '< length' as a tag, got kind=%v ok=%v", k, ok)
+	}
+}
+
+func TestTokenizeHTML_ScriptTypes(t *testing.T) {
+	cases := []struct {
+		attr string
+		want TokenKind
+	}{
+		{``, TokKeyword},
+		{` type="text/javascript"`, TokKeyword},
+		{` type=module`, TokKeyword},
+		{` TYPE="application/ld+json"`, TokKey},
+		{` type="text/template"`, 0},
+	}
+	for _, c := range cases {
+		src := []byte(`<script` + c.attr + `>{"if": 1}</script>`)
+		toks := TokenizeHTML(src)
+		validateTokens(t, src, toks)
+		k, ok := kindAt(src, toks, `"if"`)
+		if c.want == 0 {
+			if ok {
+				t.Errorf("%q: expected plain script body, got %v", c.attr, k)
+			}
+			continue
+		}
+		if c.want == TokKey && (!ok || k != TokKey) {
+			t.Errorf("%q: kind=%v ok=%v, want JSON key", c.attr, k, ok)
+		}
+		if c.want == TokKeyword {
+			if kk, ok := kindAt(src, toks, "if"); !ok || kk != TokString {
+				t.Errorf("%q: want JS string token for \"if\", got kind=%v ok=%v", c.attr, kk, ok)
+			}
+		}
+	}
+}
+
+func TestTokenizeHTML_StyleAndCaseInsensitiveClose(t *testing.T) {
+	src := []byte("<STYLE>a > b { color: red }</Style><SCRIPT>x = 1 < 2</script ><div></div>")
+	toks := TokenizeHTML(src)
+	validateTokens(t, src, toks)
+	if k, ok := kindAt(src, toks, "color"); ok {
+		t.Errorf("style body must stay plain, got %v", k)
+	}
+	if k, ok := kindAt(src, toks, "div"); !ok || k != TokKeyword {
+		t.Errorf("div after raw text: kind=%v ok=%v", k, ok)
+	}
+	for _, tk := range toks {
+		if tk.Kind == TokBracket && tk.Depth > 1 {
+			t.Errorf("depth leaked past raw-text elements: %+v", tk)
+		}
+	}
+}
+
+func TestTokenizeHTML_VoidElementsKeepDepth(t *testing.T) {
+	src := []byte(`<html><head><meta charset="x"><link rel="a"><br><IMG src=1></head><body><input>t</body></html>`)
+	toks := TokenizeHTML(src)
+	validateTokens(t, src, toks)
+	off := strings.Index(string(src), "</html>")
+	for _, tk := range toks {
+		if int(tk.Start) == off && tk.Depth != 0 {
+			t.Errorf("</html> depth=%d, want 0", tk.Depth)
+		}
+	}
+	xml := TokenizeXML(src)
+	var maxXML uint8
+	for _, tk := range xml {
+		if tk.Depth > maxXML {
+			maxXML = tk.Depth
+		}
+	}
+	if maxXML < 5 {
+		t.Errorf("xml mode should still count void tags as open, max depth %d", maxXML)
+	}
+}
+
+func TestTokenizeHTML_UnterminatedRawText(t *testing.T) {
+	for _, s := range []string{"<script>var a = 1", "<script>", "<style>x{", "<script></scrip", "<textarea>a<b", "<title>a < b"} {
+		src := []byte(s)
+		runNoHang(t, s, func() {
+			toks := TokenizeHTML(src)
+			validateTokens(t, src, toks)
+		})
+	}
+}

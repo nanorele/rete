@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"rete/internal/faker"
 	"rete/internal/model"
 	"rete/internal/persist"
 	"rete/internal/ui/collections"
@@ -1073,7 +1074,7 @@ func collectPlaceholders(s string, out map[string]bool) {
 			return
 		}
 		name := strings.TrimSpace(s[start+2 : end-2])
-		if name != "" {
+		if name != "" && !faker.IsDynamic(name) {
 			out[name] = true
 		}
 		i = end

@@ -16,6 +16,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"rete/internal/faker"
 	"rete/internal/model"
 	"rete/internal/ui/binview"
 	"rete/internal/ui/collections"
@@ -44,6 +45,8 @@ import (
 )
 
 var methods = []string{"GET", "POST", "PUT", "DELETE", "HEAD", "PATCH", "OPTIONS", "QUERY"}
+
+const methodMinWidthRef = "POST"
 
 var protocols = []string{"HTTP", "WS", "GraphQL"}
 
@@ -925,7 +928,7 @@ func (t *RequestTab) SaveToCollection() *collections.ParsedCollection {
 }
 
 func processTemplate(input string, env map[string]string) string {
-	if env == nil || !strings.Contains(input, "{{") {
+	if !strings.Contains(input, "{{") {
 		return input
 	}
 	var b strings.Builder
@@ -939,6 +942,8 @@ func processTemplate(input string, env map[string]string) string {
 		b.WriteString(input[i:start])
 		k := strings.TrimSpace(input[start+2 : end-2])
 		if v, ok := env[k]; ok {
+			b.WriteString(v)
+		} else if v, ok := faker.Lookup(k); ok {
 			b.WriteString(v)
 		} else {
 			b.WriteString(input[start:end])
@@ -2268,6 +2273,10 @@ func (t *RequestTab) Layout(gtx layout.Context, th *material.Theme, win *app.Win
 									btn.TextSize = unit.Sp(12)
 									btn.CornerRadius = unit.Dp(0)
 									btn.Inset = layout.Inset{Top: unit.Dp(6), Bottom: unit.Dp(7), Left: unit.Dp(8), Right: unit.Dp(8)}
+									minW := widgets.MeasureTextWidthCached(gtx, th, btn.TextSize, widgets.MonoFont, methodMinWidthRef) + gtx.Dp(unit.Dp(16))
+									if gtx.Constraints.Min.X < minW {
+										gtx.Constraints.Min.X = minW
+									}
 									return btn.Layout(gtx)
 								})
 							}),

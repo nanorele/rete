@@ -6,6 +6,7 @@ import (
 	"image/color"
 	"io"
 	"os"
+	"rete/internal/faker"
 	"rete/internal/ui/settings"
 	"rete/internal/ui/theme"
 	"rete/internal/ui/widgets"
@@ -1541,7 +1542,7 @@ func (v *RequestEditor) paintVarHighlights(
 		}
 		name := strings.TrimSpace(string(chunkText[s+2 : e-2]))
 		bgColor := theme.VarMissing
-		if _, ok := env[name]; ok && len(env) > 0 {
+		if _, ok := env[name]; (ok && len(env) > 0) || faker.IsDynamic(name) {
 			bgColor = theme.VarFound
 		}
 
@@ -1578,6 +1579,10 @@ func (v *RequestEditor) paintVarHighlights(
 			}
 		}
 
+		if faker.IsDynamic(name) {
+			idx = e
+			continue
+		}
 		chipStart := chunkStart + s
 		chipEnd := chunkStart + e
 		tag := requestVarClickTag{ed: v, start: chipStart}
